@@ -57,6 +57,29 @@ class RunReportTest {
         assertFalse(json.toString().contains("Stranger"))
     }
 
+    /** A player who is dead when the headline prints must not reach the record as class "DEAD". */
+    @Test
+    fun `a player dead at the end still reports their class`() {
+        val json = RunReport.build(
+            ts = 1786530882102,
+            uuid = "0f5e4a1c-1111-2222-3333-444455556666",
+            player = "Sighte",
+            floor = "M5",
+            runTicks = 8000,
+            roster = listOf(
+                DungeonPlayer("Sighte", "Berserk", "VII"),
+                DungeonPlayer("Stranger", "DEAD", "", livingClass = "Mage", livingLevel = "L"),
+            ),
+            rooms = listOf(room("Catwalk", mapOf("Sighte" to 300))),
+            roomsCleared = 7,
+            unattributed = 0.0,
+            deaths = 2,
+            modVersion = "0.3.0",
+            mcVersion = "26.1.2",
+        )
+        assertEquals(listOf("Berserk VII", "Mage L"), json["classes"].asJsonArray.map { it.asString })
+    }
+
     @Test
     fun `room carries party effort, not just own time`() {
         val room = report()["rooms"].asJsonArray[0].asJsonObject

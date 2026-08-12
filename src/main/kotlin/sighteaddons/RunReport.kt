@@ -93,13 +93,16 @@ object RunReport {
         obj.addProperty("modVersion", modVersion)
         obj.addProperty("mcVersion", mcVersion)
 
+        // The living class, not the current one: a player who is dead when the headline prints reads
+        // `(DEAD)` in tab, and writing that here would erase the class level of exactly the player
+        // whose death shaped the run — permanently, since this file is never revisited.
         val own = roster.firstOrNull { it.name == player }
-        obj.addProperty("class", own?.dungeonClass)
-        obj.addProperty("classLevel", own?.level)
+        obj.addProperty("class", own?.livingClass)
+        obj.addProperty("classLevel", own?.livingLevel)
         // Classes without names: the party composition changes what a room costs, the four
         // strangers it consists of are nobody's business.
         val classes = JsonArray()
-        roster.forEach { classes.add("${it.dungeonClass} ${it.level}".trim()) }
+        roster.forEach { classes.add("${it.livingClass} ${it.livingLevel}".trim()) }
         obj.add("classes", classes)
 
         val list = JsonArray()
