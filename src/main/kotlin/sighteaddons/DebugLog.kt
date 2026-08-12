@@ -23,9 +23,13 @@ object DebugLog {
     /**
      * ponytail: on by default in 0.1.x. The only purpose of this version is producing a diagnostic
      * log, and nobody but the author runs the mod. Gate it behind the development environment again
-     * once that changes. `-Dsighteaddons.debug=false` silences it if a run ever needs that.
+     * once that changes.
+     *
+     * The `/sa` DEBUG tab is the single source of truth; `-Dsighteaddons.debug=false` only seeds
+     * [Config.debugLog] for the first launch, before a config file exists. Read per event rather than
+     * cached, so toggling it takes effect without a restart.
      */
-    val enabled: Boolean = System.getProperty("sighteaddons.debug") != "false"
+    val enabled get() = Config.debugLog
 
     private var writer: BufferedWriter? = null
     private var events = 0

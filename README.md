@@ -23,7 +23,9 @@ Minecraft **26.1.2**, Fabric, client only.
 | Secrets | `SecretTracker.kt` | per-room secret count, and which of them were provably yours |
 | History | `RoomHistory.kt` | append-only permanent room times, chat announcements, run summary |
 | Telemetry | `DebugLog.kt` | JSONL event log for diagnosing a real run |
-| HUD | `SighteAddons.kt` | live overlay, run-end hook |
+| Settings | `SettingsScreen.kt` | the `/sa` screen: settings tabs and the personal-record table |
+| Config | `Config.kt` | the settings that screen writes, as one JSON object |
+| HUD | `SighteAddons.kt` | live overlay, `/sa` command, run-end hook |
 
 ## Live HUD
 
@@ -40,6 +42,45 @@ Water Board  0:41.2
 missing, green means cleared *and* all secrets found. A room usually gets a clear timestamp first
 and a secrets timestamp later — or never, if the party leaves secrets behind. Both are run-relative;
 the number next to the room name is how long *you* have been in it.
+
+## Settings — `/sa`
+
+`/sa` opens the settings screen, `/sa pbs` jumps straight to the records table. Four tabs, one row
+grid, click a row to toggle it — every change is written to `config/sighteaddons/config.json`
+immediately, so there is no save button that could be forgotten.
+
+```
+  SIGHTE ADDONS                                            0.3.0
+  ────────────────────────────────────────────────────────────────
+  HUD    CHAT    RECORDS    DEBUG
+  ────────────────────────────────────────────────────────────────
+  HUD anzeigen                                                 an
+  Position                                        4, 4 · setzen
+  aktueller Raum                                               an
+  Standings                                                   aus
+```
+
+`Position · setzen` switches to placement mode: the HUD is drawn at the cursor, the next left click
+places it, right click cancels. The screen is drawn from filled rectangles and font calls only — no
+textures, no widget library, and no config-screen dependency, which is why the mod still ships with
+nothing but Fabric API and fabric-language-kotlin.
+
+**RECORDS** is the history read back: one row per room, the clear and all-secrets record side by
+side, how many runs the room was completed in, and how long ago that last happened. Clicking `Raum`,
+`clear` or `runs` sorts by that column; the list scrolls.
+
+```
+  RECORDS                                    128 zeilen · 43 räume
+  ────────────────────────────────────────────────────────────────
+  Raum                       clear     secrets    runs     zuletzt
+  Water Board               0:41.2      1:12.0       7       heute
+  Catwalk                   0:03.6      3:15.2      12      vor 2d
+  Trap                      0:08.9      --:--.-       3      vor 9d
+```
+
+Records are derived from `history.jsonl` at startup, not stored — floors are collapsed on purpose,
+because the metric is time spent in the room and stays comparable across floors. The chat settings
+hide announcements only: history is always written, so silencing chat never costs a record.
 
 ## Chat
 
@@ -186,7 +227,8 @@ no `mappings` line in `build.gradle` on purpose. Class names are Mojmap: `MapIte
   needed to weight rooms, and `DungeonSession.floorNumber` is available for floor multipliers.
 - **Chat events.** Secret clicks, wither doors, puzzle solvers, deaths/ghosts. Currently a dead
   player is only detected via the tab list.
-- **Config.** HUD position is fixed at (4, 4); no YACL screen.
+- **Per-floor records.** `/sa` collapses floors into one record per room and kind. The history lines
+  carry `floor`, so a filter is available whenever a room turns out to differ per floor.
 - **Party sync.** Would remove the decoration-order heuristic (see the `ponytail:` comment in
   `PartyTracker.kt`) and add per-player secret attribution. Room names no longer need it — chunk
   streaming covers most of the map.
@@ -202,7 +244,9 @@ no `mappings` line in `build.gradle` on purpose. Class names are Mojmap: `MapIte
   `RoomDatabase.coreAt` must then be re-verified against the data source.
 - **Unverified in-game.** The build compiles and the grid, timing and tab-parsing logic are unit
   tested, but calibration, decoration mapping, checkmark reading and core hashing have never run
-  against real Hypixel data. That is what the telemetry log is for.
+  against real Hypixel data. That is what the telemetry log is for. The `/sa` screen has the same
+  status one step down: its API use is pinned by the compiler and its record fold is unit tested, but
+  no pixel of it has ever been on screen, so spacing and hit boxes are unverified.
 
 ## Credits
 

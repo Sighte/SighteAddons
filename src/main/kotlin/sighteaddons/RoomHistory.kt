@@ -29,13 +29,28 @@ import java.util.Locale
 object RoomHistory {
     private val FILE = FabricLoader.getInstance().configDir.resolve("sighteaddons/history.jsonl")
 
-    /** "<room>|<kind>" -> fewest ticks ever recorded. Derived from [FILE] at startup. */
-    private val best = HashMap<String, Int>()
+    /** "<room>|<kind>" -> the record and how it was reached. Derived from [FILE] at startup. */
+    private val best = HashMap<String, Record>()
     private val newThisRun = mutableListOf<String>()
 
     private var writer: BufferedWriter? = null
     private var loaded = false
     private var entries = 0
+
+    /**
+     * One room's record: the fewest ticks ever recorded, how many times it was completed at all, and
+     * when that last happened. Runs and timestamp are what the `/sa` records table shows next to the
+     * time — a record without them says nothing about whether it is one lucky run or a routine.
+     */
+    data class Record(val ticks: Int, val runs: Int, val lastTs: Long) {
+        fun plus(ticks: Int, ts: Long) = Record(minOf(this.ticks, ticks), runs + 1, maxOf(lastTs, ts))
+    }
+
+    /** [fold]'s result. Malformed lines are counted rather than dropped silently. */
+    internal class Records(val byKey: Map<String, Record>, val malformed: Int) {
+        /** Every valid line raises exactly one key's run count, so the total needs no own counter. */
+        val entries get() = byKey.values.sumOf { it.runs }
+    }
 
     fun startRun() {
         ensureLoaded()
@@ -43,6 +58,18 @@ object RoomHistory {
     }
 
     fun newBestsThisRun(): List<String> = newThisRun
+
+    /** For the `/sa` records table. Keyed "<room>|<kind>", floors collapsed. */
+    fun records(): Map<String, Record> {
+        ensureLoaded()
+        return best
+    }
+
+    /** Lines in the history file, i.e. completed rooms — not records. */
+    fun entryCount(): Int {
+        ensureLoaded()
+        return entries
+    }
 
     /**
      * Called once when a room turns cleared, and once more when all its secrets are found.
@@ -54,6 +81,12 @@ object RoomHistory {
         val eligible = room.ticks.filterValues { it >= ContributionTracker.MIN_TICKS }
         val (topPlayer, topTicks) = eligible.maxByOrNull { it.value } ?: return
 
+        // Appended first and unconditionally: the chat settings below hide the message, never the
+        // record. A silenced chat that also stopped writing history would lose runs for good.
+        val pb = recordOwn(room, secrets)
+        if (!Config.roomMessages) return
+        if (Config.ownPbsOnly && pb == null) return
+
         val verb = if (secrets) "secreted" else "cleared"
         val line = Component.literal(topPlayer).withStyle(ChatFormatting.WHITE)
             .append(Component.literal(" $verb ").withStyle(ChatFormatting.GRAY))
@@ -64,7 +97,7 @@ object RoomHistory {
         if (eligible.size > 1) {
             line.append(Component.literal(" (+${eligible.size - 1})").withStyle(ChatFormatting.DARK_GRAY))
         }
-        recordOwn(room, secrets)?.let { line.append(it) }
+        pb?.let { line.append(it) }
         announce(line)
     }
 
@@ -78,11 +111,13 @@ object RoomHistory {
 
         val kind = if (secrets) "secrets" else "clear"
         val key = "$roomName|$kind"
-        val previous = best[key]
+        val previous = best[key]?.ticks
         val improved = previous == null || ticks < previous
+        val ts = System.currentTimeMillis()
 
-        append(room, roomName, kind, ticks, improved)
-        if (improved) best[key] = ticks
+        append(room, roomName, kind, ticks, improved, ts)
+        // plus() keeps the minimum, so one path covers both a new record and an ordinary run.
+        best[key] = best[key]?.plus(ticks, ts) ?: Record(ticks, 1, ts)
         if (!improved) return null
 
         newThisRun.add("$roomName $kind ${DungeonGrid.formatTicks(ticks)}")
@@ -93,6 +128,7 @@ object RoomHistory {
 
     /** Chat breakdown at the end of a run. */
     fun printSummary() {
+        if (!Config.runSummary) return
         val points = ContributionTracker.pointsByPlayer()
         announce(
             Component.literal("Sighte ").withStyle(ChatFormatting.GOLD)
@@ -135,9 +171,9 @@ object RoomHistory {
         )
     }
 
-    private fun append(room: TrackedRoom, roomName: String, kind: String, ticks: Int, pb: Boolean) {
+    private fun append(room: TrackedRoom, roomName: String, kind: String, ticks: Int, pb: Boolean, ts: Long) {
         val obj = JsonObject()
-        obj.addProperty("ts", System.currentTimeMillis())
+        obj.addProperty("ts", ts)
         obj.addProperty("floor", DungeonSession.floor ?: "?")
         obj.addProperty("room", roomName)
         obj.addProperty("kind", kind)
@@ -172,29 +208,38 @@ object RoomHistory {
         }
     }
 
+    /**
+     * The file is the source of truth; a record is just its minimum per room and kind. Kept pure and
+     * separate from the file handling so it can be tested without a game directory.
+     */
+    internal fun fold(lines: Sequence<String>): Records {
+        val out = HashMap<String, Record>()
+        var malformed = 0
+        for (line in lines) {
+            if (line.isBlank()) continue
+            try {
+                val obj = JsonParser.parseString(line).asJsonObject
+                val key = "${obj["room"].asString}|${obj["kind"].asString}"
+                val ticks = obj["ticks"].asInt
+                val ts = obj["ts"].asLong
+                out[key] = out[key]?.plus(ticks, ts) ?: Record(ticks, 1, ts)
+            } catch (_: Exception) {
+                malformed++
+            }
+        }
+        return Records(out, malformed)
+    }
+
     private fun ensureLoaded() {
         if (loaded) return
         loaded = true
         if (!Files.exists(FILE)) return
-        var malformed = 0
         try {
-            Files.newBufferedReader(FILE).useLines { lines ->
-                for (line in lines) {
-                    if (line.isBlank()) continue
-                    try {
-                        val obj = JsonParser.parseString(line).asJsonObject
-                        val key = "${obj["room"].asString}|${obj["kind"].asString}"
-                        val ticks = obj["ticks"].asInt
-                        entries++
-                        // The file is the source of truth; the record is just its minimum.
-                        if (best[key]?.let { ticks < it } != false) best[key] = ticks
-                    } catch (_: Exception) {
-                        malformed++
-                    }
-                }
-            }
+            val records = Files.newBufferedReader(FILE).useLines { fold(it) }
+            best.putAll(records.byKey)
+            entries = records.entries
             SighteAddons.LOGGER.info("Room history: {} entries, {} records{}", entries, best.size,
-                if (malformed > 0) " ($malformed unreadable lines skipped)" else "")
+                if (records.malformed > 0) " (${records.malformed} unreadable lines skipped)" else "")
         } catch (e: Exception) {
             // Never let a broken history cost the run. Nothing is truncated — we only append.
             SighteAddons.LOGGER.error("Could not read room history {}", FILE, e)
