@@ -89,11 +89,13 @@ object PartyTracker {
             // player from attribution, so it has to be visible in the log.
             if (DebugLog.enabled && parsed != previous) {
                 // The raw row is logged too: if the regex ever stops matching Hypixel's format,
-                // this is the only place that shows what it actually received.
+                // this is the only place that shows what it actually received. Only the name in it
+                // is replaced — see [Pseudonym.row] for what happens when it does not parse.
                 DebugLog.event(
                     "tab_slot",
-                    "slot" to i, "row" to rows.getOrNull(1 + i * 4),
-                    "parsed" to parsed?.name, "class" to parsed?.dungeonClass, "alive" to parsed?.alive,
+                    "slot" to i, "row" to Pseudonym.row(rows.getOrNull(1 + i * 4)),
+                    "parsed" to parsed?.name?.let(Pseudonym::of),
+                    "class" to parsed?.dungeonClass, "alive" to parsed?.alive,
                 )
             }
             players[i] = parsed
@@ -103,7 +105,7 @@ object PartyTracker {
         val slot = players.indexOfFirst { it != null && it.name == self }
         if (slot >= 0 && slot != localSlot) {
             localSlot = slot
-            DebugLog.event("local_slot", "slot" to slot, "player" to self)
+            DebugLog.event("local_slot", "slot" to slot, "player" to self?.let(Pseudonym::of))
         }
     }
 
@@ -179,7 +181,7 @@ object PartyTracker {
             if (DebugLog.enabled && lastAssignment.put(player.name, cell) != cell) {
                 DebugLog.event(
                     "player_room",
-                    "player" to player.name, "cell" to cell,
+                    "player" to Pseudonym.of(player.name), "cell" to cell,
                     "worldX" to x, "worldZ" to z,
                     "decoIndex" to index, "decoType" to decoration.type().value(),
                     "decoX" to decoration.x(), "decoY" to decoration.y(),

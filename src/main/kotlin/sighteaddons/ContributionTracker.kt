@@ -184,7 +184,7 @@ object ContributionTracker {
         deaths++
         val room = lastCell[player]?.let { rooms[it] }
         room?.let { it.deaths++ }
-        DebugLog.event("death", "player" to player, "room" to room?.label())
+        DebugLog.event("death", "player" to Pseudonym.of(player), "room" to room?.label())
     }
 
     /**
@@ -227,7 +227,7 @@ object ContributionTracker {
                 DebugLog.event(
                     "cleared",
                     "room" to room.label(), "type" to room.type, "checkmark" to checkmark,
-                    "ticks" to room.ticks.toString(),
+                    "ticks" to Pseudonym.keys(room.ticks).toString(),
                 )
                 award(room)
                 RoomHistory.onRoomCleared(room)
@@ -253,7 +253,7 @@ object ContributionTracker {
         val split = DungeonGrid.splitPoints(room.ticks, POINTS_PER_ROOM, MIN_TICKS)
         if (split.isNotEmpty()) {
             split.forEach { (name, points) -> credited.merge(name, points, Double::plus) }
-            DebugLog.event("award", "room" to room.label(), "split" to split.toString())
+            DebugLog.event("award", "room" to room.label(), "split" to Pseudonym.keys(split).toString())
             return
         }
         // Nobody cleared the one-second bar. In a party that filter is right — whoever did the work
@@ -266,7 +266,8 @@ object ContributionTracker {
         fallback.forEach { (name, points) -> credited.merge(name, points, Double::plus) }
         DebugLog.event(
             "unattributed",
-            "room" to room.label(), "ticks" to room.ticks.toString(), "fallback" to fallback.toString(),
+            "room" to room.label(), "ticks" to Pseudonym.keys(room.ticks).toString(),
+            "fallback" to Pseudonym.keys(fallback).toString(),
         )
     }
 

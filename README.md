@@ -23,6 +23,7 @@ Minecraft **26.1.2**, Fabric, client only.
 | Secrets | `SecretTracker.kt` | per-room secret count, which of them were provably yours, secret-run timer |
 | History | `RoomHistory.kt` | append-only permanent room times, chat announcements, run summary |
 | Telemetry | `DebugLog.kt` | JSONL event log for diagnosing a real run |
+| Pseudonyms | `Pseudonym.kt` | replaces party member names on their way into that log |
 | Run report | `RunReport.kt` | permanent per-run record: every room and what it cost the party |
 | Upload | `TelemetryUpload.kt` | ships session logs and run reports to the analysis server |
 | Settings | `SettingsScreen.kt` | the `/sa` screen: settings tabs and the personal-record table |
@@ -219,7 +220,7 @@ Events target exactly the parts that cannot be verified by compiling:
 | Event | Answers |
 |---|---|
 | `mort_found`, `calibrated`, `calibration_waiting` | Did the two anchors resolve, and to what? |
-| `tab_slot` | Does the tab regex still match Hypixel's format? Logs the raw row. |
+| `tab_slot` | Does the tab regex still match Hypixel's format? Logs the row, name replaced. |
 | `player_room` | Which decoration became which player, in which cell — with the raw decoration. |
 | `room_identified` | Which rooms the chunk scan named. |
 | `room_unmatched` | A cell has a room but no database match — **logs the full block column**, which separates "hashed the wrong blocks" from "room not in the database". |
@@ -248,6 +249,24 @@ never fires when the game crashes or the run is left early, losing exactly the m
 looking at. It also keeps networking out of the tick loop. Whatever was handed over moves to an
 `uploaded/` folder rather than being deleted, so a server-side mistake cannot destroy the only copy
 of a run; anything the server did not accept stays put and is retried at the next start.
+
+### What is in an uploaded session
+
+**No party member names.** Everyone in the log — teammates and you — appears as a pseudonym like
+`p-3f8a1c04`, derived from a random salt that is generated fresh every launch and never written
+down. Within one session the pseudonym is stable, so "who was in which room" still reads normally;
+across sessions the same player gets a different one, so the server never accumulates a history of
+somebody who never agreed to any of this. The raw tab row is logged with only its name replaced, and
+a row the regex *fails* on — the case that event exists for — is redacted conservatively instead,
+keeping the format and dropping anything name-shaped.
+
+`RunReport` goes further and leaves teammates out entirely: party size, classes and player-ticks, no
+names at all. Your own name and UUID are in your own run reports, which is what files them under
+your profile.
+
+The transport is still plain HTTP, so treat the token as the only thing protecting the inbox — put
+Caddy in front with a real hostname if that changes. What travels is now pseudonymous either way.
+And with no `upload.properties`, nothing leaves the machine at all.
 
 ## Run reports
 
