@@ -113,9 +113,15 @@ class SighteAddons : ClientModInitializer {
     }
 
     private fun renderHud(graphics: GuiGraphicsExtractor) {
-        if (!Config.hud || !DungeonSession.calibrated) return
+        if (!DungeonSession.calibrated) return
         val client = Minecraft.getInstance()
         val font = client.font
+
+        // Drawn before the corner readout and outside its switch: a centred element that fades
+        // itself out is not part of the anchored block, and must not disappear with it.
+        ClearPopup.render(graphics, font, client.window.guiScaledWidth, client.window.guiScaledHeight)
+
+        if (!Config.hud) return
         var y = Config.hudY
 
         fun line(text: String, color: Int) {

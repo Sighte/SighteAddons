@@ -84,6 +84,15 @@ object RoomHistory {
         // Appended first and unconditionally: the chat settings below hide the message, never the
         // record. A silenced chat that also stopped writing history would lose runs for good.
         val pb = recordOwn(room, secrets)
+
+        // Same bar the history uses, so the popup shows exactly the rooms that were just recorded —
+        // and it is independent of the chat settings, being a different channel with its own switch.
+        val name = room.name
+        val ownTicks = Minecraft.getInstance().player?.name?.string?.let { room.ticks[it] } ?: 0
+        if (name != null && ownTicks >= ContributionTracker.MIN_TICKS) {
+            ClearPopup.show(name, secrets, ownTicks, pb != null)
+        }
+
         if (!Config.roomMessages) return
         if (Config.ownPbsOnly && pb == null) return
 

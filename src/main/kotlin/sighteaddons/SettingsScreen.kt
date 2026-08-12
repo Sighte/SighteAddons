@@ -22,24 +22,31 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     enum class Tab { HUD, CHAT, RECORDS, DEBUG }
 
     /** Which column the record table is ordered by. */
-    private enum class Sort { NAME, CLEAR, RUNS }
+    private enum class Sort { TYPE, NAME, CLEAR, RUNS }
 
     /** [on] drives the value colour; null means the row is plain information. */
     private class Row(val label: String, val value: String, val on: Boolean? = null, val click: (() -> Unit)? = null)
 
     private class RecordRow(
         val room: String,
+        val type: String?,
         val clear: Int?,
         val secrets: Int?,
         val runs: Int,
         val lastTs: Long,
     )
 
+    /** One rendered line: a group heading when [row] is null, a record otherwise. */
+    private class Line(val header: String?, val row: RecordRow?)
+
     private var placing = false
     private var scroll = 0
-    private var sort = Sort.NAME
+
+    /** Grouped by type by default — a flat list of 130 rooms is a list you search, not one you read. */
+    private var sort = Sort.TYPE
 
     private val contentLeft get() = (width - CONTENT) / 2
+    private val typeHeaderX get() = contentLeft + font.width("Raum") + 12
     private val tabsY get() = HEADER_Y + 20
     private val listTop get() = HEADER_Y + 40
     private val listBottom get() = height - 24
@@ -88,27 +95,37 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
 
     private fun renderRecords(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
         val left = contentLeft
-        val rows = recordRows()
-        graphics.right("${RoomHistory.entryCount()} zeilen · ${rows.size} räume", left + CONTENT, HEADER_Y, DIM)
+        val lines = recordLines()
+        val rooms = lines.count { it.row != null }
+        graphics.right("${RoomHistory.entryCount()} zeilen · $rooms räume", left + CONTENT, HEADER_Y, DIM)
 
         graphics.flat("Raum", left, listTop, if (sort == Sort.NAME) ACCENT else DIM)
+        graphics.flat("typ", typeHeaderX, listTop, if (sort == Sort.TYPE) ACCENT else DIM)
         graphics.right("clear", left + CLEAR_X, listTop, if (sort == Sort.CLEAR) ACCENT else DIM)
         graphics.right("secrets", left + SECRETS_X, listTop, DIM)
         graphics.right("runs", left + RUNS_X, listTop, if (sort == Sort.RUNS) ACCENT else DIM)
         graphics.right("zuletzt", left + CONTENT, listTop, DIM)
 
-        if (rows.isEmpty()) {
+        if (lines.isEmpty()) {
             graphics.flat("noch keine historie · config/sighteaddons/history.jsonl", left, listTop + ROW * 2, DIM)
             return
         }
 
         val first = listTop + ROW
         val visible = ((listBottom - first) / ROW).coerceAtLeast(1)
-        scroll = scroll.coerceIn(0, (rows.size - visible).coerceAtLeast(0))
+        scroll = scroll.coerceIn(0, (lines.size - visible).coerceAtLeast(0))
 
         graphics.enableScissor(0, first, width, listBottom)
-        for ((index, row) in rows.drop(scroll).take(visible).withIndex()) {
+        for ((index, line) in lines.drop(scroll).take(visible).withIndex()) {
             val y = first + index * ROW
+            val row = line.row
+            if (row == null) {
+                // Group heading: the accent plus a rule carries it, rather than a second type column
+                // repeating "normal" on a hundred rows.
+                graphics.flat(line.header ?: "", left, y, ACCENT)
+                graphics.fill(left + font.width(line.header ?: "") + 8, y + 4, left + CONTENT, y + 5, RULE)
+                continue
+            }
             if (hovering(mouseX, mouseY, y)) {
                 graphics.fill(left - GUTTER, y - 3, left + CONTENT + GUTTER, y + ROW - 3, HOVER)
             }
@@ -121,10 +138,10 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         graphics.disableScissor()
 
         // Scroll position as a plain accent bar; a textured scrollbar would break the flat style.
-        if (rows.size > visible) {
+        if (lines.size > visible) {
             val track = listBottom - first
-            val bar = (track * visible / rows.size).coerceAtLeast(8)
-            val offset = (track - bar) * scroll / (rows.size - visible)
+            val bar = (track * visible / lines.size).coerceAtLeast(8)
+            val offset = (track - bar) * scroll / (lines.size - visible)
             graphics.fill(left + CONTENT + GUTTER, first + offset, left + CONTENT + GUTTER + 2, first + offset + bar, ACCENT)
         }
     }
@@ -144,6 +161,9 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             Row("aktueller Raum", Config.showRoom.word(), Config.showRoom) { Config.showRoom = !Config.showRoom },
             Row("Standings", Config.showStandings.word(), Config.showStandings) {
                 Config.showStandings = !Config.showStandings
+            },
+            Row("Clear-Einblendung", Config.clearPopup.word(), Config.clearPopup) {
+                Config.clearPopup = !Config.clearPopup
             },
         )
         Tab.CHAT -> listOf(
@@ -177,6 +197,8 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             val secrets = records["$room|secrets"]
             RecordRow(
                 room = room,
+                // Null for a room the database does not know — it still gets a line, under "sonstige".
+                type = RoomDatabase.infoByName(room)?.type,
                 clear = clear?.ticks,
                 secrets = secrets?.ticks,
                 runs = clear?.runs ?: secrets?.runs ?: 0,
@@ -184,11 +206,25 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             )
         }
         return when (sort) {
+            Sort.TYPE -> rows.sortedWith(compareBy({ group(it.type) }, { it.room }))
             Sort.NAME -> rows.sortedBy { it.room }
             // Rooms without a clear record sort last instead of leading with a missing value.
             Sort.CLEAR -> rows.sortedBy { it.clear ?: Int.MAX_VALUE }
             Sort.RUNS -> rows.sortedByDescending { it.runs }
         }
+    }
+
+    /** Records with a heading before each group, or the plain list under any other sort. */
+    private fun recordLines(): List<Line> {
+        val rows = recordRows()
+        if (sort != Sort.TYPE) return rows.map { Line(null, it) }
+        val out = mutableListOf<Line>()
+        // Already sorted by group, so groupBy keeps both the group order and the names inside them.
+        for ((group, inGroup) in rows.groupBy { group(it.type) }) {
+            out.add(Line("${GROUPS[group]}  ${inGroup.size}", null))
+            inGroup.forEach { out.add(Line(null, it)) }
+        }
+        return out
     }
 
     override fun mouseClicked(event: MouseButtonEvent, doubleClick: Boolean): Boolean {
@@ -219,10 +255,13 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
                 val left = contentLeft
                 sort = when {
                     mouseX < left + font.width("Raum") -> Sort.NAME
+                    mouseX in typeHeaderX..typeHeaderX + font.width("typ") -> Sort.TYPE
                     mouseX in left + CLEAR_X - font.width("clear")..left + CLEAR_X -> Sort.CLEAR
                     mouseX in left + RUNS_X - font.width("runs")..left + RUNS_X -> Sort.RUNS
                     else -> sort
                 }
+                // The headings shift every row down, so a stale offset would land mid-group.
+                scroll = 0
                 return true
             }
             return true
@@ -273,6 +312,19 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         }
     }
 
+    /**
+     * Index into [GROUPS]. Puzzles, traps and rare rooms come first on purpose: they are a handful
+     * each and the ones worth comparing, while the hundred-odd normal rooms are the tail you scroll
+     * into rather than past.
+     */
+    private fun group(type: String?) = when (type) {
+        "PUZZLE" -> 0
+        "TRAP" -> 1
+        "RARE" -> 2
+        "NORMAL" -> 3
+        else -> 4 // champion, blood, fairy, entrance, and anything the database does not name
+    }
+
     private fun Int?.time() = this?.let(DungeonGrid::formatTicks) ?: "--:--.-"
 
     private fun Boolean.word() = if (this) "an" else "aus"
@@ -291,6 +343,9 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         private const val GUTTER = 16
         private const val ROW = 14
         private const val HEADER_Y = 32
+
+        /** Group headings, indexed by [group]. */
+        private val GROUPS = listOf("puzzles", "traps", "rare räume", "normale räume", "sonstige")
 
         /** Right edges of the record columns, relative to the content's left edge. */
         private const val CLEAR_X = 250
