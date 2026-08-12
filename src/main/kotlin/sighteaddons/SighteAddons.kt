@@ -1,6 +1,8 @@
 package sighteaddons
 
 import net.fabricmc.api.ClientModInitializer
+import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback
+import net.fabricmc.fabric.api.client.command.v2.ClientCommands
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientChunkEvents
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents
@@ -22,6 +24,15 @@ import org.slf4j.LoggerFactory
  */
 class SighteAddons : ClientModInitializer {
     override fun onInitializeClient() {
+        Config.load()
+        // /sa opens the settings, /sa pbs jumps straight to the records table.
+        ClientCommandRegistrationCallback.EVENT.register { dispatcher, _ ->
+            dispatcher.register(
+                ClientCommands.literal("sa")
+                    .executes { open(SettingsScreen.Tab.HUD) }
+                    .then(ClientCommands.literal("pbs").executes { open(SettingsScreen.Tab.RECORDS) }),
+            )
+        }
         ClientTickEvents.END_CLIENT_TICK.register(::onTick)
         ClientChunkEvents.CHUNK_LOAD.register { _, chunk ->
             ContributionTracker.onChunkLoad(chunk.pos.x, chunk.pos.z)
@@ -38,6 +49,16 @@ class SighteAddons : ClientModInitializer {
         HudElementRegistry.attachElementAfter(VanillaHudElements.OVERLAY_MESSAGE, STANDINGS) { graphics, _ ->
             renderHud(graphics)
         }
+    }
+
+    /**
+     * Deferred to the next tick on purpose: the chat screen closes right after a command runs and
+     * would take the new screen with it, so setting it directly from the callback shows nothing.
+     */
+    private fun open(tab: SettingsScreen.Tab): Int {
+        val client = Minecraft.getInstance()
+        client.schedule { client.setScreen(SettingsScreen(tab)) }
+        return 1
     }
 
     private fun onTick(client: Minecraft) {
@@ -88,13 +109,13 @@ class SighteAddons : ClientModInitializer {
     }
 
     private fun renderHud(graphics: GuiGraphicsExtractor) {
-        if (!DungeonSession.calibrated) return
+        if (!Config.hud || !DungeonSession.calibrated) return
         val client = Minecraft.getInstance()
         val font = client.font
-        var y = 4
+        var y = Config.hudY
 
         fun line(text: String, color: Int) {
-            graphics.text(font, Component.literal(text), 4, y, color)
+            graphics.text(font, Component.literal(text), Config.hudX, y, color)
             y += 10
         }
 
@@ -104,7 +125,7 @@ class SighteAddons : ClientModInitializer {
             WHITE,
         )
 
-        currentRoom(client)?.let { room ->
+        if (Config.showRoom) currentRoom(client)?.let { room ->
             val self = client.player?.name?.string
             val inRoom = self?.let { room.ticks[it] } ?: 0
             line("${room.label()}  ${DungeonGrid.formatTicks(inRoom)}", YELLOW)
@@ -117,6 +138,7 @@ class SighteAddons : ClientModInitializer {
             line("  secrets  ${room.secretsAtTick?.let(DungeonGrid::formatTicks) ?: "--:--.-"}$secrets", GREY)
         }
 
+        if (!Config.showStandings) return
         val points = ContributionTracker.pointsByPlayer()
         PartyTracker.roster()
             .map { it.name to (points[it.name] ?: 0.0) }
