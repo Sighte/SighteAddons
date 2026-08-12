@@ -35,6 +35,10 @@ run/
 # written by the loader when the tests boot it
 logs/
 
+# python — the receiver in vps/ and its tests
+
+__pycache__/
+
 # java
 
 hs_err_*.log
