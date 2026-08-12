@@ -23,6 +23,8 @@ Minecraft **26.1.2**, Fabric, client only.
 | Secrets | `SecretTracker.kt` | per-room secret count, and which of them were provably yours |
 | History | `RoomHistory.kt` | append-only permanent room times, chat announcements, run summary |
 | Telemetry | `DebugLog.kt` | JSONL event log for diagnosing a real run |
+| Run report | `RunReport.kt` | permanent per-run record: every room and what it cost the party |
+| Upload | `TelemetryUpload.kt` | ships session logs and run reports to the analysis server |
 | Settings | `SettingsScreen.kt` | the `/sa` screen: settings tabs and the personal-record table |
 | Config | `Config.kt` | the settings that screen writes, as one JSON object |
 | HUD | `SighteAddons.kt` | live overlay, `/sa` command, run-end hook |
@@ -189,6 +191,46 @@ Events target exactly the parts that cannot be verified by compiling:
 
 Volume is bounded: only *changes* are written, and the file stops at 20 000 events with an explicit
 `truncated` record rather than silently.
+
+### Upload
+
+The logs are only useful where they can be read, so finished sessions are shipped to an analysis
+server. Off unless `config/sighteaddons/upload.properties` exists next to the debug folder:
+
+```properties
+url=http://<server>:8420
+token=<shared secret>
+```
+
+Base URL only; the mod appends `/ingest` for sessions and `/runs` for the run reports below. The
+file is never written by the mod and never committed — the token stays on the machine that plays.
+
+Uploads happen **at game start, for what previous sessions left behind** — not at `run_end`, which
+never fires when the game crashes or the run is left early, losing exactly the material worth
+looking at. It also keeps networking out of the tick loop. Whatever was handed over moves to an
+`uploaded/` folder rather than being deleted, so a server-side mistake cannot destroy the only copy
+of a run; anything the server did not accept stays put and is retried at the next start.
+
+## Run reports
+
+The debug log is a diagnostic: bounded at 20 000 events and switchable off in `/sa`. What has to
+survive instead goes into `config/sighteaddons/runs/run-<millis>-<uuid>.json`, one closed file per
+finished run, which the server files under that player's permanent profile. Room difficulty and
+per-room clear scores are derived from that history later — the mod does no scoring itself.
+
+Per run: floor, duration, party size, the classes present, own class and level, rooms cleared,
+unattributed remainder, deaths, mod and Minecraft version, and a `v` schema number. Per room: name,
+type, shape, secret and crypt counts, segment count, clear and all-secrets tick, whether it was
+already green on arrival, secrets found, own secrets, deaths, and the effort numbers —
+`playerTicks` (the whole party's time in the room), `playersInRoom`, `ownTicks`. One player for 60
+seconds and four players for 15 are the same clear time and very different rooms, which is exactly
+what a difficulty estimate needs to see.
+
+Teammates appear in aggregate only — party size, classes without names, player-ticks. Installing
+the mod is consent for your own data; the four strangers from party finder never gave any.
+
+The server side is one file, [`vps/SETUP.md`](vps/SETUP.md): a stdlib receiver, the master prompt
+for the Claude agent that reads the sessions and opens pull requests, and the setup to paste.
 
 ## Build
 

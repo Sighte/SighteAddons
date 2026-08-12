@@ -5,7 +5,11 @@ import net.minecraft.client.Minecraft
 import net.minecraft.world.level.saveddata.maps.MapDecorationTypes
 import net.minecraft.world.level.saveddata.maps.MapItemSavedData
 
-data class DungeonPlayer(val name: String, val dungeonClass: String) {
+/**
+ * [level] is the class level from the tab row, empty when the row carries none. It is the closest
+ * thing the client has to a power rating, which is what makes room times comparable across parties.
+ */
+data class DungeonPlayer(val name: String, val dungeonClass: String, val level: String = "") {
     val alive get() = dungeonClass != "DEAD" && dungeonClass != "EMPTY"
 }
 
@@ -46,7 +50,12 @@ object PartyTracker {
         for (i in players.indices) {
             val match = rows.getOrNull(1 + i * 4)?.let { TAB.matchEntire(it) }
             // groupValues: 1 = name, 2 = class, 3 = level
-            val parsed = match?.let { DungeonPlayer(it.groupValues[1], it.groupValues[2]) }
+            val parsed = match?.let { DungeonPlayer(it.groupValues[1], it.groupValues[2], it.groupValues[3]) }
+            // The class flipping to DEAD is the only death signal the client gets without parsing
+            // chat, and it is the strongest difficulty signal a room has.
+            if (players[i]?.alive == true && parsed?.alive == false) {
+                ContributionTracker.onDeath(players[i]!!.name)
+            }
             // Compares the whole entry, not just the name: a class flipping to DEAD excludes that
             // player from attribution, so it has to be visible in the log.
             if (DebugLog.enabled && parsed != players[i]) {

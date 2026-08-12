@@ -30,6 +30,9 @@ class TrackedRoom(val type: RoomType, val mapSegments: Set<Pos>, val cells: Set<
     /** Of those, the ones that coincided with the local player's own interaction. */
     var ownSecrets = 0
 
+    /** Party deaths that happened while the victim was in this room. */
+    var deaths = 0
+
     /**
      * The room already carried a checkmark when we first saw it, so nobody cleared it during our
      * run — the entrance, fairy rooms and empty rooms with no secrets are green from the start.
@@ -76,7 +79,13 @@ object ContributionTracker {
      */
     private val unidentifiable = HashSet<Pos>()
 
+    /** Where each member was last seen, so a death in the tab list can be charged to a room. */
+    private val lastCell = HashMap<String, Pos>()
+
     var roomsCleared = 0
+        private set
+
+    var deaths = 0
         private set
 
     fun reset() {
@@ -86,7 +95,20 @@ object ContributionTracker {
         unidentifiable.clear()
         // Cleared on server transfer, so chunks buffered for the previous world are never hashed.
         pendingChunks.clear()
+        lastCell.clear()
         roomsCleared = 0
+        deaths = 0
+    }
+
+    /**
+     * A party member's tab class flipped to DEAD. Charged to the room they were last seen in — the
+     * map decoration is already gone by the time the tab list catches up.
+     */
+    fun onDeath(player: String) {
+        deaths++
+        val room = lastCell[player]?.let { rooms[it] }
+        room?.let { it.deaths++ }
+        DebugLog.event("death", "player" to player, "room" to room?.label())
     }
 
     /**
@@ -107,6 +129,7 @@ object ContributionTracker {
 
     fun tick(client: Minecraft, map: MapItemSavedData) {
         for ((name, cell) in PartyTracker.positions(map)) {
+            lastCell[name] = cell
             val room = rooms[cell] ?: discover(map, cell) ?: continue
             room.ticks.merge(name, 1, Int::plus)
         }

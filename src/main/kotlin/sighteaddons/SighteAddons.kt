@@ -49,6 +49,8 @@ class SighteAddons : ClientModInitializer {
         HudElementRegistry.attachElementAfter(VanillaHudElements.OVERLAY_MESSAGE, STANDINGS) { graphics, _ ->
             renderHud(graphics)
         }
+        // Ships the previous sessions' logs while nothing is happening yet. No-op without a config.
+        TelemetryUpload.start()
     }
 
     /**
@@ -106,6 +108,8 @@ class SighteAddons : ClientModInitializer {
             "newRecords" to RoomHistory.newBestsThisRun().size,
         )
         RoomHistory.printSummary()
+        // Permanent record of the whole run, unlike the chat summary and unlike the debug log.
+        RunReport.write()
     }
 
     private fun renderHud(graphics: GuiGraphicsExtractor) {
