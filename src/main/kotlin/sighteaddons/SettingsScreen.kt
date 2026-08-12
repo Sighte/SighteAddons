@@ -179,6 +179,10 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         Tab.DEBUG -> listOf(
             Row("JSONL telemetry", Config.debugLog.word(), Config.debugLog) { Config.debugLog = !Config.debugLog },
             Row("target", "config/sighteaddons/debug/"),
+            Row("upload run reports", Config.upload.word(), Config.upload) { Config.upload = !Config.upload },
+            // Shown so it is the player's to give away rather than ours to hold: everything the
+            // server knows about them hangs off this string and nothing else.
+            Row("your upload id", Config.installId),
             Row("rooms in the database", RoomDatabase.size.toString()),
             Row("lines in the history", RoomHistory.entryCount().toString()),
         )

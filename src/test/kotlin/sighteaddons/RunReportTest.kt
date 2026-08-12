@@ -24,7 +24,7 @@ class RunReportTest {
 
     private fun report() = RunReport.build(
         ts = 1786530882102,
-        uuid = "0f5e4a1c-1111-2222-3333-444455556666",
+        installId = "0f5e4a1c-1111-2222-3333-444455556666",
         player = "Sighte",
         floor = "M5",
         runTicks = 8000,
@@ -40,7 +40,7 @@ class RunReportTest {
     @Test
     fun `run context survives`() {
         val json = report()
-        assertEquals(1, json["v"].asInt)
+        assertEquals(2, json["v"].asInt)
         assertEquals("M5", json["floor"].asString)
         assertEquals(2, json["partySize"].asInt)
         assertEquals(1.25, json["unattributed"].asDouble)
@@ -49,12 +49,20 @@ class RunReportTest {
     }
 
     @Test
-    fun `teammates appear as classes, never as names`() {
+    fun `nobody appears by name, not even the uploader`() {
         val json = report()
         assertEquals(listOf("Berserk VII", "Mage L"), json["classes"].asJsonArray.map { it.asString })
-        // The uploader's own name is their own data; the party-finder stranger's is not.
-        assertTrue(json.toString().contains("Sighte"))
+        // The stranger never belonged in here. The uploader's own name went with 0.5.0: the mod
+        // ships to everyone now, and the install id is what the server files a run under.
         assertFalse(json.toString().contains("Stranger"))
+        assertFalse(json.toString().contains("Sighte"))
+        assertFalse(json.has("player"))
+    }
+
+    /** Everything the server knows about a player hangs off this one string. */
+    @Test
+    fun `the run is keyed by the install id`() {
+        assertEquals("0f5e4a1c-1111-2222-3333-444455556666", report()["uuid"].asString)
     }
 
     /** A player who is dead when the headline prints must not reach the record as class "DEAD". */
@@ -62,7 +70,7 @@ class RunReportTest {
     fun `a player dead at the end still reports their class`() {
         val json = RunReport.build(
             ts = 1786530882102,
-            uuid = "0f5e4a1c-1111-2222-3333-444455556666",
+            installId = "0f5e4a1c-1111-2222-3333-444455556666",
             player = "Sighte",
             floor = "M5",
             runTicks = 8000,

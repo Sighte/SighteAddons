@@ -27,7 +27,7 @@ Minecraft **26.1.2**, Fabric, client only.
 | Run report | `RunReport.kt` | permanent per-run record: every room and what it cost the party |
 | Upload | `TelemetryUpload.kt` | ships session logs and run reports to the analysis server |
 | Settings | `SettingsScreen.kt` | the `/sa` screen: settings tabs and the personal-record table |
-| Config | `Config.kt` | the settings that screen writes, as one JSON object |
+| Config | `Config.kt` | the settings that screen writes, plus the upload id, as one JSON object |
 | HUD | `SighteAddons.kt` | live overlay, `/sa` command, run-end hook |
 
 ## Live HUD
@@ -233,8 +233,29 @@ Volume is bounded: only *changes* are written, and the file stops at 20 000 even
 
 ### Upload
 
-The logs are only useful where they can be read, so finished sessions are shipped to an analysis
-server. Off unless `config/sighteaddons/upload.properties` exists next to the debug folder:
+> **This mod uploads by default.** When a dungeon run finishes, a report of it is sent to the mod's
+> analysis server: rooms, times, party size and classes, filed under a random id that is generated on
+> your machine. **Your Minecraft name and UUID are not part of it, and neither is anybody else's.**
+> Switch it off in `/sa` → **DEBUG** → *upload run reports*. The mod says this once in chat the first
+> time it runs. The transport is plain HTTP.
+
+Two tiers, and what separates them is what may leave the machine:
+
+| | who | what goes up |
+|---|---|---|
+| **Public** | every install, on by default | run reports only |
+| **Private** | whoever has `upload.properties` | run reports **and** debug sessions |
+
+The public tier uses a token compiled into the jar. That token is readable by anyone who unzips the
+mod, so it is a filter against drive-by noise and **not** a secret — the server treats everything on
+that tier as untrusted and validates it field by field rather than believing the bearer.
+
+Debug sessions are deliberately not in the public tier. They name every party member — pseudonymously
+(see below), but still people who installed nothing and agreed to nothing. A run report is about its
+own uploader and nobody else, which is what makes it fair to send by default.
+
+The private tier is opt-in by existing: `config/sighteaddons/upload.properties`, next to the debug
+folder.
 
 ```properties
 url=http://<server>:8420
@@ -243,6 +264,17 @@ token=<shared secret>
 
 Base URL only; the mod appends `/ingest` for sessions and `/runs` for the run reports below. The
 file is never written by the mod and never committed — the token stays on the machine that plays.
+A file that is present but missing a key switches uploading **off** rather than quietly falling back
+to the public tier, so a typo cannot look like it worked.
+
+### Your upload id
+
+`/sa` → **DEBUG** shows the id every one of your run reports is filed under. It is random, generated
+once on first launch, and stored in `config.json`. Nothing on the server can turn it back into a
+player — which is the point: hand it over yourself if you ever want your runs attached to your name,
+for a leaderboard or anything else, and until you do there is nothing there that points at you.
+
+Deleting `config.json` starts a new id and orphans the history under the old one.
 
 Uploads happen **at game start, for what previous sessions left behind** — not at `run_end`, which
 never fires when the game crashes or the run is left early, losing exactly the material worth
@@ -262,13 +294,12 @@ somebody who never agreed to any of this. The raw tab row is logged with only it
 a row the regex *fails* on — the case that event exists for — is redacted conservatively instead,
 keeping the format and dropping anything name-shaped.
 
-`RunReport` goes further and leaves teammates out entirely: party size, classes and player-ticks, no
-names at all. Your own name and UUID are in your own run reports, which is what files them under
-your profile.
+`RunReport` goes further and names nobody at all — not teammates, and since 0.5.0 not you either.
+Party size, classes and player-ticks, filed under your upload id. There is no Minecraft name and no
+Minecraft UUID anywhere in it.
 
-The transport is still plain HTTP, so treat the token as the only thing protecting the inbox — put
-Caddy in front with a real hostname if that changes. What travels is now pseudonymous either way.
-And with no `upload.properties`, nothing leaves the machine at all.
+The transport is plain HTTP, so nothing on the way is encrypted — put Caddy in front with a real
+hostname if that matters. What travels carries no names either way.
 
 ## Run reports
 

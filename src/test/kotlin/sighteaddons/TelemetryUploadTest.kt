@@ -69,4 +69,44 @@ class TelemetryUploadTest {
     fun `an absent config is no config`(@TempDir dir: Path) {
         assertNull(TelemetryUpload.credentials(dir.resolve("upload.properties")))
     }
+
+    /**
+     * The tier decides whether other people's names may leave the machine, so each branch of it is
+     * pinned. Debug sessions name every party member; run reports name nobody.
+     */
+    @Test
+    fun `an ordinary install lands on the public tier and sends no sessions`(@TempDir dir: Path) {
+        val tier = TelemetryUpload.tier(enabled = true, path = dir.resolve("upload.properties"))!!
+        assertFalse(tier.sessions)
+    }
+
+    @Test
+    fun `a configured install lands on the private tier and may send sessions`(@TempDir dir: Path) {
+        val file = dir.resolve("upload.properties")
+        file.writeText("url=http://192.0.2.1:8420\ntoken=not-the-real-one")
+        val tier = TelemetryUpload.tier(enabled = true, path = file)!!
+        assertTrue(tier.sessions)
+        assertEquals("http://192.0.2.1:8420", tier.base)
+        assertEquals("not-the-real-one", tier.token)
+    }
+
+    /** The `/sa` switch has to reach the public tier too, or it would be a lie on every install. */
+    @Test
+    fun `switching upload off stops both tiers`(@TempDir dir: Path) {
+        assertNull(TelemetryUpload.tier(enabled = false, path = dir.resolve("upload.properties")))
+        val file = dir.resolve("upload.properties")
+        file.writeText("url=http://192.0.2.1:8420\ntoken=not-the-real-one")
+        assertNull(TelemetryUpload.tier(enabled = false, path = file))
+    }
+
+    /**
+     * A typo in the author's own config must not quietly demote them to the public tier — their
+     * sessions would stop arriving and the log would say nothing about why.
+     */
+    @Test
+    fun `a half filled config switches off rather than falling back to public`(@TempDir dir: Path) {
+        val file = dir.resolve("upload.properties")
+        file.writeText("url=http://192.0.2.1:8420")
+        assertNull(TelemetryUpload.tier(enabled = true, path = file))
+    }
 }
