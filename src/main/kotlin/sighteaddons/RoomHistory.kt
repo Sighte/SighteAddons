@@ -150,15 +150,20 @@ object RoomHistory {
         )
 
         val rooms = ContributionTracker.visitedRooms()
+        val self = Minecraft.getInstance().player?.name?.string
         PartyTracker.roster()
             .map { it.name to (points[it.name] ?: 0.0) }
             .sortedByDescending { it.second }
             .forEach { (name, earned) ->
                 val contributed = rooms.count { (it.ticks[name] ?: 0) >= ContributionTracker.MIN_TICKS }
+                // Only the local player's secrets are provable. Hypixel reports secrets per room and
+                // only for the room you are standing in, so a teammate's count would be a guess —
+                // they get a dash instead, the same way the history refuses an estimated middle number.
+                val secrets = if (name == self) rooms.sumOf { it.ownSecrets } else null
                 announce(
                     Component.literal("  %5.2f".format(Locale.ROOT, earned)).withStyle(ChatFormatting.AQUA)
                         .append(Component.literal("  $name ").withStyle(ChatFormatting.WHITE))
-                        .append(Component.literal("($contributed rooms)").withStyle(ChatFormatting.DARK_GRAY)),
+                        .append(Component.literal(breakdown(contributed, secrets)).withStyle(ChatFormatting.DARK_GRAY)),
                 )
             }
 
@@ -169,16 +174,21 @@ object RoomHistory {
                     .withStyle(ChatFormatting.DARK_GRAY),
             )
         }
-        val ownSecrets = rooms.sumOf { it.ownSecrets }
+        // Secrets now ride on the player lines above, so this one carries the records alone rather
+        // than repeating your own count next to them.
         announce(
-            Component.literal("  $ownSecrets secrets yours").withStyle(ChatFormatting.AQUA)
-                .append(
-                    Component.literal(
-                        if (newThisRun.isEmpty()) ", no new records" else ", ${newThisRun.size} new records",
-                    ).withStyle(if (newThisRun.isEmpty()) ChatFormatting.DARK_GRAY else ChatFormatting.GOLD),
-                ),
+            Component.literal(
+                if (newThisRun.isEmpty()) "  no new records" else "  ${newThisRun.size} new records",
+            ).withStyle(if (newThisRun.isEmpty()) ChatFormatting.DARK_GRAY else ChatFormatting.GOLD),
         )
     }
+
+    /**
+     * The per-player breakdown behind the points: rooms they were in long enough to earn from, and
+     * the secrets they found. [secrets] is null for a teammate, whose secrets this client cannot see.
+     */
+    internal fun breakdown(rooms: Int, secrets: Int?) =
+        "($rooms rooms · ${secrets?.toString() ?: "–"} secrets)"
 
     private fun append(room: TrackedRoom, roomName: String, kind: String, ticks: Int, pb: Boolean, ts: Long) {
         val obj = JsonObject()

@@ -103,12 +103,18 @@ At the end of the run (triggered by Hypixel's results headline):
 
 ```
 Sighte F7 — 6:42.1, 31 rooms
-   8.50  Nordwand (12 rooms)
-   6.00  Tanksalot (9 rooms)
-   0.00  AFKler (0 rooms)
+   8.50  Nordwand (12 rooms · – secrets)
+   6.00  Sighte (9 rooms · 14 secrets)
+   0.00  AFKler (0 rooms · – secrets)
    2.25 rooms unattributed
   3 new records
 ```
+
+The number in front is the contribution score, the breakdown behind it is what produced it: rooms the
+player was in for at least a second, and the secrets they found. **Secrets are only ever shown for
+you.** Hypixel reports secrets as a per-room counter and only for the room you are standing in, so a
+teammate's count would be a guess — they get a dash instead of a number this client cannot know. A
+teammate's `0` would be a claim, a dash is the truth. See [Secrets](#secrets).
 
 ## History
 
