@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test
 /**
  * The records table groups rooms by the type behind their name. The history only stores names, so
  * this lookup is the single link between the two — if it returns null the whole table collapses
- * into one "sonstige" group without any error to show for it.
+ * into one "other" group without any error to show for it.
  */
 class RoomDatabaseTest {
     @Test

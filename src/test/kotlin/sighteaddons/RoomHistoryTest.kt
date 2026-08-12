@@ -26,7 +26,7 @@ class RoomHistoryTest {
         val catwalk = records.byKey.getValue("Catwalk|clear")
         assertEquals(120, catwalk.ticks) // best, not last and not first
         assertEquals(3, catwalk.runs)
-        assertEquals(3_000L, catwalk.lastTs) // latest, so "zuletzt" cannot show an older run
+        assertEquals(3_000L, catwalk.lastTs) // latest, so "last" cannot show an older run
         // Clear and secrets stay separate keys — a room can be cleared without its secrets.
         assertEquals(900, records.byKey.getValue("Catwalk|secrets").ticks)
         assertEquals(1, records.byKey.getValue("Water Board|clear").runs)

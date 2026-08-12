@@ -56,28 +56,30 @@ immediately, so there is no save button that could be forgotten.
   ────────────────────────────────────────────────────────────────
   HUD    CHAT    RECORDS    DEBUG
   ────────────────────────────────────────────────────────────────
-  HUD anzeigen                                                 an
-  Position                                        4, 4 · setzen
-  aktueller Raum                                               an
-  Standings                                                   aus
+  show HUD                                                     on
+  position                                         4, 4 · place
+  current room                                                 on
+  standings                                                   off
 ```
 
-`Position · setzen` switches to placement mode: the HUD is drawn at the cursor, the next left click
+`position · place` switches to placement mode: the HUD is drawn at the cursor, the next left click
 places it, right click cancels. The screen is drawn from filled rectangles and font calls only — no
 textures, no widget library, and no config-screen dependency, which is why the mod still ships with
 nothing but Fabric API and fabric-language-kotlin.
 
 **RECORDS** is the history read back: one row per room, the clear and all-secrets record side by
-side, how many runs the room was completed in, and how long ago that last happened. Clicking `Raum`,
-`clear` or `runs` sorts by that column; the list scrolls.
+side, how many runs the room was completed in, and how long ago that last happened. Rows are grouped
+by room type; clicking `room`, `type`, `clear` or `runs` sorts by that column, and the list scrolls.
 
 ```
-  RECORDS                                    128 zeilen · 43 räume
+  RECORDS                                    128 lines · 43 rooms
   ────────────────────────────────────────────────────────────────
-  Raum                       clear     secrets    runs     zuletzt
-  Water Board               0:41.2      1:12.0       7       heute
-  Catwalk                   0:03.6      3:15.2      12      vor 2d
-  Trap                      0:08.9      --:--.-       3      vor 9d
+  room       type            clear     secrets    runs      last
+  puzzles  9 ─────────────────────────────────────────────────────
+  Water Board               0:41.2      1:12.0       7      today
+  Tic Tac Toe               0:22.8      0:31.4      10     3d ago
+  normal rooms  56 ────────────────────────────────────────────────
+  Catwalk                   0:03.6      3:15.2      12     2d ago
 ```
 
 Records are derived from `history.jsonl` at startup, not stored — floors are collapsed on purpose,
@@ -245,11 +247,13 @@ JDK 26 works too — no toolchain is pinned. If Gradle 9.5.1 refuses your JDK as
 ./gradlew test
 ```
 
-The latest build is committed at [`dist/sighteaddons.jar`](dist/sighteaddons.jar) — `build` copies it
-there automatically, so the checked-in jar can never go stale relative to the source. The filename is
-fixed on purpose; git history holds the older versions.
+The latest build is committed at [`dist/sighteaddons-0.3.0.jar`](dist/sighteaddons-0.3.0.jar) —
+`build` copies it there automatically, so the checked-in jar can never go stale relative to the
+source. The filename carries `mod_version`, so a jar already sitting in `mods/` still says which
+build it is; the copy deletes the previous version, so `dist/` holds exactly one jar and git history
+holds the older ones.
 
-`build/libs/sighteaddons-<version>.jar` is the same file under its versioned name. The
+`build/libs/sighteaddons-<version>.jar` is the same file. The
 `-sources.jar` next to it is source code for IDE navigation — it contains a `fabric.mod.json` but no
 classes, so putting it in `mods/` produces a duplicate mod id and the game will not start.
 
