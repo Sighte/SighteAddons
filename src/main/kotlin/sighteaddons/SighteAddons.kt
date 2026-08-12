@@ -145,7 +145,10 @@ class SighteAddons : ClientModInitializer {
             // coincided with your own interaction.
             val max = room.info?.secrets ?: 0
             val secrets = if (max > 0) "  ${room.secretsFound}/$max (${room.ownSecrets} you)" else ""
-            line("  secrets  ${room.secretsAtTick?.let(DungeonGrid::formatTicks) ?: "--:--.-"}$secrets", GREY)
+            // The secret run, live: it starts with the room's first secret and goes back to dashes
+            // when the run is discarded, so a stalled room never reads as a fast one.
+            val elapsed = room.secretRunElapsed(DungeonSession.runTicks)
+            line("  secrets  ${elapsed?.let(DungeonGrid::formatTicks) ?: "--:--.-"}$secrets", GREY)
         }
 
         if (!Config.showStandings) return

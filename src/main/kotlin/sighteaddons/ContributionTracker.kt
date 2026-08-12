@@ -30,6 +30,22 @@ class TrackedRoom(val type: RoomType, val mapSegments: Set<Pos>, val cells: Set<
     /** Of those, the ones that coincided with the local player's own interaction. */
     var ownSecrets = 0
 
+    /** Run tick the room's first secret was taken at, once one has been. */
+    var secretRunStart: Int? = null
+        private set
+
+    /** Run tick of the most recent secret, which is what [expireSecretRun] measures the gap from. */
+    var secretRunLast: Int? = null
+        private set
+
+    /** Set once the last secret lands: the finished run, in ticks. Null while it is still open. */
+    var secretRunTicks: Int? = null
+        private set
+
+    /** A run that will never produce a time — joined late, gone quiet, or nothing to measure. */
+    var secretRunDiscarded = false
+        private set
+
     /** Party deaths that happened while the victim was in this room. */
     var deaths = 0
 
@@ -44,6 +60,66 @@ class TrackedRoom(val type: RoomType, val mapSegments: Set<Pos>, val cells: Set<
     val allSecrets get() = secretsAtTick != null
 
     fun label() = name ?: "${type.name.lowercase().replaceFirstChar { it.uppercase() }} (unknown)"
+
+    /** What one secret did to the room's run. Anything but [DONE] leaves the history untouched. */
+    enum class SecretRun { IGNORED, STARTED, RUNNING, DONE, DISCARDED }
+
+    /**
+     * The secret run: from the moment the room's **first** secret is taken to the moment its last
+     * one is.
+     *
+     * Deliberately a different clock from the clear record. Presence counts everything you did in
+     * the room — walking in, fighting, waiting for a teammate; this measures only the part that is
+     * actually raced, from the first chest, lever, essence or pickup to the last secret.
+     *
+     * A run that does not start at [previous] == 0 is somebody else's leftovers, and a room with a
+     * single secret has no span between its ends. Both are discarded rather than recorded as very
+     * fast runs — an unrecorded room costs nothing, a bogus record is permanent.
+     */
+    fun onSecret(previous: Int, found: Int, max: Int, at: Int): SecretRun {
+        if (secretRunTicks != null || secretRunDiscarded) return SecretRun.IGNORED
+        val started = secretRunStart
+        if (started == null) {
+            if (previous != 0 || max < 2) {
+                secretRunDiscarded = true
+                return SecretRun.DISCARDED
+            }
+            secretRunStart = at
+            secretRunLast = at
+            // The counter can jump straight to full when two secrets land in one bar update. A run
+            // whose ends are the same event is not a time anybody raced.
+            if (found >= max) {
+                secretRunDiscarded = true
+                return SecretRun.DISCARDED
+            }
+            return SecretRun.STARTED
+        }
+        secretRunLast = at
+        if (found < max) return SecretRun.RUNNING
+        // Clamped: an own click can sit slightly before the bar update it is credited to.
+        secretRunTicks = (at - started).coerceAtLeast(0)
+        return SecretRun.DONE
+    }
+
+    /**
+     * No further secret for [abandonTicks]: the party moved on and left the room unfinished, so the
+     * run is dropped instead of being closed at whatever the room reaches later. Returns whether
+     * this call is the one that discarded it, so the caller logs it exactly once.
+     */
+    fun expireSecretRun(now: Int, abandonTicks: Int): Boolean {
+        if (secretRunTicks != null || secretRunDiscarded) return false
+        val last = secretRunLast ?: return false
+        if (now - last <= abandonTicks) return false
+        secretRunDiscarded = true
+        return true
+    }
+
+    /** The finished run, or the clock as it stands for the HUD. Null when there is nothing to show. */
+    fun secretRunElapsed(now: Int): Int? {
+        secretRunTicks?.let { return it }
+        if (secretRunDiscarded) return null
+        return secretRunStart?.let { (now - it).coerceAtLeast(0) }
+    }
 }
 
 /**
@@ -138,6 +214,9 @@ object ContributionTracker {
         applyNames()
 
         for (room in rooms.values.distinct()) {
+            // Expired here rather than in the action bar path: the bar stops updating at exactly the
+            // moment the room goes quiet, so a run left open there would never time out.
+            SecretTracker.expireRun(room, DungeonSession.runTicks)
             if (room.allSecrets) continue // nothing left to observe
             val checkmark = DungeonMapReader.checkmarkColor(map, room.mapSegments, DungeonSession.mapRoomSize, room.type.color)
             if (checkmark != DungeonMapReader.WHITE && checkmark != DungeonMapReader.GREEN) continue
@@ -151,16 +230,19 @@ object ContributionTracker {
                     "ticks" to room.ticks.toString(),
                 )
                 award(room)
-                RoomHistory.onRoomEvent(room, secrets = false)
+                RoomHistory.onRoomCleared(room)
             }
             if (checkmark == DungeonMapReader.GREEN && !room.allSecrets) {
                 room.secretsAtTick = DungeonSession.runTicks
+                // Records no longer hang off this: the map's confirmation arrives whenever it
+                // arrives, while the secret run is timed from the secrets themselves. This stays as
+                // the run report's timeline and as the signal that the room is done.
                 DebugLog.event(
                     "all_secrets",
                     "room" to room.label(), "afterClear" to (DungeonSession.runTicks - (room.clearedAtTick ?: 0)),
                     "expectedSecrets" to (room.info?.secrets ?: -1),
+                    "secretRunTicks" to room.secretRunTicks,
                 )
-                RoomHistory.onRoomEvent(room, secrets = true)
             }
         }
     }
