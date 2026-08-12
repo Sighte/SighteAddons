@@ -1,0 +1,30 @@
+{
+	"schemaVersion": 1,
+	"id": "sighteaddons",
+	"version": "${version}",
+	"name": "Sighte Addons",
+	"description": "Tracks per-player contribution in Hypixel SkyBlock Catacombs runs by attributing room clears to the party members who were actually in the room.",
+	"authors": [
+		"Sighte"
+	],
+	"license": "MIT",
+	"environment": "client",
+	"entrypoints": {
+		"client": [
+			"sighteaddons.SighteAddons"
+		]
+	},
+	"mixins": [
+		{
+			"config": "sighteaddons.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.19.3",
+		"minecraft": "~26.1.2",
+		"java": ">=25",
+		"fabric-api": "*",
+		"fabric-language-kotlin": ">=1.13.13"
+	}
+}
