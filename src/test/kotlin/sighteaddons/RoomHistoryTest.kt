@@ -35,6 +35,15 @@ class RoomHistoryTest {
     }
 
     @Test
+    fun `a teammate's secrets read as a dash, never as zero`() {
+        assertEquals("(7 rooms · 12 secrets)", RoomHistory.breakdown(7, 12))
+        // Zero is a claim about a teammate this client cannot make: it never saw the rooms they
+        // were in alone, so an unknown count must not read like an empty one.
+        assertEquals("(9 rooms · – secrets)", RoomHistory.breakdown(9, null))
+        assertEquals("(0 rooms · 0 secrets)", RoomHistory.breakdown(0, 0))
+    }
+
+    @Test
     fun `unreadable lines are counted, not fatal`() {
         val records = RoomHistory.fold(
             sequenceOf(line("Catwalk", "clear", 120, 1_000), "", "{not json", """{"room":"X"}"""),

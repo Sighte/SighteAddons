@@ -193,8 +193,8 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     private fun recordRows(): List<RecordRow> {
         val records = RoomHistory.records()
         val rows = records.keys.map { it.substringBefore('|') }.distinct().map { room ->
-            val clear = records["$room|clear"]
-            val secrets = records["$room|secrets"]
+            val clear = records["$room|${RoomHistory.CLEAR}"]
+            val secrets = records["$room|${RoomHistory.SECRETS}"]
             RecordRow(
                 room = room,
                 // Null for a room the database does not know — it still gets a line, under "other".

@@ -124,6 +124,9 @@ object RunReport {
         obj.addProperty("segments", room.cells.size)
         obj.addProperty("clearTick", room.clearedAtTick)
         obj.addProperty("secretsTick", room.secretsAtTick)
+        // The raced part of the room: first secret to last. Null when the run never started, was
+        // joined half-finished, or was abandoned — those are absences, not zeroes.
+        obj.addProperty("secretRunTicks", room.secretRunTicks)
         // Already green on arrival: nobody earned it during this run, so it must not count as a clear.
         obj.addProperty("preCleared", room.preCleared)
         // Total party effort, which is the difficulty signal — one player for 60s and four players
