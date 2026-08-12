@@ -53,6 +53,19 @@ jar {
 	from("LICENSE-Odin")
 }
 
+// Keeps the installable jar in the repo at a stable path, so the checked-in build can never go stale
+// relative to the source. Fixed filename on purpose: git history holds the older versions.
+// Reads the output directory rather than a Loom task, so it does not break when Loom renames its
+// tasks - 'remapJar' no longer exists in Loom 1.17.
+tasks.register('copyToDist', Copy) {
+	from layout.buildDirectory.dir('libs')
+	include '*.jar'
+	exclude '*-sources.jar'
+	into 'dist'
+	rename { 'sighteaddons.jar' }
+}
+tasks.named('build') { finalizedBy tasks.named('copyToDist') }
+
 test {
 	useJUnitPlatform()
 }

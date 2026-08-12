@@ -162,9 +162,13 @@ JDK 26 works too — no toolchain is pinned. If Gradle 9.5.1 refuses your JDK as
 ./gradlew test
 ```
 
-The installable jar is `build/libs/sighteaddons-<version>.jar`. The `-sources.jar` next to it is
-source code for IDE navigation — it contains a `fabric.mod.json` but no classes, so putting it in
-`mods/` produces a duplicate mod id and the game will not start.
+The latest build is committed at [`dist/sighteaddons.jar`](dist/sighteaddons.jar) — `build` copies it
+there automatically, so the checked-in jar can never go stale relative to the source. The filename is
+fixed on purpose; git history holds the older versions.
+
+`build/libs/sighteaddons-<version>.jar` is the same file under its versioned name. The
+`-sources.jar` next to it is source code for IDE navigation — it contains a `fabric.mod.json` but no
+classes, so putting it in `mods/` produces a duplicate mod id and the game will not start.
 
 Runtime dependencies are not bundled: Fabric API `0.155.2+26.1.2` and fabric-language-kotlin
 `1.13.13+kotlin.2.4.10`.
