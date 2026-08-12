@@ -21,22 +21,38 @@ import kotlin.io.path.name
  * looking at; uploading the *previous* sessions at launch keeps every file and keeps networking out
  * of the tick loop entirely.
  *
- * Off unless `config/sighteaddons/upload.properties` exists with both keys:
+ * Two tiers, and the difference between them is what is allowed to leave the machine:
+ *
+ * - **Public** — every install. Run reports only, keyed by [Config.installId], using [PUBLIC_TOKEN].
+ *   Switched off in the `/sa` DEBUG tab.
+ * - **Private** — `config/sighteaddons/upload.properties` with `url` and `token`. Adds the debug
+ *   sessions. Only the author has that file; the mod never writes it and it is never committed.
  *
  * ```properties
  * url=http://<vps-ip>:8420
  * token=<shared secret>
  * ```
  *
- * The file is never written by the mod and never committed — the token stays on the machine that
- * plays. Uploaded files move to `uploaded/` instead of being deleted, so a server-side mistake
- * cannot destroy the only copy of a run.
+ * Sessions are deliberately not in the public tier. They name every party member — pseudonymously
+ * since [Pseudonym], but still people who installed nothing and agreed to nothing. A run report is
+ * about its own uploader and nobody else, which is what makes it fair to send by default.
  *
- * ponytail: plain HTTP, and the sessions carry party member names — the token keeps strangers out of
- * the inbox but everything travels readable. Caddy in front with a real hostname is the fix.
+ * Uploaded files move to `uploaded/` instead of being deleted, so a server-side mistake cannot
+ * destroy the only copy of a run.
+ *
+ * ponytail: plain HTTP. Everything travels readable, and [PUBLIC_TOKEN] is compiled into a jar
+ * anybody can decompile, so it is a spam filter and not a secret — the server treats the public tier
+ * as untrusted for exactly that reason. Caddy with a real hostname is the transport fix.
  */
 object TelemetryUpload {
     private const val CONFIG = "sighteaddons/upload.properties"
+
+    /**
+     * Where an ordinary install sends its run reports. Public by construction: it ships inside the
+     * jar, so treat it as a filter against drive-by noise rather than as authentication.
+     */
+    private const val PUBLIC_URL = "http://217.160.51.229:8420"
+    private const val PUBLIC_TOKEN = "REPLACE_BEFORE_RELEASE"
 
     /** The receiver's own caps, mirrored so a file that cannot land is never put on the wire. */
     private const val MAX_SESSION = 64L * 1024 * 1024
@@ -74,27 +90,45 @@ object TelemetryUpload {
         }, "sighteaddons-upload").apply { isDaemon = true }.start()
     }
 
+    /** [sessions] is what separates the tiers: only the private one may ship other people's names. */
+    internal class Tier(val base: String, val token: String, val sessions: Boolean)
+
+    /**
+     * Which tier this install uploads on, or null for nothing at all. Free of logging and of
+     * [FabricLoader] so the decision is testable — it is the one that decides whether other people's
+     * names may leave the machine.
+     */
+    internal fun tier(enabled: Boolean, path: Path): Tier? {
+        if (!enabled) return null
+        credentials(path)?.let { (base, token) -> return Tier(base, token, sessions = true) }
+        // A file that exists but is half filled in is a typo. Dropping to the public tier would hide
+        // it and the author would keep wondering where their sessions went, so it switches off.
+        if (Files.isRegularFile(path)) return null
+        if (PUBLIC_TOKEN.isBlank()) return null
+        return Tier(PUBLIC_URL, PUBLIC_TOKEN, sessions = false)
+    }
+
     private fun run(startedAt: Long) {
         val path = FabricLoader.getInstance().configDir.resolve(CONFIG)
-        val credentials = credentials(path)
-        if (credentials == null) {
-            // Absent is the normal state for anyone who is not the author, so it stays an INFO line;
-            // a file that exists but is half filled in is a mistake worth pointing at.
+        val tier = tier(Config.upload, path)
+        if (tier == null) {
             if (Files.isRegularFile(path)) {
                 SighteAddons.LOGGER.warn("{} needs both url and token; telemetry upload stays off", path)
             } else {
-                SighteAddons.LOGGER.info("No {}; telemetry upload stays off", path)
+                SighteAddons.LOGGER.info("Telemetry upload is off in /sa")
             }
             return
         }
-
-        val (base, token) = credentials
+        SighteAddons.LOGGER.info("Telemetry upload on the {} tier", if (tier.sessions) "private" else "public")
         val client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()
         val config = FabricLoader.getInstance().configDir.resolve("sighteaddons")
         // Both travel the same way but land in different stores: the diagnostic is read once and
-        // thrown away, the run report is appended to a permanent per-player profile.
-        if (!send(client, config.resolve("debug"), "$base/ingest", token, MAX_SESSION) { finished(it, startedAt) }) return
-        send(client, config.resolve("runs"), "$base/runs", token, MAX_RUN) { RUN.matches(it) }
+        // thrown away, the run report is appended to a permanent per-install profile.
+        if (tier.sessions) {
+            val debug = config.resolve("debug")
+            if (!send(client, debug, "${tier.base}/ingest", tier.token, MAX_SESSION) { finished(it, startedAt) }) return
+        }
+        send(client, config.resolve("runs"), "${tier.base}/runs", tier.token, MAX_RUN) { RUN.matches(it) }
     }
 
     /** False when the rejection will repeat for every remaining file, so the whole run gives up. */

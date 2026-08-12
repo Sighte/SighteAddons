@@ -21,10 +21,19 @@ import java.nio.file.Files
  * Teammates appear only in aggregate — party size, classes without names, player-ticks per room.
  * The uploader consented to this by installing the mod; the four strangers from party finder did
  * not, and a permanent server-side record of their names is not ours to create.
+ *
+ * Since 0.5.0 the uploader is not named either. The file is keyed by [Config.installId] rather than
+ * the Minecraft UUID, and the player's name is not written at all — the mod ships to everyone now,
+ * and a permanent per-person history is not something a dungeon tracker should be accumulating about
+ * strangers. What the server gets is a run, attached to an identity only its owner can resolve.
  */
 object RunReport {
-    /** Bumped whenever a field changes meaning: this data outlives the code that wrote it. */
-    private const val SCHEMA = 1
+    /**
+     * Bumped whenever a field changes meaning: this data outlives the code that wrote it. 2 dropped
+     * `player` and repurposed `uuid` from the Minecraft identity to the install id, so a v1 line and
+     * a v2 line with the same `uuid` are about different things.
+     */
+    private const val SCHEMA = 2
 
     fun write() {
         val client = Minecraft.getInstance()
@@ -34,10 +43,12 @@ object RunReport {
         if (rooms.isEmpty()) return
 
         val ts = System.currentTimeMillis()
-        val uuid = self.uuid.toString()
+        val id = Config.installId
         val report = build(
             ts = ts,
-            uuid = uuid,
+            installId = id,
+            // Still needed to pick the uploader's own rows out of the roster and the tick maps; it
+            // does not reach the file.
             player = self.name.string,
             floor = DungeonSession.floor ?: "?",
             runTicks = DungeonSession.runTicks,
@@ -53,7 +64,7 @@ object RunReport {
         val dir = FabricLoader.getInstance().configDir.resolve("sighteaddons/runs")
         try {
             Files.createDirectories(dir)
-            Files.writeString(dir.resolve("run-$ts-$uuid.json"), report.toString())
+            Files.writeString(dir.resolve("run-$ts-$id.json"), report.toString())
         } catch (e: Exception) {
             SighteAddons.LOGGER.error("Could not write run report to {}", dir, e)
         }
@@ -65,7 +76,8 @@ object RunReport {
      */
     internal fun build(
         ts: Long,
-        uuid: String,
+        installId: String,
+        /** Used to find the uploader's own class and ticks. Never written to the report. */
         player: String,
         floor: String,
         runTicks: Int,
@@ -80,8 +92,7 @@ object RunReport {
         val obj = JsonObject()
         obj.addProperty("v", SCHEMA)
         obj.addProperty("ts", ts)
-        obj.addProperty("uuid", uuid)
-        obj.addProperty("player", player)
+        obj.addProperty("uuid", installId)
         obj.addProperty("floor", floor)
         obj.addProperty("runTicks", runTicks)
         obj.addProperty("partySize", roster.size)

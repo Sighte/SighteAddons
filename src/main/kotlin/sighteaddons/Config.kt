@@ -36,8 +36,35 @@ object Config {
     /** `-Dsighteaddons.debug=false` still decides the first launch, before a config file exists. */
     var debugLog = System.getProperty("sighteaddons.debug") != "false"
 
+    /** Sending run reports to the analysis server. On by default; the `/sa` DEBUG tab turns it off. */
+    var upload = true
+
+    /** Whether the one-time disclosure has been said. Persisted, so it is said once per install. */
+    var uploadNoticeShown = false
+
+    /**
+     * Who the uploaded run reports belong to. Generated once on first launch and then never again.
+     *
+     * Deliberately **not** the Minecraft UUID: the server files a permanent history under this, and
+     * an identity nobody can look up is the difference between a metric and a personal record. The
+     * player can read it in `/sa` and hand it over voluntarily — that is what a later leaderboard
+     * would be built on, and it stays the player's decision rather than ours.
+     *
+     * Deleting `config.json` starts a new identity and orphans the old history. Acceptable: the
+     * alternative is deriving it from something we are trying not to store.
+     */
+    var installId = ""
+
     fun load() {
-        if (!Files.exists(FILE)) return
+        if (Files.exists(FILE)) read()
+        // First launch, or a config written before this field existed.
+        if (installId.isBlank()) {
+            installId = java.util.UUID.randomUUID().toString()
+            save()
+        }
+    }
+
+    private fun read() {
         try {
             val obj = JsonParser.parseString(Files.readString(FILE)).asJsonObject
             hud = obj.bool("hud", hud)
@@ -50,6 +77,9 @@ object Config {
             ownPbsOnly = obj.bool("ownPbsOnly", ownPbsOnly)
             runSummary = obj.bool("runSummary", runSummary)
             debugLog = obj.bool("debugLog", debugLog)
+            upload = obj.bool("upload", upload)
+            uploadNoticeShown = obj.bool("uploadNoticeShown", uploadNoticeShown)
+            installId = if (obj.has("installId")) obj.get("installId").asString else installId
         } catch (e: Exception) {
             // A broken config must never cost the run — the defaults above are already in place.
             SighteAddons.LOGGER.error("Could not read {}, keeping defaults", FILE, e)
@@ -68,6 +98,9 @@ object Config {
         obj.addProperty("ownPbsOnly", ownPbsOnly)
         obj.addProperty("runSummary", runSummary)
         obj.addProperty("debugLog", debugLog)
+        obj.addProperty("upload", upload)
+        obj.addProperty("uploadNoticeShown", uploadNoticeShown)
+        obj.addProperty("installId", installId)
         try {
             Files.createDirectories(FILE.parent)
             Files.writeString(FILE, obj.toString())

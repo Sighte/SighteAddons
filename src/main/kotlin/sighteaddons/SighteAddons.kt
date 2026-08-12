@@ -9,6 +9,7 @@ import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry
 import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements
+import net.minecraft.ChatFormatting
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.GuiGraphicsExtractor
 import net.minecraft.network.chat.Component
@@ -45,12 +46,40 @@ class SighteAddons : ClientModInitializer {
         }
         // Entering or leaving a dungeon is a server transfer on Hypixel, so this starts each run clean.
         // The history is append-only and flushed per line, so there is nothing to save on the way out.
-        ClientPlayConnectionEvents.JOIN.register { _, _, _ -> DungeonSession.reset() }
+        ClientPlayConnectionEvents.JOIN.register { _, _, _ ->
+            DungeonSession.reset()
+            uploadNotice()
+        }
         HudElementRegistry.attachElementAfter(VanillaHudElements.OVERLAY_MESSAGE, STANDINGS) { graphics, _ ->
             renderHud(graphics)
         }
         // Ships the previous sessions' logs while nothing is happening yet. No-op without a config.
         TelemetryUpload.start()
+    }
+
+    /**
+     * Said once, on the first server this install ever joins.
+     *
+     * The mod uploads by default, and a default that nobody was told about is the thing that gets
+     * mods pulled and authors distrusted — the README and the Modrinth page carry the same text, but
+     * neither is read by somebody who installed this from a modpack. One line, then never again.
+     */
+    private fun uploadNotice() {
+        if (Config.uploadNoticeShown) return
+        Config.uploadNoticeShown = true
+        Config.save()
+        val client = Minecraft.getInstance()
+        client.schedule {
+            client.gui.chat.addClientSystemMessage(
+                Component.literal("Sighte Addons ").withStyle(ChatFormatting.GOLD).append(
+                    Component.literal(
+                        "sends a report of each finished dungeon run to the mod's analysis server: " +
+                            "rooms, times and classes, under a random id, without your name. " +
+                            "Turn it off with /sa → DEBUG.",
+                    ).withStyle(ChatFormatting.GRAY),
+                ),
+            )
+        }
     }
 
     /**
