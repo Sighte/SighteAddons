@@ -52,7 +52,7 @@ object TelemetryUpload {
      * jar, so treat it as a filter against drive-by noise rather than as authentication.
      */
     private const val PUBLIC_URL = "http://217.160.51.229:8420"
-    private const val PUBLIC_TOKEN = "REPLACE_BEFORE_RELEASE"
+    private const val PUBLIC_TOKEN = "003c2cc7060f6029a94a4219ac7d7b5a9954eaf04cf89529"
 
     /** The receiver's own caps, mirrored so a file that cannot land is never put on the wire. */
     private const val MAX_SESSION = 64L * 1024 * 1024
