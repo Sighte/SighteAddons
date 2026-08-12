@@ -247,7 +247,13 @@ Uploads happen **at game start, for what previous sessions left behind** — not
 never fires when the game crashes or the run is left early, losing exactly the material worth
 looking at. It also keeps networking out of the tick loop. Whatever was handed over moves to an
 `uploaded/` folder rather than being deleted, so a server-side mistake cannot destroy the only copy
-of a run; anything the server did not accept stays put and is retried at the next start.
+of a run; anything the server did not accept stays put and is retried at the next start. A file over
+the receiver's size cap is left alone and named in the log instead of being sent — a finished session
+is a few MB, so that only happens when something else has already gone wrong.
+
+The transport is **plain HTTP**, and the sessions contain the names of everyone in the party. The
+token keeps strangers out of the inbox, but nothing on the way there is encrypted; put Caddy in front
+with a real hostname if that matters. No file, no upload — nothing leaves the machine by default.
 
 ## Run reports
 
