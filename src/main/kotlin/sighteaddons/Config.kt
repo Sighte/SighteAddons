@@ -22,6 +22,13 @@ object Config {
     var showRoom = true
     var showStandings = true
 
+    /**
+     * The large centred line when you finish a room yourself. Separate from [hud] on purpose:
+     * different place on screen and a different purpose, so switching off the corner readout must
+     * not silently take it along.
+     */
+    var clearPopup = true
+
     var roomMessages = true
     var ownPbsOnly = false
     var runSummary = true
@@ -38,6 +45,7 @@ object Config {
             hudY = obj.int("hudY", hudY)
             showRoom = obj.bool("showRoom", showRoom)
             showStandings = obj.bool("showStandings", showStandings)
+            clearPopup = obj.bool("clearPopup", clearPopup)
             roomMessages = obj.bool("roomMessages", roomMessages)
             ownPbsOnly = obj.bool("ownPbsOnly", ownPbsOnly)
             runSummary = obj.bool("runSummary", runSummary)
@@ -55,6 +63,7 @@ object Config {
         obj.addProperty("hudY", hudY)
         obj.addProperty("showRoom", showRoom)
         obj.addProperty("showStandings", showStandings)
+        obj.addProperty("clearPopup", clearPopup)
         obj.addProperty("roomMessages", roomMessages)
         obj.addProperty("ownPbsOnly", ownPbsOnly)
         obj.addProperty("runSummary", runSummary)

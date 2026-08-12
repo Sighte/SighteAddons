@@ -264,7 +264,8 @@ do not invent work.
 4. Fix the root cause, smallest diff that holds. One concern per pull request; if the session shows
    three unrelated problems, that is three branches.
 5. `./gradlew build test` — must pass before you push. The build also refreshes
-   `dist/sighteaddons.jar`; that file changing in your diff is expected, commit it.
+   `dist/sighteaddons-<version>.jar`; that file changing in your diff is expected, commit it. If you
+   raised `mod_version`, the old jar is deleted and the new one added — commit both sides.
 6. `gh pr list` first — sessions repeat symptoms, and an open PR already covering the finding gets
    referenced in the report, not opened a second time. Otherwise branch
    `agent/<session-millis>-<short-slug>`, commit, push, open a PR against `main` with `gh`.

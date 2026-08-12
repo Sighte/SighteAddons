@@ -113,9 +113,15 @@ class SighteAddons : ClientModInitializer {
     }
 
     private fun renderHud(graphics: GuiGraphicsExtractor) {
-        if (!Config.hud || !DungeonSession.calibrated) return
+        if (!DungeonSession.calibrated) return
         val client = Minecraft.getInstance()
         val font = client.font
+
+        // Drawn before the corner readout and outside its switch: a centred element that fades
+        // itself out is not part of the anchored block, and must not disappear with it.
+        ClearPopup.render(graphics, font, client.window.guiScaledWidth, client.window.guiScaledHeight)
+
+        if (!Config.hud) return
         var y = Config.hudY
 
         fun line(text: String, color: Int) {
@@ -139,7 +145,10 @@ class SighteAddons : ClientModInitializer {
             // coincided with your own interaction.
             val max = room.info?.secrets ?: 0
             val secrets = if (max > 0) "  ${room.secretsFound}/$max (${room.ownSecrets} you)" else ""
-            line("  secrets  ${room.secretsAtTick?.let(DungeonGrid::formatTicks) ?: "--:--.-"}$secrets", GREY)
+            // The secret run, live: it starts with the room's first secret and goes back to dashes
+            // when the run is discarded, so a stalled room never reads as a fast one.
+            val elapsed = room.secretRunElapsed(DungeonSession.runTicks)
+            line("  secrets  ${elapsed?.let(DungeonGrid::formatTicks) ?: "--:--.-"}$secrets", GREY)
         }
 
         if (!Config.showStandings) return

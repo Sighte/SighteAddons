@@ -23,11 +23,26 @@ import java.util.Locale
  * Only the local player is recorded. Teammates' times are announced in chat but not stored: in a
  * party-finder group they are strangers, so storing them would grow the file without any use.
  *
- * The metric is *time spent in the room* until the event, not run-relative time — that is what a
- * player can influence, and it stays comparable across runs and floors.
+ * Two metrics, one file, told apart by the line's `kind`. A [CLEAR] is *time spent in the room*
+ * until it turned cleared — not run-relative time, because that is what a player can influence and
+ * it stays comparable across runs and floors. A [SECRETS] line is the room's secret run: first
+ * secret to last, timed from the secrets themselves rather than from your arrival.
  */
 object RoomHistory {
     private val FILE = FabricLoader.getInstance().configDir.resolve("sighteaddons/history.jsonl")
+
+    /** Time spent in the room until it turned cleared. */
+    const val CLEAR = "clear"
+
+    /**
+     * The secret run: the room's first secret to its last.
+     *
+     * Deliberately not the old `secrets` kind, whose ticks were how long you had been in the room
+     * when it turned green. Reusing that name for a shorter measurement would let every new run beat
+     * every old entry and announce it as a personal best. The old lines stay in the file — nothing
+     * here is ever rewritten — they are simply no longer read.
+     */
+    const val SECRETS = "secretrun"
 
     /** "<room>|<kind>" -> the record and how it was reached. Derived from [FILE] at startup. */
     private val best = HashMap<String, Record>()
@@ -72,24 +87,32 @@ object RoomHistory {
     }
 
     /**
-     * Called once when a room turns cleared, and once more when all its secrets are found.
+     * A room turned cleared.
      *
      * Announces who did it and how long they were in the room. Credit goes to whoever spent the most
      * time there — with several players present, one readable line beats one line per player.
      */
-    fun onRoomEvent(room: TrackedRoom, secrets: Boolean) {
+    fun onRoomCleared(room: TrackedRoom) {
         val eligible = room.ticks.filterValues { it >= ContributionTracker.MIN_TICKS }
         val (topPlayer, topTicks) = eligible.maxByOrNull { it.value } ?: return
 
+        val ownTicks = Minecraft.getInstance().player?.name?.string?.let { room.ticks[it] } ?: 0
         // Appended first and unconditionally: the chat settings below hide the message, never the
         // record. A silenced chat that also stopped writing history would lose runs for good.
-        val pb = recordOwn(room, secrets)
+        val pb = if (ownTicks >= ContributionTracker.MIN_TICKS) record(room, CLEAR, ownTicks) else null
+
+        // Same bar the history uses, so the popup shows exactly the rooms that were just recorded —
+        // and it is independent of the chat settings, being a different channel with its own switch.
+        val name = room.name
+        if (name != null && ownTicks >= ContributionTracker.MIN_TICKS) {
+            ClearPopup.show(name, secrets = false, ownTicks, pb != null)
+        }
+
         if (!Config.roomMessages) return
         if (Config.ownPbsOnly && pb == null) return
 
-        val verb = if (secrets) "secreted" else "cleared"
         val line = Component.literal(topPlayer).withStyle(ChatFormatting.WHITE)
-            .append(Component.literal(" $verb ").withStyle(ChatFormatting.GRAY))
+            .append(Component.literal(" cleared ").withStyle(ChatFormatting.GRAY))
             .append(Component.literal(room.label()).withStyle(ChatFormatting.WHITE))
             .append(Component.literal(" in ").withStyle(ChatFormatting.GRAY))
             .append(Component.literal(DungeonGrid.formatTicks(topTicks)).withStyle(ChatFormatting.AQUA))
@@ -101,15 +124,44 @@ object RoomHistory {
         announce(line)
     }
 
-    /** Appends the local player's time for this room. Returns the chat suffix if it beat the record. */
-    private fun recordOwn(room: TrackedRoom, secrets: Boolean): Component? {
+    /**
+     * The room's secret run finished: first secret to last, from [TrackedRoom.onSecret].
+     *
+     * Unlike a clear this belongs to the room, not to one player — the clock runs from the first
+     * secret to the last no matter whose hands took them, so the line names the room instead of
+     * crediting somebody this client cannot identify. What *is* known is how many of them were
+     * yours, and that rides along.
+     */
+    fun onSecretRun(room: TrackedRoom) {
+        val name = room.name ?: return
+        val ticks = room.secretRunTicks ?: return
+
+        val pb = record(room, SECRETS, ticks)
+        ClearPopup.show(name, secrets = true, ticks, pb != null)
+
+        if (!Config.roomMessages) return
+        if (Config.ownPbsOnly && pb == null) return
+
+        announce(
+            Component.literal(name).withStyle(ChatFormatting.WHITE)
+                .append(Component.literal(" secrets in ").withStyle(ChatFormatting.GRAY))
+                .append(Component.literal(DungeonGrid.formatTicks(ticks)).withStyle(ChatFormatting.AQUA))
+                .append(
+                    Component.literal(" (${room.secretsFound}, ${room.ownSecrets} yours)")
+                        .withStyle(ChatFormatting.DARK_GRAY),
+                )
+                .apply { pb?.let { append(it) } },
+        )
+    }
+
+    /**
+     * Appends one line for the local player and returns the chat suffix if it beat the record.
+     * [ticks] is whatever [kind] measures: time in the room for a clear, the secret run for secrets.
+     */
+    private fun record(room: TrackedRoom, kind: String, ticks: Int): Component? {
         val roomName = room.name ?: return null
-        val self = Minecraft.getInstance().player?.name?.string ?: return null
-        val ticks = room.ticks[self] ?: return null
-        if (ticks < ContributionTracker.MIN_TICKS) return null
         ensureLoaded()
 
-        val kind = if (secrets) "secrets" else "clear"
         val key = "$roomName|$kind"
         val previous = best[key]?.ticks
         val improved = previous == null || ticks < previous
@@ -141,15 +193,20 @@ object RoomHistory {
         )
 
         val rooms = ContributionTracker.visitedRooms()
+        val self = Minecraft.getInstance().player?.name?.string
         PartyTracker.roster()
             .map { it.name to (points[it.name] ?: 0.0) }
             .sortedByDescending { it.second }
             .forEach { (name, earned) ->
                 val contributed = rooms.count { (it.ticks[name] ?: 0) >= ContributionTracker.MIN_TICKS }
+                // Only the local player's secrets are provable. Hypixel reports secrets per room and
+                // only for the room you are standing in, so a teammate's count would be a guess —
+                // they get a dash instead, the same way the history refuses an estimated middle number.
+                val secrets = if (name == self) rooms.sumOf { it.ownSecrets } else null
                 announce(
                     Component.literal("  %5.2f".format(Locale.ROOT, earned)).withStyle(ChatFormatting.AQUA)
                         .append(Component.literal("  $name ").withStyle(ChatFormatting.WHITE))
-                        .append(Component.literal("($contributed rooms)").withStyle(ChatFormatting.DARK_GRAY)),
+                        .append(Component.literal(breakdown(contributed, secrets)).withStyle(ChatFormatting.DARK_GRAY)),
                 )
             }
 
@@ -160,16 +217,21 @@ object RoomHistory {
                     .withStyle(ChatFormatting.DARK_GRAY),
             )
         }
-        val ownSecrets = rooms.sumOf { it.ownSecrets }
+        // Secrets now ride on the player lines above, so this one carries the records alone rather
+        // than repeating your own count next to them.
         announce(
-            Component.literal("  $ownSecrets secrets yours").withStyle(ChatFormatting.AQUA)
-                .append(
-                    Component.literal(
-                        if (newThisRun.isEmpty()) ", no new records" else ", ${newThisRun.size} new records",
-                    ).withStyle(if (newThisRun.isEmpty()) ChatFormatting.DARK_GRAY else ChatFormatting.GOLD),
-                ),
+            Component.literal(
+                if (newThisRun.isEmpty()) "  no new records" else "  ${newThisRun.size} new records",
+            ).withStyle(if (newThisRun.isEmpty()) ChatFormatting.DARK_GRAY else ChatFormatting.GOLD),
         )
     }
+
+    /**
+     * The per-player breakdown behind the points: rooms they were in long enough to earn from, and
+     * the secrets they found. [secrets] is null for a teammate, whose secrets this client cannot see.
+     */
+    internal fun breakdown(rooms: Int, secrets: Int?) =
+        "($rooms rooms · ${secrets?.toString() ?: "–"} secrets)"
 
     private fun append(room: TrackedRoom, roomName: String, kind: String, ticks: Int, pb: Boolean, ts: Long) {
         val obj = JsonObject()

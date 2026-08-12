@@ -33,9 +33,18 @@ object RoomDatabase {
 
     private val byCore: Map<Int, RoomInfo> by lazy { load() }
 
+    /** Several cores share one room, so this collapses them back to one entry per name. */
+    private val byName: Map<String, RoomInfo> by lazy { byCore.values.associateBy { it.name } }
+
     val size get() = byCore.size
 
     fun lookup(core: Int): RoomInfo? = byCore[core]
+
+    /**
+     * The room behind a name. Cores are per grid cell and the history only stores names, so this is
+     * what lets the records table group rooms by type without widening the history format.
+     */
+    fun infoByName(name: String): RoomInfo? = byName[name]
 
     /**
      * Hash of the block column through the centre of the segment at [corner].

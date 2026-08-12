@@ -49,6 +49,7 @@ object DungeonSession {
         ContributionTracker.reset()
         PartyTracker.reset()
         SecretTracker.reset()
+        ClearPopup.reset()
     }
 
     /** Reads the floor from the sidebar as a side effect; that is also the in-dungeon check. */

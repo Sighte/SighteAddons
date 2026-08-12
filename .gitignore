@@ -32,6 +32,8 @@ bin/
 
 run/
 .fabric/
+# written by the loader when the tests boot it
+logs/
 
 # java
 

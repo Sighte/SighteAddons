@@ -26,12 +26,21 @@ class RoomHistoryTest {
         val catwalk = records.byKey.getValue("Catwalk|clear")
         assertEquals(120, catwalk.ticks) // best, not last and not first
         assertEquals(3, catwalk.runs)
-        assertEquals(3_000L, catwalk.lastTs) // latest, so "zuletzt" cannot show an older run
+        assertEquals(3_000L, catwalk.lastTs) // latest, so "last" cannot show an older run
         // Clear and secrets stay separate keys — a room can be cleared without its secrets.
         assertEquals(900, records.byKey.getValue("Catwalk|secrets").ticks)
         assertEquals(1, records.byKey.getValue("Water Board|clear").runs)
         // Every valid line raises exactly one run count, which is the line total the screen shows.
         assertEquals(5, records.entries)
+    }
+
+    @Test
+    fun `a teammate's secrets read as a dash, never as zero`() {
+        assertEquals("(7 rooms · 12 secrets)", RoomHistory.breakdown(7, 12))
+        // Zero is a claim about a teammate this client cannot make: it never saw the rooms they
+        // were in alone, so an unknown count must not read like an empty one.
+        assertEquals("(9 rooms · – secrets)", RoomHistory.breakdown(9, null))
+        assertEquals("(0 rooms · 0 secrets)", RoomHistory.breakdown(0, 0))
     }
 
     @Test

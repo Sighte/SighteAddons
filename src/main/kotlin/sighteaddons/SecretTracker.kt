@@ -41,6 +41,9 @@ object SecretTracker {
     /** Ticks the counter may lag behind your click before the two stop being considered related. */
     private const val OWN_WINDOW = 40
 
+    /** 10 s without a further secret ends a started run — as a discard, never as a slow time. */
+    private const val ABANDON_TICKS = 200
+
     /** A repeat of one click within this many ticks is the same interaction, not a second find. */
     private const val REPEAT_WINDOW = 5
 
@@ -109,10 +112,15 @@ object SecretTracker {
         }
         if (bar.found <= room.secretsFound) return
 
-        val delta = bar.found - room.secretsFound
+        val previous = room.secretsFound
+        val delta = bar.found - previous
         room.secretsFound = bar.found
 
         val mine = isOwn(DungeonSession.runTicks, lastOwnInteraction)
+        // When the secret is yours, the click is the moment it was taken — the bar can lag up to
+        // [OWN_WINDOW] ticks behind it, and timing a run off the lag would measure the server, not
+        // the player. Read before the credit below resets the timestamp.
+        val at = if (mine) lastOwnInteraction else DungeonSession.runTicks
         if (mine) {
             room.ownSecrets++
             lastOwnInteraction = NO_INTERACTION // one click credits one secret, not a whole burst
@@ -121,6 +129,42 @@ object SecretTracker {
             "secret",
             "room" to room.label(), "found" to bar.found, "max" to bar.max, "delta" to delta,
             "mine" to mine, "ownTotal" to room.ownSecrets,
+        )
+        trackRun(room, previous, bar, at)
+    }
+
+    /**
+     * Feeds one secret into the room's run timer. Only a completed run reaches the history; a run
+     * that started late or died quietly is logged and dropped.
+     */
+    private fun trackRun(room: TrackedRoom, previous: Int, bar: BarSecrets, at: Int) {
+        when (room.onSecret(previous, bar.found, bar.max, at)) {
+            TrackedRoom.SecretRun.STARTED ->
+                DebugLog.event("secret_run_start", "room" to room.label(), "at" to at, "max" to bar.max)
+            TrackedRoom.SecretRun.DONE -> {
+                DebugLog.event(
+                    "secret_run_done",
+                    "room" to room.label(), "ticks" to room.secretRunTicks,
+                    "secrets" to bar.max, "own" to room.ownSecrets,
+                )
+                RoomHistory.onSecretRun(room)
+            }
+            TrackedRoom.SecretRun.DISCARDED ->
+                DebugLog.event(
+                    "secret_run_discarded",
+                    "room" to room.label(), "previous" to previous, "found" to bar.found, "max" to bar.max,
+                )
+            TrackedRoom.SecretRun.RUNNING, TrackedRoom.SecretRun.IGNORED -> Unit
+        }
+    }
+
+    /** Called once per tick per room, from the tracker that owns the clock. */
+    fun expireRun(room: TrackedRoom, now: Int) {
+        if (!room.expireSecretRun(now, ABANDON_TICKS)) return
+        DebugLog.event(
+            "secret_run_abandoned",
+            "room" to room.label(), "found" to room.secretsFound, "max" to (room.info?.secrets ?: -1),
+            "quiet" to ABANDON_TICKS,
         )
     }
 
