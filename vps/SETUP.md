@@ -89,6 +89,7 @@ sudo -u sighte tee /srv/sighte/ingest.py >/dev/null <<'PY'
     SIGHTE_INBOX=/srv/sighte/inbox
     SIGHTE_PROFILES=/srv/sighte/profiles
     SIGHTE_PORT=8420
+    SIGHTE_HOST=0.0.0.0           # 127.0.0.1 when a reverse proxy fronts this
 
     POST /ingest    body = session JSONL, X-Session-File: session-<millis>.jsonl
     POST /runs      body = one run report, X-Session-File: run-<millis>-<uuid>.json
@@ -109,6 +110,8 @@ TOKEN = os.environ["SIGHTE_TOKEN"]
 INBOX = Path(os.environ.get("SIGHTE_INBOX", "/srv/sighte/inbox"))
 PROFILES = Path(os.environ.get("SIGHTE_PROFILES", "/srv/sighte/profiles"))
 PORT = int(os.environ.get("SIGHTE_PORT", "8420"))
+# 127.0.0.1 once something else terminates TLS in front of this; see "Narrowing the exposure".
+HOST = os.environ.get("SIGHTE_HOST", "0.0.0.0")
 
 # A 20 000-event session is a few MB; this is the runaway guard, not a target.
 MAX_BYTES = 64 * 1024 * 1024
@@ -195,8 +198,8 @@ class Ingest(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"sighte-ingest on :{PORT} -> {INBOX}, {PROFILES}", flush=True)
-    ThreadingHTTPServer(("0.0.0.0", PORT), Ingest).serve_forever()
+    print(f"sighte-ingest on {HOST}:{PORT} -> {INBOX}, {PROFILES}", flush=True)
+    ThreadingHTTPServer((HOST, PORT), Ingest).serve_forever()
 PY
 ````
 
@@ -283,7 +286,7 @@ the mapping below is where to start, not a diagnosis.
 |---|---|
 | `calibration_waiting` repeats, `calibrated` never arrives | `DungeonSession` — the entrance/Mort anchors never both resolved. Check `mort_found` and what the floor detection saw. |
 | `calibrated` arrives with an offset that puts rooms off-grid | `DungeonGrid` / `DungeonSession` calibration maths. Cross-check a `player_room` cell against the player's real coordinates in the same event. |
-| `tab_slot` rows present but no roster | `PartyTracker` regex vs. the raw row in the event — Hypixel changed the tab format. |
+| `tab_slot` rows present but no roster | `PartyTracker` regex vs. the `row` in the event — Hypixel changed the tab format. The name in it is replaced; if the row did not parse, everything name-shaped outside the known class/rank vocabulary is too, so read a missing token as redaction, not as Hypixel dropping a field. |
 | `player_room` maps two players to one decoration, or drops members | The decoration-order heuristic in `PartyTracker` (see its `ponytail:` comment). The upgrade path — the player-slot digit in the decoration map key — is already noted there. |
 | `room_unmatched` with a full block column | Decide *which* of the two it is before touching anything: (a) the column was hashed from the wrong blocks → `RoomDatabase.coreAt` drifted from Odin's algorithm, fix the algorithm; (b) the column is right but the hash is absent from `rooms.json` → **report it, do not edit the data.** |
 | `unattributed` large relative to `roomsCleared` in `run_end` | Same decoration→player mapping as above; the gap is the built-in diagnostic for it. |
@@ -307,7 +310,11 @@ the mapping below is where to start, not a diagnosis.
   not otherwise touch.
 - **Never push to `main`, never force-push, never rewrite history.** PRs only.
 - Never commit tokens or `upload.properties`. Nothing under `/srv/sighte/inbox`, `processed` or
-  `profiles` belongs in the repo — telemetry contains player names.
+  `profiles` belongs in the repo — that data is somebody's play history even in pseudonymous form.
+- Players appear as `p-<8 hex>`, not as names, and the salt is regenerated every launch. Two sessions
+  therefore use **different** pseudonyms for the same person: never carry an identity across
+  sessions, and never try to re-identify one. Within a session they are stable, which is all any
+  attribution finding needs. Never weaken this to "make analysis easier".
 - Do not delete telemetry. Moving a session to `processed/` is the only thing you do to those files.
 - **`/srv/sighte/profiles/` is permanent append-only data written by the receiver.** Read it if a
   finding needs history across runs; never edit, rewrite, deduplicate or delete a line in there. A
@@ -390,8 +397,10 @@ No file, no upload. Debug sessions and run reports both go up at the *next* game
 a run, and move to an `uploaded/` folder next to themselves once the server has them. A run played
 tonight therefore lands in the profile the next time the game starts.
 
-Plain HTTP, as chosen: the token keeps strangers out of the inbox, but the logs travel readable and
-they contain party member names. Caddy in front with a real hostname is the fix if that matters.
+Plain HTTP, as chosen: the token keeps strangers out of the inbox and the logs travel readable. What
+travels is pseudonymous — party member names are replaced per launch before they ever reach the log
+(`Pseudonym.kt`), and run reports carry no teammate names at all. Section 9 puts TLS in front anyway;
+switching `url=` to `https://<host>` is the only mod-side change that needs.
 
 ## 8. Run it
 
@@ -405,6 +414,60 @@ plays, and the script exits immediately when it is empty:
 ```bash
 sudo -u sighte crontab -l 2>/dev/null | { cat; echo '*/30 * * * * /srv/sighte/run-agent.sh >> /srv/sighte/agent.log 2>&1'; } | sudo -u sighte crontab -
 ```
+
+## 9. Narrowing the exposure
+
+Both of these are optional and independent. The mod works unchanged without them; nothing below
+needs a new build.
+
+### The port does not have to face the internet
+
+`ingest.py` binds `0.0.0.0`, so port 8420 is reachable from anywhere and the bearer token is the only
+control. That is by design and the 401s prove it works, but the token is also the only thing standing
+between a stranger and *writing* into the inbox — and the inbox is read by an agent that opens pull
+requests. Restricting the port to the address that actually uploads removes that path entirely:
+
+```bash
+sudo ufw delete allow 8420/tcp; sudo ufw allow from <your-home-ip> to any port 8420 proto tcp
+```
+
+Mirror it in the IONOS cloud firewall, which is the rule that is easy to forget. Two caveats: a home
+connection usually has a **dynamic** address, so this breaks on every reconnect and the symptom is a
+silent non-upload — the mod logs a warning and moves on. And SSH is a separate rule, so this cannot
+lock you out. If the address changes often, keep the port open and rely on the token.
+
+### TLS in front
+
+Caddy terminates HTTPS and forwards to the receiver on loopback. This needs a **hostname you own**
+pointed at `217.160.51.229` — Let's Encrypt will not issue for a bare IP, so there is no version of
+this step that works with the IP alone.
+
+```bash
+sudo apt install -y caddy
+```
+
+```bash
+sudo tee /etc/caddy/Caddyfile >/dev/null <<'EOF'
+sighte.example.org {
+	reverse_proxy 127.0.0.1:8420
+}
+EOF
+sudo systemctl reload caddy
+```
+
+Then bind the receiver to loopback only, so 8420 stops being reachable from outside at all:
+
+```bash
+echo 'SIGHTE_HOST=127.0.0.1' | sudo tee -a /etc/sighte-ingest.env && sudo ufw delete allow 8420/tcp && sudo systemctl restart sighte-ingest
+```
+
+`ingest.py` reads `SIGHTE_HOST` (default `0.0.0.0`). On the mod side the only change is the URL:
+
+```properties
+url=https://sighte.example.org
+```
+
+`java.net.http` does TLS on its own, so no mod rebuild is involved.
 
 ## Checking it works
 

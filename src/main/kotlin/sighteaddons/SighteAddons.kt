@@ -103,7 +103,7 @@ class SighteAddons : ClientModInitializer {
         DebugLog.event(
             "run_end",
             "floor" to DungeonSession.floor, "roomsCleared" to ContributionTracker.roomsCleared,
-            "points" to ContributionTracker.pointsByPlayer().toString(),
+            "points" to Pseudonym.keys(ContributionTracker.pointsByPlayer()).toString(),
             "unnamed" to ContributionTracker.visitedRooms().count { it.name == null },
             "newRecords" to RoomHistory.newBestsThisRun().size,
         )
