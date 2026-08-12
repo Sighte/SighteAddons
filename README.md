@@ -20,7 +20,7 @@ Minecraft **26.1.2**, Fabric, client only.
 | Room database | `RoomDatabase.kt` | room name + secret count from a block-column core hash, per loaded chunk |
 | Party | `PartyTracker.kt` | tab-list roster, map decoration → player → room |
 | Attribution | `ContributionTracker.kt` | per-room presence, clear/secret timeline, point split |
-| Secrets | `SecretTracker.kt` | per-room secret count, and which of them were provably yours |
+| Secrets | `SecretTracker.kt` | per-room secret count, which of them were provably yours, secret-run timer |
 | History | `RoomHistory.kt` | append-only permanent room times, chat announcements, run summary |
 | Telemetry | `DebugLog.kt` | JSONL event log for diagnosing a real run |
 | Run report | `RunReport.kt` | permanent per-run record: every room and what it cost the party |
@@ -35,15 +35,17 @@ Minecraft **26.1.2**, Fabric, client only.
 Sighte F7 3:12.5  23 rooms
 Water Board  0:41.2
   cleared  02:58.6
-  secrets  03:07.1  (0)
+  secrets  0:08.6  4/6 (2 you)
 8.50  Nordwand
 6.00  Tanksalot
 ```
 
-`cleared` and `secrets` are **independent**: a white checkmark means cleared with secrets still
-missing, green means cleared *and* all secrets found. A room usually gets a clear timestamp first
-and a secrets timestamp later — or never, if the party leaves secrets behind. Both are run-relative;
-the number next to the room name is how long *you* have been in it.
+`cleared` is run-relative: the tick the room's checkmark appeared. The number next to the room name
+is how long *you* have been in it.
+
+`secrets` is the **secret run** — a stopwatch, not a timestamp. It starts the moment the room's first
+secret is taken (chest, lever, wither essence, item pickup) and stops on its last one. Nothing taken
+yet means dashes, and a run that dies goes back to dashes rather than freezing at a number.
 
 ## Settings — `/sa`
 
@@ -52,32 +54,35 @@ grid, click a row to toggle it — every change is written to `config/sighteaddo
 immediately, so there is no save button that could be forgotten.
 
 ```
-  SIGHTE ADDONS                                            0.3.0
+  SIGHTE ADDONS                                            0.4.0
   ────────────────────────────────────────────────────────────────
   HUD    CHAT    RECORDS    DEBUG
   ────────────────────────────────────────────────────────────────
-  HUD anzeigen                                                 an
-  Position                                        4, 4 · setzen
-  aktueller Raum                                               an
-  Standings                                                   aus
+  show HUD                                                     on
+  position                                         4, 4 · place
+  current room                                                 on
+  standings                                                   off
 ```
 
-`Position · setzen` switches to placement mode: the HUD is drawn at the cursor, the next left click
+`position · place` switches to placement mode: the HUD is drawn at the cursor, the next left click
 places it, right click cancels. The screen is drawn from filled rectangles and font calls only — no
 textures, no widget library, and no config-screen dependency, which is why the mod still ships with
 nothing but Fabric API and fabric-language-kotlin.
 
-**RECORDS** is the history read back: one row per room, the clear and all-secrets record side by
-side, how many runs the room was completed in, and how long ago that last happened. Clicking `Raum`,
-`clear` or `runs` sorts by that column; the list scrolls.
+**RECORDS** is the history read back: one row per room with both records side by side — time in the
+room until it cleared, and the secret run — how many runs the room was completed in, and how long ago
+that last happened. Rows are grouped by room type; clicking `room`, `type`, `clear` or `runs` sorts
+by that column, and the list scrolls.
 
 ```
-  RECORDS                                    128 zeilen · 43 räume
+  RECORDS                                    128 lines · 43 rooms
   ────────────────────────────────────────────────────────────────
-  Raum                       clear     secrets    runs     zuletzt
-  Water Board               0:41.2      1:12.0       7       heute
-  Catwalk                   0:03.6      3:15.2      12      vor 2d
-  Trap                      0:08.9      --:--.-       3      vor 9d
+  room       type            clear     secrets    runs      last
+  puzzles  9 ─────────────────────────────────────────────────────
+  Water Board               0:41.2      0:12.4       7      today
+  Tic Tac Toe               0:22.8      --:--.-      10     3d ago
+  normal rooms  56 ────────────────────────────────────────────────
+  Catwalk                   0:03.6      0:14.8      12     2d ago
 ```
 
 Records are derived from `history.jsonl` at startup, not stored — floors are collapsed on purpose,
@@ -86,14 +91,18 @@ hide announcements only: history is always written, so silencing chat never cost
 
 ## Chat
 
-Every room reports who did it and how long they were in there. Credit goes to whoever spent the most
+Every clear reports who did it and how long they were in there. Credit goes to whoever spent the most
 time in the room; `(+n)` counts the others who were also there long enough to earn points.
 
 ```
 bush_on_hide cleared Catwalk in 0:03.6 (+3)
-9ast24ray secreted Catwalk in 3:15.2 (+3)
+Catwalk secrets in 0:14.8 (6, 4 yours)  PB (was 0:19.2)
 Sighte cleared Water Board in 0:41.2  PB (was 0:52.8)
 ```
+
+A secret run names the **room**, not a player: the clock runs from the room's first secret to its
+last no matter whose hands took them, so crediting one player would be a claim this client cannot
+back. What it does know is how many of them were yours, and that rides along.
 
 Your own record rides along on the same line rather than producing a second, near-identical message.
 
@@ -101,12 +110,18 @@ At the end of the run (triggered by Hypixel's results headline):
 
 ```
 Sighte F7 — 6:42.1, 31 rooms
-   8.50  Nordwand (12 rooms)
-   6.00  Tanksalot (9 rooms)
-   0.00  AFKler (0 rooms)
+   8.50  Nordwand (12 rooms · – secrets)
+   6.00  Sighte (9 rooms · 14 secrets)
+   0.00  AFKler (0 rooms · – secrets)
    2.25 rooms unattributed
   3 new records
 ```
+
+The number in front is the contribution score, the breakdown behind it is what produced it: rooms the
+player was in for at least a second, and the secrets they found. **Secrets are only ever shown for
+you.** Hypixel reports secrets as a per-room counter and only for the room you are standing in, so a
+teammate's count would be a guess — they get a dash instead of a number this client cannot know. A
+teammate's `0` would be a claim, a dash is the truth. See [Secrets](#secrets).
 
 ## History
 
@@ -117,8 +132,14 @@ to a single number, and there is no second file that could disagree with it.
 
 ```json
 {"ts":1786530882102,"floor":"M5","room":"Catwalk","kind":"clear","ticks":824,"seconds":41.2,"secretsInRoom":4,"ownSecrets":3,"maxSecrets":6,"pb":true}
-{"ts":1786531014883,"floor":"M5","room":"Catwalk","kind":"secrets","ticks":1440,"seconds":72.0,"secretsInRoom":6,"ownSecrets":4,"maxSecrets":6,"pb":true}
+{"ts":1786531014883,"floor":"M5","room":"Catwalk","kind":"secretrun","ticks":296,"seconds":14.8,"secretsInRoom":6,"ownSecrets":4,"maxSecrets":6,"pb":true}
 ```
+
+`kind` says what `ticks` measures. `clear` is time spent in the room; `secretrun` is the secret run,
+first secret to last. Lines written before the secret run existed carry `"kind":"secrets"` and a
+third meaning — how long you had been in the room when it turned green. They are still in the file,
+because nothing here is ever rewritten, and nothing reads them any more: a shorter measurement under
+the old name would beat every old entry and announce it as a personal best.
 
 `secretsInRoom` is the room total and says nothing about who found them; `ownSecrets` is the subset
 that coincided with your own interaction. Two separate numbers on purpose — there is no estimated
@@ -128,10 +149,22 @@ Teammates are deliberately not stored: in a party-finder group they are stranger
 again, so every run would add dozens of useless entries. Contribution *points* are still computed for
 everyone — only the history is personal.
 
-The metric is **time spent in the room** until the event, not run-relative time — that is what a
-player can influence, and it stays comparable across runs and floors. At least 1 second in the room
-is required, so running through earns nothing. Time accumulates across re-entries: leaving and coming
-back continues the same counter rather than starting a new one.
+A clear is measured as **time spent in the room**, not run-relative time — that is what a player can
+influence, and it stays comparable across runs and floors. At least 1 second in the room is required,
+so running through earns nothing. Time accumulates across re-entries: leaving and coming back
+continues the same counter rather than starting a new one.
+
+A **secret run** is measured from the room's first secret to its last, and is recorded only when it
+is a whole run. Three cases produce no record at all rather than a fast one:
+
+- the room was already part-way done when its first secret reached this client — that is somebody
+  else's run, and timing the leftovers would beat every honest attempt;
+- there is no span to measure: a single-secret room, or a counter that jumps from empty to full in
+  one update;
+- **10 seconds pass without another secret** — the party moved on, and the run is discarded instead
+  of being closed at whatever the room reaches later. Coming back does not resume it.
+
+A missing record costs nothing; a wrong one is permanent, which is why every uncertain case drops.
 
 `rooms unattributed` is the gap between rooms cleared and points handed out. A large gap means the
 decoration → player mapping is losing members, so it doubles as a diagnostic.
@@ -155,6 +188,11 @@ into next.
 
 Secret *coordinates* are not needed for any of this, which is why no waypoint data is bundled. What
 this cannot do: attribute secrets to a *specific teammate*, or see secrets in rooms you are not in.
+
+The same two signals drive the **secret run** timer. It starts at the moment the room's first secret
+was taken — your own click when the secret is yours, since the action bar can lag up to two seconds
+behind it, and the bar update itself otherwise (which is what an item pickup looks like from here).
+It stops on the room's last secret. See [History](#history) for the cases that are discarded.
 Item and bat secrets are also not detected as "yours" — only block interactions are.
 
 ## Debug telemetry
@@ -245,11 +283,13 @@ JDK 26 works too — no toolchain is pinned. If Gradle 9.5.1 refuses your JDK as
 ./gradlew test
 ```
 
-The latest build is committed at [`dist/sighteaddons.jar`](dist/sighteaddons.jar) — `build` copies it
-there automatically, so the checked-in jar can never go stale relative to the source. The filename is
-fixed on purpose; git history holds the older versions.
+The latest build is committed at [`dist/sighteaddons-0.4.0.jar`](dist/sighteaddons-0.4.0.jar) —
+`build` copies it there automatically, so the checked-in jar can never go stale relative to the
+source. The filename carries `mod_version`, so a jar already sitting in `mods/` still says which
+build it is; the copy deletes the previous version, so `dist/` holds exactly one jar and git history
+holds the older ones.
 
-`build/libs/sighteaddons-<version>.jar` is the same file under its versioned name. The
+`build/libs/sighteaddons-<version>.jar` is the same file. The
 `-sources.jar` next to it is source code for IDE navigation — it contains a `fabric.mod.json` but no
 classes, so putting it in `mods/` produces a duplicate mod id and the game will not start.
 

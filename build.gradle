@@ -53,16 +53,22 @@ jar {
 	from("LICENSE-Odin")
 }
 
-// Keeps the installable jar in the repo at a stable path, so the checked-in build can never go stale
-// relative to the source. Fixed filename on purpose: git history holds the older versions.
+// Keeps the installable jar in the repo, so the checked-in build can never go stale relative to the
+// source. The filename carries the mod version, so a jar that has been copied into mods/ still says
+// which build it is. Older versions are deleted first: dist/ holds exactly one jar, and git history
+// holds the rest.
 // Reads the output directory rather than a Loom task, so it does not break when Loom renames its
 // tasks - 'remapJar' no longer exists in Loom 1.17.
+tasks.register('cleanDist', Delete) {
+	delete fileTree('dist') { include 'sighteaddons*.jar' }
+}
+// Names the one jar this build produced rather than globbing: build/libs keeps the jars of every
+// version built before it, and renaming all of them onto one name fails the build outright.
 tasks.register('copyToDist', Copy) {
+	dependsOn tasks.named('cleanDist')
 	from layout.buildDirectory.dir('libs')
-	include '*.jar'
-	exclude '*-sources.jar'
+	include "${project.archives_base_name}-${project.mod_version}.jar"
 	into 'dist'
-	rename { 'sighteaddons.jar' }
 }
 tasks.named('build') { finalizedBy tasks.named('copyToDist') }
 
