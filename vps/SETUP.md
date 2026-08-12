@@ -361,6 +361,11 @@ set -euo pipefail
 INBOX=${SIGHTE_INBOX:-/srv/sighte/inbox}
 HOME_DIR=${SIGHTE_HOME:-/srv/sighte}
 
+# cron hands over PATH=/usr/bin:/bin and nothing else, while the installer puts claude in the user's
+# ~/.local/bin. Without this every cron run dies on "claude: command not found" while the same script
+# works by hand, which is the most annoying shape a bug can have.
+PATH="$HOME_DIR/.local/bin:$PATH"
+
 compgen -G "$INBOX/*.jsonl" >/dev/null || exit 0
 
 exec 9>"$HOME_DIR/.agent.lock"
