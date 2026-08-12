@@ -41,4 +41,37 @@ class PartyTrackerTest {
         assertEquals(false, DungeonPlayer("Notch", "EMPTY").alive)
         assertEquals(true, DungeonPlayer("Notch", "Berserk").alive)
     }
+
+    /**
+     * A real M5 log ended with `"classes":[..., "DEAD", ...]` because one player died at tick 1440
+     * and never revived — their class and level were gone from the permanent record.
+     */
+    @Test
+    fun `a death keeps the class the player had while alive`() {
+        val alive = DungeonPlayer("Notch", "Mage", "XXXV")
+        val dead = PartyTracker.carryLiving(alive, DungeonPlayer("Notch", "DEAD"))
+        assertEquals("DEAD", dead.dungeonClass)
+        assertEquals("Mage", dead.livingClass)
+        assertEquals("XXXV", dead.livingLevel)
+    }
+
+    @Test
+    fun `a living row carries its own class`() {
+        val revived = PartyTracker.carryLiving(
+            DungeonPlayer("Notch", "DEAD", "", livingClass = "Mage", livingLevel = "XXXV"),
+            DungeonPlayer("Notch", "Mage", "XXXV"),
+        )
+        assertEquals("Mage", revived.livingClass)
+        assertEquals("XXXV", revived.livingLevel)
+    }
+
+    @Test
+    fun `a different player in the slot does not inherit a class`() {
+        val replaced = PartyTracker.carryLiving(
+            DungeonPlayer("Notch", "Mage", "XXXV"),
+            DungeonPlayer("Someone_Else", "DEAD"),
+        )
+        assertEquals("DEAD", replaced.livingClass)
+        assertEquals("", replaced.livingLevel)
+    }
 }

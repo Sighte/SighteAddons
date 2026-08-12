@@ -169,13 +169,23 @@ object ContributionTracker {
         if (room.pointsAwarded) return
         room.pointsAwarded = true
         val split = DungeonGrid.splitPoints(room.ticks, POINTS_PER_ROOM, MIN_TICKS)
-        split.forEach { (name, points) -> credited.merge(name, points, Double::plus) }
-        if (split.isEmpty()) {
-            // Nobody stayed long enough — this is the unattributed remainder, worth seeing.
-            DebugLog.event("unattributed", "room" to room.label(), "ticks" to room.ticks.toString())
-        } else {
+        if (split.isNotEmpty()) {
+            split.forEach { (name, points) -> credited.merge(name, points, Double::plus) }
             DebugLog.event("award", "room" to room.label(), "split" to split.toString())
+            return
         }
+        // Nobody cleared the one-second bar. In a party that filter is right — whoever did the work
+        // is in the room longer than the person walking past. Solo there is nobody else, so the
+        // point simply vanished and a run's points no longer added up to its rooms: an M7 dropped
+        // three that way, all of them empty rooms that clear the moment you step in. Falls back to
+        // raw presence and logs it as such, so a fallback stays visible in the data instead of
+        // hiding inside a normal award.
+        val fallback = DungeonGrid.splitPoints(room.ticks, POINTS_PER_ROOM, minTicks = 1)
+        fallback.forEach { (name, points) -> credited.merge(name, points, Double::plus) }
+        DebugLog.event(
+            "unattributed",
+            "room" to room.label(), "ticks" to room.ticks.toString(), "fallback" to fallback.toString(),
+        )
     }
 
     /**
