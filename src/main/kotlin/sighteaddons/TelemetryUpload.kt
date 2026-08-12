@@ -31,9 +31,16 @@ import kotlin.io.path.name
  * The file is never written by the mod and never committed — the token stays on the machine that
  * plays. Uploaded files move to `uploaded/` instead of being deleted, so a server-side mistake
  * cannot destroy the only copy of a run.
+ *
+ * ponytail: plain HTTP, and the sessions carry party member names — the token keeps strangers out of
+ * the inbox but everything travels readable. Caddy in front with a real hostname is the fix.
  */
 object TelemetryUpload {
     private const val CONFIG = "sighteaddons/upload.properties"
+
+    /** The receiver's own caps, mirrored so a file that cannot land is never put on the wire. */
+    private const val MAX_SESSION = 64L * 1024 * 1024
+    private const val MAX_RUN = 4L * 1024 * 1024
 
     /** Matches [DebugLog]'s file name; the group is the session's start time in millis. */
     private val SESSION = Regex("""^session-(\d+)\.jsonl$""")
@@ -49,6 +56,11 @@ object TelemetryUpload {
     internal fun finished(name: String, startedAt: Long): Boolean =
         SESSION.matchEntire(name)?.groupValues?.get(1)?.toLongOrNull()?.let { it < startedAt } == true
 
+    /**
+     * ponytail: everything pending goes up at launch and nothing during a run, so a session played
+     * tonight lands tomorrow. Streaming events in-run is the upgrade, and it needs the networking to
+     * leave the tick loop alone the way this does.
+     */
     fun start() {
         val startedAt = System.currentTimeMillis()
         Thread({
@@ -63,36 +75,80 @@ object TelemetryUpload {
     }
 
     private fun run(startedAt: Long) {
-        val (base, token) = config() ?: return
+        val path = FabricLoader.getInstance().configDir.resolve(CONFIG)
+        val credentials = credentials(path)
+        if (credentials == null) {
+            // Absent is the normal state for anyone who is not the author, so it stays an INFO line;
+            // a file that exists but is half filled in is a mistake worth pointing at.
+            if (Files.isRegularFile(path)) {
+                SighteAddons.LOGGER.warn("{} needs both url and token; telemetry upload stays off", path)
+            } else {
+                SighteAddons.LOGGER.info("No {}; telemetry upload stays off", path)
+            }
+            return
+        }
+
+        val (base, token) = credentials
         val client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()
         val config = FabricLoader.getInstance().configDir.resolve("sighteaddons")
         // Both travel the same way but land in different stores: the diagnostic is read once and
         // thrown away, the run report is appended to a permanent per-player profile.
-        send(client, config.resolve("debug"), "$base/ingest", token) { finished(it, startedAt) }
-        send(client, config.resolve("runs"), "$base/runs", token) { RUN.matches(it) }
+        if (!send(client, config.resolve("debug"), "$base/ingest", token, MAX_SESSION) { finished(it, startedAt) }) return
+        send(client, config.resolve("runs"), "$base/runs", token, MAX_RUN) { RUN.matches(it) }
     }
 
-    private fun send(client: HttpClient, dir: Path, url: String, token: String, accept: (String) -> Boolean) {
-        if (!Files.isDirectory(dir)) return
+    /** False when the rejection will repeat for every remaining file, so the whole run gives up. */
+    private fun send(
+        client: HttpClient,
+        dir: Path,
+        url: String,
+        token: String,
+        maxBytes: Long,
+        accept: (String) -> Boolean,
+    ): Boolean {
+        if (!Files.isDirectory(dir)) return true
+        // Oldest first: the millis in the name are fixed width, so the name already orders them.
         val pending = Files.list(dir).use { paths -> paths.filter { accept(it.name) }.toList() }
-        if (pending.isEmpty()) return
+            .sortedBy { it.name }
+        if (pending.isEmpty()) return true
 
         val done = dir.resolve("uploaded")
         Files.createDirectories(done)
         for (file in pending) {
             try {
+                val size = Files.size(file)
+                if (size > maxBytes) {
+                    // The receiver would only answer 413. A finished session is a few MB, so this
+                    // fires when something else went wrong and the file is worth looking at by hand.
+                    SighteAddons.LOGGER.warn(
+                        "Telemetry {} is {} bytes, over the {} byte limit; left in place", file.name, size, maxBytes,
+                    )
+                    continue
+                }
                 val code = post(client, file, url, token)
-                if (code in 200..299) {
-                    Files.move(file, done.resolve(file.name), StandardCopyOption.REPLACE_EXISTING)
-                    SighteAddons.LOGGER.info("Uploaded telemetry {}", file.name)
-                } else {
+                when {
+                    code in 200..299 -> {
+                        Files.move(file, done.resolve(file.name), StandardCopyOption.REPLACE_EXISTING)
+                        SighteAddons.LOGGER.info("Uploaded telemetry {}", file.name)
+                    }
+                    // A wrong token fails every file identically, and 400/413 after the checks above
+                    // mean the mod and the receiver disagree about the contract — so does the rest.
+                    code == 400 || code == 401 || code == 413 -> {
+                        SighteAddons.LOGGER.warn(
+                            "Telemetry upload of {} rejected: HTTP {}; giving up for this launch", file.name, code,
+                        )
+                        return false
+                    }
                     // Left in place on purpose — the next launch retries it.
-                    SighteAddons.LOGGER.warn("Telemetry upload of {} rejected: HTTP {}", file.name, code)
+                    // ponytail: the retry schedule is "next game start". No backoff, no queue; a real
+                    // one belongs here if the server ever stays down long enough for that to matter.
+                    else -> SighteAddons.LOGGER.warn("Telemetry upload of {} rejected: HTTP {}", file.name, code)
                 }
             } catch (e: Exception) {
                 SighteAddons.LOGGER.warn("Telemetry upload of {} failed", file.name, e)
             }
         }
+        return true
     }
 
     private fun post(client: HttpClient, file: Path, url: String, token: String): Int {
@@ -109,18 +165,18 @@ object TelemetryUpload {
         return client.send(request, HttpResponse.BodyHandlers.discarding()).statusCode()
     }
 
-    private fun config(): Pair<String, String>? {
-        val path = FabricLoader.getInstance().configDir.resolve(CONFIG)
+    /**
+     * Null when the file is absent or either key is missing — the caller decides which of those is
+     * worth saying out loud. Kept free of logging and of [FabricLoader] so it is testable on its own.
+     */
+    internal fun credentials(path: Path): Pair<String, String>? {
         if (!Files.isRegularFile(path)) return null
         val props = Properties()
         Files.newBufferedReader(path).use(props::load)
         // Base URL only: the paths below it are the mod's business, not the config file's.
         val url = props.getProperty("url").orEmpty().trim().trimEnd('/')
         val token = props.getProperty("token").orEmpty().trim()
-        if (url.isEmpty() || token.isEmpty()) {
-            SighteAddons.LOGGER.warn("{} needs both url and token; telemetry upload stays off", path)
-            return null
-        }
+        if (url.isEmpty() || token.isEmpty()) return null
         return url to token
     }
 
