@@ -103,6 +103,32 @@ class OptionalPlayer(unittest.TestCase):
                 self.assertFalse(ingest.validate_run(report(player=value), INSTALL))
 
 
+class SchemaTwo(unittest.TestCase):
+    """What the published build writes: `v` 2, no `player`, `uuid` carrying the install id.
+
+    Pinned because the two sides of this are developed apart, and the receiver rejecting the mod's
+    own payload is the kind of failure that only shows up as silent 400s in a log nobody is reading.
+    A v1 file — which does carry `player`, and can be sitting in a backlog right now waiting for the
+    next game start — has to keep validating alongside it.
+    """
+
+    def v2(self):
+        payload = report(v=2)
+        del payload["player"]
+        return payload
+
+    def test_a_v2_report_validates(self):
+        self.assertTrue(ingest.validate_run(self.v2(), INSTALL))
+
+    def test_a_v1_backlog_file_still_validates(self):
+        self.assertTrue(ingest.validate_run(report(v=1), INSTALL))
+
+    def test_the_expected_key_set_is_the_one_the_mod_writes(self):
+        # If RunReport.kt grows a field, this is the assertion that should fail first.
+        self.assertEqual(set(self.v2()), ingest.RUN_KEYS)
+        self.assertEqual(set(self.v2()["rooms"][0]), ingest.ROOM_KEYS)
+
+
 class RejectedTopLevel(unittest.TestCase):
     def reject(self, **overrides):
         self.assertFalse(ingest.validate_run(report(**overrides), INSTALL))
