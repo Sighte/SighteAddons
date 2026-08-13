@@ -321,11 +321,17 @@ per-room clear scores are derived from that history later — the mod does no sc
 
 Per run: floor, duration, party size, the classes present, own class and level, rooms cleared,
 unattributed remainder, deaths, mod and Minecraft version, and a `v` schema number. Per room: name,
-type, shape, secret and crypt counts, segment count, clear and all-secrets tick, whether it was
-already green on arrival, secrets found, own secrets, deaths, and the effort numbers —
+type, shape, secret and crypt counts, segment count, entry, clear and all-secrets tick, whether it
+was already green on arrival, secrets found, own secrets, deaths, and the effort numbers —
 `playerTicks` (the whole party's time in the room), `playersInRoom`, `ownTicks`. One player for 60
 seconds and four players for 15 are the same clear time and very different rooms, which is exactly
 what a difficulty estimate needs to see.
+
+Those three ticks are run timestamps, not durations, and they only say anything in pairs. `enterTick`
+to `clearTick` is how long the room took to clear; `clearTick` to `secretsTick` is how long the
+secrets took after that. Keeping the two apart is the point — a room can be a long fight with
+trivial secrets or the other way round, and one combined number hides exactly that. `enterTick`
+arrived with schema 3, so runs uploaded before it have no clear duration and never will.
 
 Teammates appear in aggregate only — party size, classes without names, player-ticks. Installing
 the mod is consent for your own data; the four strangers from party finder never gave any.
@@ -346,7 +352,7 @@ JDK 26 works too — no toolchain is pinned. If Gradle 9.5.1 refuses your JDK as
 ./gradlew test
 ```
 
-The latest build is committed at [`dist/sighteaddons-0.5.1.jar`](dist/sighteaddons-0.5.1.jar) —
+The latest build is committed at [`dist/sighteaddons-0.6.0.jar`](dist/sighteaddons-0.6.0.jar) —
 `build` copies it there automatically, so the checked-in jar can never go stale relative to the
 source. The filename carries `mod_version`, so a jar already sitting in `mods/` still says which
 build it is; the copy deletes the previous version, so `dist/` holds exactly one jar and git history

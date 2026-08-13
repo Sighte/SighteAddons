@@ -142,6 +142,9 @@ ROOM_KEYS = frozenset((
     "secretRunTicks", "preCleared", "playerTicks", "playersInRoom", "ownTicks", "secretsFound",
     "ownSecrets", "deaths",
 ))
+# Added by schema 3. Optional for the same reason `player` is: a v1 or v2 report can still be sitting
+# in an uploader's backlog, and rejecting it for a key its build never heard of would lose the run.
+ROOM_OPTIONAL = frozenset(("enterTick",))
 
 # ponytail: every ceiling below is "far past anything a real run reaches" rather than a measured
 # limit — a run is around 8 000 ticks over 30 rooms. When a Hypixel change makes one of them real,
@@ -226,6 +229,9 @@ ROOM_FIELDS = (
     ("maxSecrets", lambda x: _opt_num(x, -1, MAX_SECRETS)),
     ("crypts", lambda x: _opt_num(x, -1, MAX_SECRETS)),
     ("segments", lambda x: _opt_num(x, 0, 8)),
+    # Run tick of first entry, the anchor `clearTick` needs to become a duration. Same tolerance as
+    # every other tick field; a negative value is what a broken anchor would look like.
+    ("enterTick", lambda x: _opt_num(x, 0, MAX_TICKS)),
     ("clearTick", lambda x: _opt_num(x, 0, MAX_TICKS)),
     ("secretsTick", lambda x: _opt_num(x, 0, MAX_TICKS)),
     ("secretRunTicks", lambda x: _opt_num(x, 0, MAX_TICKS)),
@@ -298,14 +304,15 @@ def validate_run(report, uuid):
 def _check_room(room):
     if not isinstance(room, dict):
         return "not an object"
-    unknown = set(room) - ROOM_KEYS
+    unknown = set(room) - ROOM_KEYS - ROOM_OPTIONAL
     if unknown:
         return f"unknown key {_safe(sorted(unknown)[0])}"
     missing = ROOM_KEYS - set(room)
     if missing:
         return f"missing key {sorted(missing)[0]}"
     for key, ok in ROOM_FIELDS:
-        if not ok(room[key]):
+        # `in` because ROOM_OPTIONAL keys may be absent; everything in ROOM_KEYS is present by now.
+        if key in room and not ok(room[key]):
             return key
     return None
 

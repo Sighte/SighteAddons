@@ -20,6 +20,13 @@ class TrackedRoom(val type: RoomType, val mapSegments: Set<Pos>, val cells: Set<
     /** Accumulated presence per player, in ticks. Also the basis for point attribution. */
     val ticks = HashMap<String, Int>()
 
+    /**
+     * Run tick the first party member was seen in here. The anchor [clearedAtTick] needs to become a
+     * duration: on its own it only says *when* in the run the checkmark appeared, which is route
+     * order rather than how long the room took.
+     */
+    var enteredAtTick: Int? = null
+
     var clearedAtTick: Int? = null
     var secretsAtTick: Int? = null
     var pointsAwarded = false
@@ -339,6 +346,14 @@ object ContributionTracker {
         val cells = mapSegments.map { DungeonGrid.mapToPhysicalRoom(mapEntrance, roomSize, physicalEntrance, it) }.toSet()
         val room = TrackedRoom(type, mapSegments, cells)
         cells.forEach { rooms[it] = room }
+
+        // Discovery only happens for a cell a party member is standing in (see tick), so this is the
+        // first entry rather than the moment the map revealed the room.
+        // ponytail: presence comes from map decorations, so the clock starts when the decoration
+        // resolves — the same ceiling room.ticks already counts under, and a room entered while the
+        // decoration lags reads as marginally faster. Upgrade path is party sync, which would replace
+        // decoration reading altogether (see PartyTracker's ponytail).
+        room.enteredAtTick = DungeonSession.runTicks
 
         // Baseline: a checkmark that is already there was not earned during this run.
         val existing = DungeonMapReader.checkmarkColor(map, mapSegments, roomSize, type.color)
