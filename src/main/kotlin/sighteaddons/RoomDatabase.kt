@@ -47,16 +47,14 @@ object RoomDatabase {
     fun infoByName(name: String): RoomInfo? = byName[name]
 
     /**
-     * Hash of the block column through the centre of the segment at [corner].
+     * The block column through the centre of the segment at [corner]; its `hashCode()` is the core
+     * the database is keyed by. An all-'0' result means an empty grid cell outside the layout.
      *
      * Walks down from [TOP_Y], padding with '0' for every air (and gold block, which Hypixel
      * uses for the run-start barrier) above the room's roof, then appends each block below it.
      * Planks and chests are skipped because they vary between instances of the same room, and
      * the walk stops once it hits air below the floor's bedrock layer.
      */
-    fun coreAt(level: Level, corner: Pos): Int = columnAt(level, corner).hashCode()
-
-    /** The exact string the core hash is built from. An all-'0' result means an empty grid cell. */
     fun columnAt(level: Level, corner: Pos): String {
         val builder = StringBuilder(1024)
         val x = corner.x + CENTRE_OFFSET

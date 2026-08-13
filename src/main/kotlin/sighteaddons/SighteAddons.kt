@@ -127,7 +127,10 @@ class SighteAddons : ClientModInitializer {
 
     /** Hypixel prints the results headline when the run ends, e.g. "The Catacombs - Floor VII". */
     private fun onChat(message: String) {
-        if (summaryPrinted || !RUN_END.matches(message)) return
+        // Stripped like the sidebar and the action bar are: Hypixel puts legacy § codes inside the
+        // text, and this anchored match is the only thing that triggers the permanent run report —
+        // one added colour code would stop it being written, silently.
+        if (summaryPrinted || !RUN_END.matches(ChatFormatting.stripFormatting(message).orEmpty())) return
         summaryPrinted = true
         DebugLog.event(
             "run_end",

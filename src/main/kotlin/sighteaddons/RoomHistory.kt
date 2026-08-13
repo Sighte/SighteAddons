@@ -44,6 +44,9 @@ object RoomHistory {
      */
     const val SECRETS = "secretrun"
 
+    /** The kinds still read back. A line of any other kind stays in the file — see [SECRETS]. */
+    private val KINDS = setOf(CLEAR, SECRETS)
+
     /** "<room>|<kind>" -> the record and how it was reached. Derived from [FILE] at startup. */
     private val best = HashMap<String, Record>()
     private val newThisRun = mutableListOf<String>()
@@ -79,6 +82,16 @@ object RoomHistory {
         ensureLoaded()
         return best
     }
+
+    /**
+     * The rooms the records table has a line for.
+     *
+     * Filtered by kind rather than taken from every key: a room whose only history line is a retired
+     * kind — `secrets`, from before it became [SECRETS] — has no record in either column the table
+     * draws, and would otherwise get a row of nothing but dashes and a run count of 0.
+     */
+    internal fun roomsWithRecords(keys: Set<String>): List<String> =
+        keys.filter { it.substringAfter('|') in KINDS }.map { it.substringBefore('|') }.distinct()
 
     /** Lines in the history file, i.e. completed rooms — not records. */
     fun entryCount(): Int {

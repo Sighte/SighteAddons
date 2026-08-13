@@ -44,6 +44,26 @@ class RoomHistoryTest {
     }
 
     @Test
+    fun `a retired kind is kept in the file but gets no row in the table`() {
+        val records = RoomHistory.fold(
+            sequenceOf(
+                line("Catwalk", RoomHistory.CLEAR, 120, 1_000),
+                line("Water Board", RoomHistory.SECRETS, 300, 2_000),
+                // The pre-0.5 kind. Its ticks measured something else entirely, so nothing reads it
+                // any more — but the line stays, and a room that has only this must not become a row
+                // of dashes with a run count of 0.
+                line("Old Room", "secrets", 900, 3_000),
+            ),
+        )
+
+        assertEquals(3, records.entries) // every line still counted as history
+        assertEquals(
+            listOf("Catwalk", "Water Board"),
+            RoomHistory.roomsWithRecords(records.byKey.keys).sorted(),
+        )
+    }
+
+    @Test
     fun `unreadable lines are counted, not fatal`() {
         val records = RoomHistory.fold(
             sequenceOf(line("Catwalk", "clear", 120, 1_000), "", "{not json", """{"room":"X"}"""),
