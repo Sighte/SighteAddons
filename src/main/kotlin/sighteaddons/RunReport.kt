@@ -2,9 +2,14 @@ package sighteaddons
 
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import net.fabricmc.loader.api.FabricLoader
 import net.minecraft.client.Minecraft
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption
+import kotlin.io.path.name
 
 /**
  * One JSON file per finished run: every room with what it cost the party, plus the context that
@@ -26,6 +31,12 @@ import java.nio.file.Files
  * the Minecraft UUID, and the player's name is not written at all — the mod ships to everyone now,
  * and a permanent per-person history is not something a dungeon tracker should be accumulating about
  * strangers. What the server gets is a run, attached to an identity only its owner can resolve.
+ *
+ * [Config.uploadName] is the one way out of that, and only for the person who ticks it: it adds a
+ * `player` field with their own Minecraft name, which is what a leaderboard needs to put a label on
+ * a row. The id stays the identity either way — the name is an annotation on it, not a replacement,
+ * so switching it back off leaves the profile intact and merely stops naming it. Teammates are
+ * unaffected in both directions; they are not in this file to begin with.
  */
 object RunReport {
     /**
@@ -48,9 +59,10 @@ object RunReport {
         val report = build(
             ts = ts,
             installId = id,
-            // Still needed to pick the uploader's own rows out of the roster and the tick maps; it
-            // does not reach the file.
+            // Always needed to pick the uploader's own rows out of the roster and the tick maps.
+            // Whether it also reaches the file is [named]'s decision alone.
             player = self.name.string,
+            named = Config.uploadName,
             floor = DungeonSession.floor ?: "?",
             runTicks = DungeonSession.runTicks,
             roster = PartyTracker.roster(),
@@ -72,13 +84,98 @@ object RunReport {
     }
 
     /**
+     * The `/sa` switch flipped: brings the queue in line with the decision that was just made.
+     *
+     * A report is written at run end and only handed over at the **next** game start, so between
+     * those two moments the queue holds files whose naming reflects a setting the player has since
+     * changed. Without this, three runs played before the switch went on would still leave anonymously
+     * — the consent was given before they were sent, and the queue is the only place that is still
+     * ours to correct.
+     *
+     * The boundary is `uploaded/`: what has left the machine stays as it left.
+     */
+    fun restampPending() {
+        val player = Minecraft.getInstance().player?.name?.string
+        // Switched on with no name to stamp: leave the queue alone rather than stripping it, which
+        // would be the opposite of what was just asked for.
+        if (Config.uploadName && player == null) return
+        val name = player.takeIf { Config.uploadName }
+
+        val dir = FabricLoader.getInstance().configDir.resolve("sighteaddons/runs")
+        // ponytail: synchronous, on the click. A daemon thread would be the worse choice here, not the
+        // better one — the upload pass at game start walks this same directory, and a concurrent
+        // restamp could rewrite a file send() has already read or is moving. The count is bounded by
+        // runs since the last launch: single digits, a few kB each.
+        val changed = restamp(dir, name)
+        if (changed > 0) {
+            SighteAddons.LOGGER.info(
+                "{} {} queued run report(s) in {}", if (name != null) "Named" else "Unnamed", changed, dir,
+            )
+        }
+    }
+
+    /**
+     * Stamps or strips the uploader's own name on the reports that have not left the machine yet.
+     * [player] null removes the field. Returns how many files it changed.
+     *
+     * Takes the directory so it can be tested without a game directory, the same way [build] takes
+     * its payload rather than reading the world.
+     */
+    internal fun restamp(dir: Path, player: String?): Int {
+        if (!Files.isDirectory(dir)) return 0
+        // Not recursive, so `uploaded/` and `rejected/` are out of reach by construction — and
+        // filtered by the uploader's own pattern on top, so both sides agree on what a report is.
+        val pending = try {
+            Files.list(dir).use { paths -> paths.filter { TelemetryUpload.RUN.matches(it.name) }.toList() }
+        } catch (e: Exception) {
+            SighteAddons.LOGGER.warn("Could not list {} to update the queued reports", dir, e)
+            return 0
+        }
+
+        var changed = 0
+        for (file in pending) {
+            try {
+                val report = JsonParser.parseString(Files.readString(file)).asJsonObject
+                val before = report.get("player")?.asString
+                if (before == player) continue
+                // Absent, never null: the receiver reads the key's presence as the consent itself.
+                // Re-added at the end of the object rather than after `uuid`; check_run walks its own
+                // field list, so the order is nothing the server can see.
+                if (player == null) report.remove("player") else report.addProperty("player", player)
+                replace(file, report.toString())
+                changed++
+            } catch (e: Exception) {
+                // One odd file must not leave the rest of the queue half converted, and it must never
+                // make the switch itself fail.
+                SighteAddons.LOGGER.warn("Could not update the name in {}; left as it was", file.name, e)
+            }
+        }
+        return changed
+    }
+
+    /**
+     * Replaces a queued report in one step. A half-written report is a 400 at the receiver and then a
+     * permanent resident of `rejected/`, which is far more expensive than the temporary file — the
+     * server takes the same precaution on its own side of the wire.
+     */
+    private fun replace(file: Path, body: String) {
+        val tmp = file.resolveSibling("${file.name}.part")
+        Files.writeString(tmp, body)
+        try {
+            Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+
+    /**
      * Pure so the payload can be tested without a game: this shape is the contract the server side
      * and every later evaluation are written against.
      */
     internal fun build(
         ts: Long,
         installId: String,
-        /** Used to find the uploader's own class and ticks. Never written to the report. */
+        /** Used to find the uploader's own class and ticks. Written to the report only when [named]. */
         player: String,
         floor: String,
         runTicks: Int,
@@ -89,11 +186,18 @@ object RunReport {
         deaths: Int,
         modVersion: String,
         mcVersion: String,
+        /** [Config.uploadName]. Defaulted so every existing caller stays anonymous by construction. */
+        named: Boolean = false,
     ): JsonObject {
         val obj = JsonObject()
         obj.addProperty("v", SCHEMA)
         obj.addProperty("ts", ts)
         obj.addProperty("uuid", installId)
+        // Absent rather than null when the player has not asked to be named: the receiver reads the
+        // key's presence as the consent, and a null would be a claim about a name instead of silence.
+        // No schema bump — the field has been the contract's one optional key since the receiver was
+        // written, precisely so this could be turned on without invalidating a single stored report.
+        if (named) obj.addProperty("player", player)
         obj.addProperty("floor", floor)
         obj.addProperty("runTicks", runTicks)
         obj.addProperty("partySize", roster.size)

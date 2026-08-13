@@ -61,8 +61,14 @@ object TelemetryUpload {
     /** Matches [DebugLog]'s file name; the group is the session's start time in millis. */
     private val SESSION = Regex("""^session-(\d+)\.jsonl$""")
 
-    /** [RunReport]'s file name. Written in one go, so it is complete as soon as it exists. */
-    private val RUN = Regex("""^run-\d+-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.json$""")
+    /**
+     * [RunReport]'s file name. Written in one go, so it is complete as soon as it exists.
+     *
+     * Internal rather than private because [RunReport.restamp] walks the same queue and has to agree
+     * with this on what a report file is — two regexes for one contract is how a file gets edited
+     * that the uploader never sends, or missed by the edit and sent stale.
+     */
+    internal val RUN = Regex("""^run-\d+-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.json$""")
 
     /**
      * A session is finished exactly when it started before this process did. The current session's

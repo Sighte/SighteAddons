@@ -26,7 +26,8 @@ Minecraft **26.1.2**, Fabric, client only.
 | Pseudonyms | `Pseudonym.kt` | replaces party member names on their way into that log |
 | Run report | `RunReport.kt` | permanent per-run record: every room and what it cost the party |
 | Upload | `TelemetryUpload.kt` | ships session logs and run reports to the analysis server |
-| Settings | `SettingsScreen.kt` | the `/sa` screen: settings tabs and the personal-record table |
+| Settings | `SettingsScreen.kt` | the `/sa` screen: settings tabs and the room history |
+| History table | `RecordTable.kt` | the rows behind that history: the room join, type filter, search, sort |
 | Config | `Config.kt` | the settings that screen writes, plus the upload id, as one JSON object |
 | HUD | `SighteAddons.kt` | live overlay, `/sa` command, run-end hook |
 
@@ -50,14 +51,14 @@ yet means dashes, and a run that dies goes back to dashes rather than freezing a
 
 ## Settings — `/sa`
 
-`/sa` opens the settings screen, `/sa pbs` jumps straight to the records table. Four tabs, one row
-grid, click a row to toggle it — every change is written to `config/sighteaddons/config.json`
-immediately, so there is no save button that could be forgotten.
+`/sa` opens the settings screen, `/sa pbs` jumps straight to the history. Four tabs, one row grid,
+click a row to toggle it — every change is written to `config/sighteaddons/config.json` immediately,
+so there is no save button that could be forgotten.
 
 ```
-  SIGHTE ADDONS                                            0.5.1
+  SIGHTE ADDONS                                            0.5.2
   ────────────────────────────────────────────────────────────────
-  HUD    CHAT    RECORDS    DEBUG
+  hud    chat    history    debug
   ────────────────────────────────────────────────────────────────
   show HUD                                                     on
   position                                         4, 4 · place
@@ -65,30 +66,59 @@ immediately, so there is no save button that could be forgotten.
   standings                                                   off
 ```
 
+The **debug** tab holds the upload switches: run reports on or off, *send my name* (off by default,
+see [Sending your name](#sending-your-name--off-by-default)), and the upload id itself.
+
 `position · place` switches to placement mode: the HUD is drawn at the cursor, the next left click
 places it, right click cancels. The screen is drawn from filled rectangles and font calls only — no
 textures, no widget library, and no config-screen dependency, which is why the mod still ships with
-nothing but Fabric API and fabric-language-kotlin.
+nothing but Fabric API and fabric-language-kotlin. That also rules out glyphs the 9px bitmap font
+does not carry: the sort arrow and the progression bars below are rectangles, not `▲` and `▁`.
 
-**RECORDS** is the history read back: one row per room with both records side by side — time in the
-room until it cleared, and the secret run — how many runs the room was completed in, and how long ago
-that last happened. Rows are grouped by room type; clicking `room`, `type`, `clear` or `runs` sorts
-by that column, and the list scrolls.
+## History — `/sa pbs`
+
+The history read back: one row per room with both records side by side — time in the room until it
+cleared, and the secret run — how many runs the room was completed in, and how long ago that last
+happened.
 
 ```
-  RECORDS                                    128 lines · 43 rooms
-  ────────────────────────────────────────────────────────────────
-  room       type            clear     secrets    runs      last
-  puzzles  9 ─────────────────────────────────────────────────────
-  Water Board               0:41.2      0:12.4       7      today
-  Tic Tac Toe               0:22.8      --:--.-      10     3d ago
-  normal rooms  56 ────────────────────────────────────────────────
-  Catwalk                   0:03.6      0:14.8      12     2d ago
+  SIGHTE ADDONS                                 45 rooms · 347 attempts
+  ─────────────────────────────────────────────────────────────────────
+  hud    chat    history    debug
+  ─────────────────────────────────────────────────────────────────────
+  all 45   puzzle 7   trap 2   rare 5   normal 26   other 5
+  ─────────────────────────────────────────────────────────────────────
+  room            type        clear      secrets     runs        last ▾
+  Water Board     puzzle      0:41.2      0:12.4        7        today
+      clear   ▁▃▂▅▁▂▁   best 0:41.2 · median 0:52.0 · 7 attempts
+      floors  F7 0:41.2 · M7 0:44.0 · F6 0:48.1
+      room    1x1 · 4 secrets · 2 crypts
+  Tic Tac Toe     puzzle      0:22.8           –       10       3d ago
+  Catwalk         normal      0:18.4      0:09.1       12       3d ago
 ```
 
-Records are derived from `history.jsonl` at startup, not stored — floors are collapsed on purpose,
-because the metric is time spent in the room and stays comparable across floors. The chat settings
-hide announcements only: history is always written, so silencing chat never costs a record.
+The table has exactly one arrangement at any time: **a chip says which rooms, a column says in which
+order, and neither changes the other.** The type chips filter — `other` is the leftovers, so no room
+can fall out of every chip — and every column sorts, with a second click on the same one reversing
+it. Rooms with no time for that column stay at the bottom in both directions; reversing `secrets`
+should not open the table on a screen of dashes. The `type` column only appears under `all`, where it
+is the only place that word is not already on the screen.
+
+**Type to filter.** There is no input box: any character starts a search on the room name, backspace
+deletes, and the first escape clears it before the second one closes the screen. While a search is
+active it replaces the counts in the top right, and the chip counts follow it — so a chip always
+advertises the number of rows a click on it produces.
+
+**Click a room** for its detail: the progression of its clear times as one bar per attempt (oldest
+left, personal bests in gold, capped at twice the median so one wipe does not flatten the rest), its
+best time per floor, and the shape, secrets and crypts from the room database. All of that already
+sat in `history.jsonl` — every line has carried its floor and a PB flag since the first version, and
+the table simply never read them back.
+
+Records are derived from `history.jsonl` at startup, not stored — floors are collapsed for the record
+itself on purpose, because the metric is time spent in the room and stays comparable across floors.
+The chat settings hide announcements only: history is always written, so silencing chat never costs a
+record.
 
 ## Chat
 
@@ -200,7 +230,7 @@ Item and bat secrets are also not detected as "yours" — only block interaction
 
 **Off for an ordinary install**, on in the development environment. The public upload tier never
 ships sessions — only the private one does — so a session written on somebody else's machine is a few
-MB per launch that nobody can ever read. Turn it on in `/sa` → **DEBUG** → *JSONL telemetry*, or with
+MB per launch that nobody can ever read. Turn it on in `/sa` → **debug** → *JSONL telemetry*, or with
 `-Dsighteaddons.debug=true`.
 
 The property only seeds the *first* launch: from then on `config.json` holds the value and the `/sa`
@@ -241,7 +271,7 @@ Volume is bounded: only *changes* are written, and the file stops at 20 000 even
 > **This mod uploads by default.** When a dungeon run finishes, a report of it is sent to the mod's
 > analysis server: rooms, times, party size and classes, filed under a random id that is generated on
 > your machine. **Your Minecraft name and UUID are not part of it, and neither is anybody else's.**
-> Switch it off in `/sa` → **DEBUG** → *upload run reports*. The mod says this once in chat the first
+> Switch it off in `/sa` → **debug** → *upload run reports*. The mod says this once in chat the first
 > time it runs. The transport is plain HTTP.
 
 Two tiers, and what separates them is what may leave the machine:
@@ -274,12 +304,42 @@ to the public tier, so a typo cannot look like it worked.
 
 ### Your upload id
 
-`/sa` → **DEBUG** shows the id every one of your run reports is filed under. It is random, generated
+`/sa` → **debug** shows the id every one of your run reports is filed under. It is random, generated
 once on first launch, and stored in `config.json`. Nothing on the server can turn it back into a
-player — which is the point: hand it over yourself if you ever want your runs attached to your name,
-for a leaderboard or anything else, and until you do there is nothing there that points at you.
+player — which is the point: until you say otherwise there is nothing in there that points at you.
 
 Deleting `config.json` starts a new id and orphans the history under the old one.
+
+### Sending your name — off by default
+
+`/sa` → **debug** → *send my name* adds your Minecraft name to every run report from then on, as a
+`player` field next to the id. **Off unless you switch it on.** A leaderboard needs a name to put on
+a row, and that name is yours to give — not a default anybody can be opted into.
+
+The row shows the name itself instead of the word *on*, so what would leave the machine is legible
+before the click rather than after it. If run reports are switched off it says so too: a name with
+nothing being sent is a reason to wonder why no leaderboard ever knows you.
+
+The id stays the identity either way. The name annotates it rather than replacing it, so switching
+back off keeps the profile and merely stops naming it.
+
+**The switch reaches back as far as the queue, and no further.** A report is written when the run ends
+but only handed over at the *next* game start, so there is a window where a finished run sits in
+`config/sighteaddons/runs/` waiting. Flipping the switch rewrites what is still in there — in both
+directions, so turning it off un-names them again. The boundary is `runs/uploaded/`: once a report has
+left the machine it stays exactly as it left, and so does everything already on the server. Three runs
+played and *then* opted into therefore go up named; three runs already uploaded stay anonymous.
+
+**It names you and nobody else.** Teammates never appear by name in a run report at all, and this
+changes nothing about that: the four strangers from party finder cannot consent through somebody
+else's settings screen. Same reason debug sessions stay off the public tier even pseudonymised.
+
+No schema bump — `player` has been the run report's one optional key since the receiver was written
+(`check_run` in `vps/ingest.py`), precisely so this could be switched on without invalidating a
+single stored report. The receiver reads the key's *presence* as the consent, which is why an
+anonymous report omits the key rather than sending null: `check_run` rejects `"player": null` outright,
+so absent is the only way to say nothing. A report the switch reached carries the key at the end of the
+object instead of after `uuid`, which the validator does not care about — it walks its own field list.
 
 Uploads happen **at game start, for what previous sessions left behind** — not at `run_end`, which
 never fires when the game crashes or the run is left early, losing exactly the material worth
@@ -306,11 +366,11 @@ a row the regex *fails* on — the case that event exists for — is redacted co
 keeping the format and dropping anything name-shaped.
 
 `RunReport` goes further and names nobody at all — not teammates, and since 0.5.0 not you either.
-Party size, classes and player-ticks, filed under your upload id. There is no Minecraft name and no
-Minecraft UUID anywhere in it.
+Party size, classes and player-ticks, filed under your upload id. No Minecraft UUID anywhere in it,
+and no name unless you switch *send my name* on, which adds yours and only ever yours.
 
 The transport is plain HTTP, so nothing on the way is encrypted — put Caddy in front with a real
-hostname if that matters. What travels carries no names either way.
+hostname if that matters. Nobody else's name travels either way.
 
 ## Run reports
 

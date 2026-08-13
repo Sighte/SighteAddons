@@ -63,6 +63,31 @@ class RoomHistoryTest {
         )
     }
 
+    /**
+     * The detail line in `/sa` draws a room's progression, so the fold has to keep every attempt and
+     * not just their minimum. Floor and PB flag have been written since the first version.
+     */
+    @Test
+    fun `every attempt is kept, in file order, with its floor and pb flag`() {
+        val records = RoomHistory.fold(
+            sequenceOf(
+                """{"ts":1000,"floor":"F7","room":"Catwalk","kind":"clear","ticks":200,"pb":true}""",
+                """{"ts":2000,"floor":"M7","room":"Catwalk","kind":"clear","ticks":120,"pb":true}""",
+                """{"ts":3000,"floor":"F7","room":"Catwalk","kind":"clear","ticks":160,"pb":false}""",
+                // Pre-0.5 line: no pb field, and floor was not always known.
+                line("Catwalk", "clear", 300, 4_000),
+            ),
+        )
+
+        val attempts = records.attempts.getValue("Catwalk|clear")
+        assertEquals(listOf(200, 120, 160, 300), attempts.map { it.ticks }) // oldest first, none folded away
+        assertEquals(listOf("F7", "M7", "F7", "M5"), attempts.map { it.floor })
+        assertEquals(listOf(true, true, false, false), attempts.map { it.pb }) // a missing flag is not a PB
+        // The record is still the minimum over exactly those attempts.
+        assertEquals(120, records.byKey.getValue("Catwalk|clear").ticks)
+        assertEquals(attempts.size, records.byKey.getValue("Catwalk|clear").runs)
+    }
+
     @Test
     fun `unreadable lines are counted, not fatal`() {
         val records = RoomHistory.fold(

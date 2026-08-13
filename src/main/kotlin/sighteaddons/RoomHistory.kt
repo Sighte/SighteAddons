@@ -49,6 +49,18 @@ object RoomHistory {
 
     /** "<room>|<kind>" -> the record and how it was reached. Derived from [FILE] at startup. */
     private val best = HashMap<String, Record>()
+
+    /**
+     * "<room>|<kind>" -> every attempt, in the order the file has them. The record is the minimum of
+     * these; keeping the rest is what lets the `/sa` detail line draw a room's progression and its
+     * best time per floor without widening the file format — all of it has been written since the
+     * first version and was simply dropped on the way in.
+     *
+     * ponytail: whole history in memory. ~40 bytes per line, so a heavy account's 20k lines cost
+     * under a megabyte. Cap it or read the file on demand if it ever reaches six figures.
+     */
+    private val log = HashMap<String, MutableList<Attempt>>()
+
     private val newThisRun = mutableListOf<String>()
 
     private var writer: BufferedWriter? = null
@@ -64,8 +76,19 @@ object RoomHistory {
         fun plus(ticks: Int, ts: Long) = Record(minOf(this.ticks, ticks), runs + 1, maxOf(lastTs, ts))
     }
 
+    /**
+     * One completed room, as the file has it. [pb] is whether it beat the record *at the time it was
+     * written* — a fact about that run, which is exactly what the progression wants to mark.
+     * [floor] is "?" for a line written before the floor was known.
+     */
+    data class Attempt(val ticks: Int, val ts: Long, val floor: String, val pb: Boolean)
+
     /** [fold]'s result. Malformed lines are counted rather than dropped silently. */
-    internal class Records(val byKey: Map<String, Record>, val malformed: Int) {
+    internal class Records(
+        val byKey: Map<String, Record>,
+        val attempts: Map<String, List<Attempt>>,
+        val malformed: Int,
+    ) {
         /** Every valid line raises exactly one key's run count, so the total needs no own counter. */
         val entries get() = byKey.values.sumOf { it.runs }
     }
@@ -92,6 +115,12 @@ object RoomHistory {
      */
     internal fun roomsWithRecords(keys: Set<String>): List<String> =
         keys.filter { it.substringAfter('|') in KINDS }.map { it.substringBefore('|') }.distinct()
+
+    /** Every recorded attempt at one room and kind, oldest first. For the `/sa` detail line. */
+    fun attempts(room: String, kind: String): List<Attempt> {
+        ensureLoaded()
+        return log["$room|$kind"] ?: emptyList()
+    }
 
     /** Lines in the history file, i.e. completed rooms — not records. */
     fun entryCount(): Int {
@@ -183,6 +212,9 @@ object RoomHistory {
         append(room, roomName, kind, ticks, improved, ts)
         // plus() keeps the minimum, so one path covers both a new record and an ordinary run.
         best[key] = best[key]?.plus(ticks, ts) ?: Record(ticks, 1, ts)
+        // Mirrors the line just written, so the room you finished a moment ago is already in its
+        // progression without re-reading the file.
+        log.getOrPut(key) { mutableListOf() }.add(Attempt(ticks, ts, DungeonSession.floor ?: "?", improved))
         if (!improved) return null
 
         newThisRun.add("$roomName $kind ${DungeonGrid.formatTicks(ticks)}")
@@ -289,6 +321,7 @@ object RoomHistory {
      */
     internal fun fold(lines: Sequence<String>): Records {
         val out = HashMap<String, Record>()
+        val attempts = HashMap<String, MutableList<Attempt>>()
         var malformed = 0
         for (line in lines) {
             if (line.isBlank()) continue
@@ -298,11 +331,15 @@ object RoomHistory {
                 val ticks = obj["ticks"].asInt
                 val ts = obj["ts"].asLong
                 out[key] = out[key]?.plus(ticks, ts) ?: Record(ticks, 1, ts)
+                // Optional: lines written before these fields existed are still valid history.
+                attempts.getOrPut(key) { mutableListOf() }.add(
+                    Attempt(ticks, ts, obj["floor"]?.asString ?: "?", obj["pb"]?.asBoolean ?: false),
+                )
             } catch (_: Exception) {
                 malformed++
             }
         }
-        return Records(out, malformed)
+        return Records(out, attempts, malformed)
     }
 
     private fun ensureLoaded() {
@@ -312,6 +349,7 @@ object RoomHistory {
         try {
             val records = Files.newBufferedReader(FILE).useLines { fold(it) }
             best.putAll(records.byKey)
+            records.attempts.forEach { (key, list) -> log[key] = list.toMutableList() }
             entries = records.entries
             SighteAddons.LOGGER.info("Room history: {} entries, {} records{}", entries, best.size,
                 if (records.malformed > 0) " (${records.malformed} unreadable lines skipped)" else "")

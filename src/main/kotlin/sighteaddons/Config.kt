@@ -48,6 +48,20 @@ object Config {
     /** Sending run reports to the analysis server. On by default; the `/sa` DEBUG tab turns it off. */
     var upload = true
 
+    /**
+     * Whether an uploaded run report carries the player's Minecraft name next to [installId].
+     *
+     * **Off unless the player switches it on**, and the only setting in this file that makes data
+     * leave the machine identifiable. A leaderboard needs a name to put on it, but the choice to be
+     * on one is not a default anybody can be opted into — so the anonymous id stays the identity and
+     * this only adds a label to it.
+     *
+     * Their own name only. Teammates are never named in a run report at all (see [RunReport]), and
+     * this changes nothing about that: the four strangers from party finder cannot consent through
+     * somebody else's settings screen.
+     */
+    var uploadName = false
+
     /** Whether the one-time disclosure has been said. Persisted, so it is said once per install. */
     var uploadNoticeShown = false
 
@@ -55,9 +69,12 @@ object Config {
      * Who the uploaded run reports belong to. Generated once on first launch and then never again.
      *
      * Deliberately **not** the Minecraft UUID: the server files a permanent history under this, and
-     * an identity nobody can look up is the difference between a metric and a personal record. The
-     * player can read it in `/sa` and hand it over voluntarily — that is what a later leaderboard
-     * would be built on, and it stays the player's decision rather than ours.
+     * an identity nobody can look up is the difference between a metric and a personal record.
+     *
+     * Putting a name to it is the player's move, never ours, and there are two ways to make it: read
+     * the id in `/sa` and hand it over by hand, or switch on [uploadName] and let the reports carry
+     * it. The id is what a leaderboard is keyed by in both cases — [uploadName] only decides whether
+     * the rows arrive with a label already on them.
      *
      * Deleting `config.json` starts a new identity and orphans the old history. Acceptable: the
      * alternative is deriving it from something we are trying not to store.
@@ -87,6 +104,7 @@ object Config {
             runSummary = obj.bool("runSummary", runSummary)
             debugLog = obj.bool("debugLog", debugLog)
             upload = obj.bool("upload", upload)
+            uploadName = obj.bool("uploadName", uploadName)
             uploadNoticeShown = obj.bool("uploadNoticeShown", uploadNoticeShown)
             installId = if (obj.has("installId")) obj.get("installId").asString else installId
         } catch (e: Exception) {
@@ -108,6 +126,7 @@ object Config {
         obj.addProperty("runSummary", runSummary)
         obj.addProperty("debugLog", debugLog)
         obj.addProperty("upload", upload)
+        obj.addProperty("uploadName", uploadName)
         obj.addProperty("uploadNoticeShown", uploadNoticeShown)
         obj.addProperty("installId", installId)
         try {
