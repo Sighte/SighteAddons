@@ -270,7 +270,9 @@ Volume is bounded: only *changes* are written, and the file stops at 20 000 even
 
 > **This mod uploads by default.** When a dungeon run finishes, a report of it is sent to the mod's
 > analysis server: rooms, times, party size and classes, filed under a random id that is generated on
-> your machine. **Your Minecraft name and UUID are not part of it, and neither is anybody else's.**
+> your machine. **Your Minecraft name and UUID are not part of it** — not unless you switch the name
+> on yourself, see [Sending your name](#sending-your-name--off-by-default) — **and nobody else's ever
+> is.**
 > Switch it off in `/sa` → **debug** → *upload run reports*. The mod says this once in chat the first
 > time it runs. The transport is plain HTTP.
 

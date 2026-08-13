@@ -24,6 +24,11 @@ class TrackedRoom(val type: RoomType, val mapSegments: Set<Pos>, val cells: Set<
      * Run tick the first party member was seen in here. The anchor [clearedAtTick] needs to become a
      * duration: on its own it only says *when* in the run the checkmark appeared, which is route
      * order rather than how long the room took.
+     *
+     * First *sighting*, with no minimum stay — somebody crossing the room on the way elsewhere starts
+     * the clock just as much as the party that fights here. `clearedAtTick - enteredAtTick` is
+     * therefore an upper bound on the clear, never an underestimate. See the `ponytail:` note at the
+     * assignment in `discover`.
      */
     var enteredAtTick: Int? = null
 
@@ -349,10 +354,18 @@ object ContributionTracker {
 
         // Discovery only happens for a cell a party member is standing in (see tick), so this is the
         // first entry rather than the moment the map revealed the room.
-        // ponytail: presence comes from map decorations, so the clock starts when the decoration
-        // resolves — the same ceiling room.ticks already counts under, and a room entered while the
-        // decoration lags reads as marginally faster. Upgrade path is party sync, which would replace
-        // decoration reading altogether (see PartyTracker's ponytail).
+        // ponytail: two ceilings on this anchor, both of which only ever make a clear look longer or
+        // shorter than it was, never wrong in a way the number admits to.
+        // 1. No minimum stay: any sighting starts the clock, so a member who walks through a room the
+        //    party clears twenty seconds later anchors it at the walk-through. MIN_TICKS (1s) is the
+        //    threshold attribution already uses for exactly this, and applying it here is the upgrade
+        //    path — it costs a schema bump, because profiles/ is append-only and the same field would
+        //    otherwise mean two things in one average. Until then `clear` is an upper bound: fine for
+        //    ranking rooms against each other, not a difficulty weight anybody should trust blind.
+        // 2. Presence comes from map decorations, so the clock starts when the decoration resolves —
+        //    the same ceiling room.ticks already counts under, and a room entered while the decoration
+        //    lags reads as marginally faster. Upgrade path is party sync, which would replace
+        //    decoration reading altogether (see PartyTracker's ponytail).
         room.enteredAtTick = DungeonSession.runTicks
 
         // Baseline: a checkmark that is already there was not earned during this run.

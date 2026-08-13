@@ -547,11 +547,13 @@ class Ingest(BaseHTTPRequestHandler):
     def log_request(self, code="-", size="-"):
         """The request line, and the peer address only when the request was refused.
 
-        The mod tells the player their runs go up "under a random id, without your name". A 204 line
-        carrying the address sits one line away from the install id that store_run prints, in a
-        journal that keeps both for as long as the box lives — which quietly turns the random id into
-        a pseudonym for a network address. On a refusal the address is the only thing that makes a
-        flood or a token-guesser investigatable, so that direction keeps it.
+        The mod tells the player their runs go up "under a random id, without your name" — the
+        default, and all it is for anyone who never switched *send my name* on. A 204 line carrying
+        the address sits one line away from the install id that store_run prints, in a journal that
+        keeps both for as long as the box lives — which quietly turns the random id into a pseudonym
+        for a network address. The named uploaders lose nothing by this either: their name is already
+        in the line, and their address is what would be new. On a refusal the address is the only
+        thing that makes a flood or a token-guesser investigatable, so that direction keeps it.
         """
         refused = code == "-" or int(code) >= 400
         where = f"{self.address_string()} " if refused else ""

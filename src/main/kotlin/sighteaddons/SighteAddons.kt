@@ -63,6 +63,12 @@ class SighteAddons : ClientModInitializer {
      * The mod uploads by default, and a default that nobody was told about is the thing that gets
      * mods pulled and authors distrusted — the README and the Modrinth page carry the same text, but
      * neither is read by somebody who installed this from a modpack. One line, then never again.
+     *
+     * "without your name" is the default and stays true until somebody switches *send my name* on
+     * themselves, which cannot have happened yet on the first server this install ever joins. The
+     * switch is named anyway: this line is the only place most players learn what leaves the machine,
+     * and one that describes the default without mentioning the choice reads later like it was hiding
+     * it.
      */
     private fun uploadNotice() {
         if (Config.uploadNoticeShown) return
@@ -75,7 +81,7 @@ class SighteAddons : ClientModInitializer {
                     Component.literal(
                         "sends a report of each finished dungeon run to the mod's analysis server: " +
                             "rooms, times and classes, under a random id, without your name. " +
-                            "Turn it off with /sa → debug.",
+                            "Turn it off — or put your name on it — with /sa → debug.",
                     ).withStyle(ChatFormatting.GRAY),
                 ),
             )
