@@ -340,7 +340,8 @@ the mapping below is where to start, not a diagnosis.
   not otherwise touch.
 - **Never push to `main`, never force-push, never rewrite history.** PRs only.
 - Never commit tokens or `upload.properties`. Nothing under `/srv/sighte/inbox`, `processed` or
-  `profiles` belongs in the repo — that data is somebody's play history even in pseudonymous form.
+  `profiles` belongs in the repo — that data is somebody's play history, whether it carries a name or
+  only an install id.
 - Players appear as `p-<8 hex>`, not as names, and the salt is regenerated every launch. Two sessions
   therefore use **different** pseudonyms for the same person: never carry an identity across
   sessions, and never try to re-identify one. Within a session they are stable, which is all any
@@ -366,6 +367,12 @@ the mapping below is where to start, not a diagnosis.
   Never treat it as one, never look one up anywhere, never try to work out who an install belongs to,
   and never join profiles to sessions, to names, or to each other in an attempt to. Say so in the
   report if a finding seems to need it — the answer is that the finding has to be made another way.
+- **From schema 3 a profile line may carry a `player` field with its uploader's Minecraft name**,
+  because that person switched *send my name* on in `/sa` → debug. They did that so a leaderboard can
+  put a row under their name, and that is the whole of what they agreed to. It is not an opening in
+  the rule above: never quote a name in a report, never use one to join profiles to sessions or to
+  each other, never look one up anywhere. Every finding here is about the mod's behaviour, and no
+  statement about the mod's behaviour has ever needed to say whose run it was.
 
 ## House style
 

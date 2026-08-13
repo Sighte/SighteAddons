@@ -24,6 +24,13 @@ case (single-secret rooms, joined half-finished, counter jumping straight to ful
 `afterClear` covers far more visits and measures less — only the part of the hunt after the clear.
 They are never mixed into one mean.
 
+**`clear` is an upper bound, not a duration.** The mod stamps `enterTick` the first time it sees *any*
+party member in the room, with no minimum stay, so a split party where somebody passes through at tick
+100 and the others clear it at tick 3000 reports 145 s for a 1x1. The bound only ever runs long, and
+nothing here can tell the two cases apart. Ranking rooms against each other survives that; using
+`avgSeconds` as a difficulty weight does not, until the mod anchors on a minimum stay (see the
+`ponytail:` note on `enteredAtTick` in `ContributionTracker.kt`, which costs a schema bump).
+
 Recomputed in full on every run rather than updated incrementally. `profiles/` is append-only, so a
 full fold is always right, needs no state of its own, and cannot leave a wrong number behind that
 nobody can trace. The receiver is not involved: it appends run reports and nothing else.

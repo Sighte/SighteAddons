@@ -56,7 +56,7 @@ click a row to toggle it — every change is written to `config/sighteaddons/con
 so there is no save button that could be forgotten.
 
 ```
-  SIGHTE ADDONS                                            0.6.0
+  SIGHTE ADDONS                                            0.7.0
   ────────────────────────────────────────────────────────────────
   hud    chat    history    debug
   ────────────────────────────────────────────────────────────────
@@ -270,7 +270,9 @@ Volume is bounded: only *changes* are written, and the file stops at 20 000 even
 
 > **This mod uploads by default.** When a dungeon run finishes, a report of it is sent to the mod's
 > analysis server: rooms, times, party size and classes, filed under a random id that is generated on
-> your machine. **Your Minecraft name and UUID are not part of it, and neither is anybody else's.**
+> your machine. **Your Minecraft name and UUID are not part of it** — not unless you switch the name
+> on yourself, see [Sending your name](#sending-your-name--off-by-default) — **and nobody else's ever
+> is.**
 > Switch it off in `/sa` → **debug** → *upload run reports*. The mod says this once in chat the first
 > time it runs. The transport is plain HTTP.
 
@@ -421,7 +423,7 @@ JDK 26 works too — no toolchain is pinned. If Gradle 9.5.1 refuses your JDK as
 ./gradlew test
 ```
 
-The latest build is committed at [`dist/sighteaddons-0.6.0.jar`](dist/sighteaddons-0.6.0.jar) —
+The latest build is committed at [`dist/sighteaddons-0.7.0.jar`](dist/sighteaddons-0.7.0.jar) —
 `build` copies it there automatically, so the checked-in jar can never go stale relative to the
 source. The filename carries `mod_version`, so a jar already sitting in `mods/` still says which
 build it is; the copy deletes the previous version, so `dist/` holds exactly one jar and git history
