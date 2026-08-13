@@ -19,7 +19,12 @@ INSTALL = "0f5e4a1c-1111-2222-3333-444455556666"
 
 
 def room(**overrides):
-    """One room exactly as RunReport.kt writes it."""
+    """One room as RunReport.kt wrote it up to schema 2 — every key in ROOM_KEYS and nothing else.
+
+    Schema 3's `enterTick` is deliberately absent so the backlog case stays the default: most of the
+    suite is about what the validator rejects, and that is the shape it has to keep accepting. See
+    SchemaThree for the current one.
+    """
     base = {
         "name": "Catwalk",
         "type": "ROOM",
@@ -128,6 +133,46 @@ class SchemaTwo(unittest.TestCase):
         # If RunReport.kt grows a field, this is the assertion that should fail first.
         self.assertEqual(set(self.v2()), ingest.RUN_KEYS)
         self.assertEqual(set(self.v2()["rooms"][0]), ingest.ROOM_KEYS)
+
+
+class SchemaThree(unittest.TestCase):
+    """`enterTick`: the anchor that makes a clear duration possible.
+
+    `clearTick` on its own is a run timestamp, so it says how far into the run the checkmark appeared
+    and nothing about how long the room took. The pair is what the server averages per room, which is
+    why the field is worth a schema number rather than riding along quietly.
+    """
+
+    def v3(self):
+        payload = report(v=3, rooms=[room(enterTick=120, clearTick=400)])
+        del payload["player"]
+        return payload
+
+    def test_a_v3_report_validates(self):
+        self.assertTrue(ingest.validate_run(self.v3(), INSTALL))
+
+    def test_the_expected_key_set_is_the_one_the_mod_writes(self):
+        self.assertEqual(set(self.v3()["rooms"][0]), ingest.ROOM_KEYS | ingest.ROOM_OPTIONAL)
+
+    def test_a_pre_schema_three_room_still_validates(self):
+        # The whole reason the key is optional: this shape can be waiting in a backlog right now.
+        self.assertNotIn("enterTick", room())
+        self.assertTrue(ingest.validate_run(report(v=2, rooms=[room()]), INSTALL))
+
+    def test_null_passes_for_a_room_that_was_never_entered(self):
+        self.assertTrue(ingest.validate_run(report(rooms=[room(enterTick=None)]), INSTALL))
+
+    def test_a_negative_anchor_is_refused(self):
+        # What a broken anchor looks like, and it would produce a negative duration downstream.
+        self.assertFalse(ingest.validate_run(report(rooms=[room(enterTick=-1)]), INSTALL))
+
+    def test_an_anchor_past_the_tick_ceiling_is_refused(self):
+        self.assertFalse(ingest.validate_run(report(rooms=[room(enterTick=ingest.MAX_TICKS + 1)]), INSTALL))
+
+    def test_a_non_integer_anchor_is_refused(self):
+        for value in ("400", 4.5, True, []):
+            with self.subTest(value=value):
+                self.assertFalse(ingest.validate_run(report(rooms=[room(enterTick=value)]), INSTALL))
 
 
 class RejectedTopLevel(unittest.TestCase):

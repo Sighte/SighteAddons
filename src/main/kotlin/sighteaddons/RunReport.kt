@@ -31,9 +31,10 @@ object RunReport {
     /**
      * Bumped whenever a field changes meaning: this data outlives the code that wrote it. 2 dropped
      * `player` and repurposed `uuid` from the Minecraft identity to the install id, so a v1 line and
-     * a v2 line with the same `uuid` are about different things.
+     * a v2 line with the same `uuid` are about different things. 3 added `enterTick`, without which
+     * no line before it can yield a clear duration.
      */
-    private const val SCHEMA = 2
+    private const val SCHEMA = 3
 
     fun write() {
         val client = Minecraft.getInstance()
@@ -133,6 +134,10 @@ object RunReport {
         obj.addProperty("crypts", room.info?.crypts ?: -1)
         // A four-segment room is four times the walking of a 1x1 at the same clear time.
         obj.addProperty("segments", room.cells.size)
+        // Both of these are run timestamps, not durations. `enterTick` is the anchor that turns the
+        // clear one into "how long the room took" rather than "how far into the run it happened" —
+        // the server averages the difference per room.
+        obj.addProperty("enterTick", room.enteredAtTick)
         obj.addProperty("clearTick", room.clearedAtTick)
         obj.addProperty("secretsTick", room.secretsAtTick)
         // The raced part of the room: first secret to last. Null when the run never started, was
