@@ -2,17 +2,17 @@
 
 Everything the server side needs, in one file: agent prompt, runner, setup. Paste the blocks in
 order on a fresh Debian/Ubuntu box at `217.160.51.229`. Every file here is written by the commands
-themselves, except the receiver: `ingest.py` is a tracked file in this repository and section 4
-copies it out of the clone.
+themselves, except the two python programs: `ingest.py` and `roomstats.py` are tracked files in this
+repository, and sections 4 and 10 copy them out of the clone.
 
 ```
 Minecraft ─┬─ POST /ingest ─▶ 217.160.51.229:8420 ─▶ /srv/sighte/inbox      (diagnostics, private)
            └─ POST /runs   ─▶                     ─▶ /srv/sighte/profiles   (permanent, public)
                                                              │
-                                          cron every 30 min: run-agent.sh
-                                                             │
-                                              claude -p AGENT-PROMPT.md
-                                                             │
+                                          cron every 30 min: run-agent.sh      roomstats.py
+                                                             │                      │
+                                              claude -p AGENT-PROMPT.md    /srv/sighte/roomstats.json
+                                                             │                (per-room averages)
                                     PR on github.com/Sighte/SighteAddons + report
 ```
 
@@ -22,6 +22,7 @@ Minecraft ─┬─ POST /ingest ─▶ 217.160.51.229:8420 ─▶ /srv/sighte/i
 | `/srv/sighte/processed/` | Sessions the agent is done with |
 | `/srv/sighte/reports/` | One markdown report per session |
 | `/srv/sighte/profiles/<install id>.jsonl` | **Permanent** per-install run history, append-only |
+| `/srv/sighte/roomstats.json` | Per-room averages folded out of the profiles, section 10. Derived, throwaway |
 | `/srv/sighte/repo/` | Clone of the mod, where the agent works |
 
 The two streams are deliberately separate, and since the mod is published they differ in who may
@@ -541,6 +542,49 @@ url=https://sighte.example.org
 
 `java.net.http` does TLS on its own, so no mod rebuild is involved.
 
+## 10. Room averages
+
+The first thing that reads `profiles/` for what it is for. `roomstats.py` folds every run report into
+one average per room and writes `/srv/sighte/roomstats.json`. Same deployment as the receiver — it
+lives in the repository, section 2 has already put it on the box, and the copy is the deploy:
+
+```bash
+sudo -u sighte cp /srv/sighte/repo/vps/roomstats.py /srv/sighte/roomstats.py
+sudo -u sighte python3 /srv/sighte/roomstats.py
+```
+
+It is **not** a service. Nothing to enable, nothing to restart, no port — it reads files, writes one
+file and exits. Run it again whenever you want the store current; it recomputes from scratch every
+time, so running it twice costs nothing and leaves the same answer.
+
+Clearing and secret hunting are averaged apart, which is the reason this exists rather than a single
+"difficulty" column. A room can be a long fight guarding two trivial chests, or a fast clear wrapped
+around a secret nobody can find, and one number calls those equally hard. Three times per room, each
+with the number of visits behind it:
+
+| | From | Says |
+|---|---|---|
+| `clear` | `enterTick` → `clearTick` | how long the room took to clear |
+| `secretRun` | `secretRunTicks` | first secret to last, timed by the mod |
+| `afterClear` | `clearTick` → `secretsTick` | checkmark to green, the secrets left after the fight |
+
+The counts differ per metric on purpose, and reading an average without the `n` next to it is reading
+noise. `clear` needs schema 3, so runs uploaded before `enterTick` existed have none and never will.
+`secretRun` is the exact secret time but the mod discards it in every ambiguous case, so it is by far
+the sparsest. `afterClear` covers the most visits and measures the least.
+
+Pre-cleared rooms are excluded from all three: the mod stamps both ticks at first sight for a room
+that was already checkmarked, so the differences would come out `0` — a number, not a measurement.
+Visits in rooms Hypixel never named are counted as `unnamed` rather than dropped, along with
+malformed lines, so the totals in the file can be checked against the profiles they came from.
+
+```bash
+jq '.rooms[] | select(.secretRun.n > 0) | {name, secretRun}' /srv/sighte/roomstats.json
+```
+
+Nothing writes to `profiles/` here and nothing needs to: the store is derived, and deleting it costs
+one command to rebuild.
+
 ## Checking it works
 
 The receiver's own checks run without a box at all, and they are the ones that cover the validator:
@@ -565,6 +609,7 @@ Against the deployed service — `H=http://217.160.51.229:8420` and `C='curl -s 
 | Which tiers are live, and the vocabulary | `journalctl -u sighte-ingest \| grep 'sighte-ingest on'` | `private+public` and `140 rooms` |
 | Something arrived | `ls -l /srv/sighte/inbox /srv/sighte/profiles` | |
 | Runs per profile | `wc -l /srv/sighte/profiles/*.jsonl` | |
+| Room averages fold | `sudo -u sighte python3 /srv/sighte/roomstats.py` | run and visit counts matching the profiles |
 | Rejected uploads | `journalctl -u sighte-ingest \| grep 'rejected run'` | |
 | Receiver log | `journalctl -u sighte-ingest -f` | |
 | Agent log | `tail -f /srv/sighte/agent.log`, reports in `/srv/sighte/reports` | |
