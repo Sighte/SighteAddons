@@ -140,8 +140,55 @@ def _opt_num(value, low, high):
     return value is None or _num(value, low, high)
 
 
-def validate_run(report, uuid):
-    """True when the report is exactly the shape the mod is specified to write.
+RUN_FIELDS = (
+    ("v", lambda x: _num(x, 1, 10)),
+    ("ts", lambda x: _num(x, 10 ** 9, 10 ** 17 - 1)),
+    ("uuid", lambda x: _text(x, UUID)),
+    ("player", lambda x: _text(x, PLAYER)),
+    ("floor", lambda x: _text(x, FLOOR)),
+    ("runTicks", lambda x: _num(x, 0, MAX_TICKS)),
+    ("partySize", lambda x: _num(x, 0, MAX_PARTY)),
+    ("roomsCleared", lambda x: _num(x, 0, MAX_CLEARED)),
+    ("deaths", lambda x: _num(x, 0, MAX_DEATHS)),
+    ("unattributed", lambda x: _real(x, 0, MAX_CLEARED)),
+    ("modVersion", lambda x: _text(x, MOD_VERSION)),
+    ("mcVersion", lambda x: _text(x, MOD_VERSION)),
+    ("class", lambda x: _opt_text(x, CLASS)),
+    ("classLevel", lambda x: _opt_text(x, CLASS_LEVEL)),
+    ("classes", lambda x: isinstance(x, list) and len(x) <= MAX_PARTY
+        and all(_text(entry, CLASS_ENTRY) for entry in x)),
+    ("rooms", lambda x: isinstance(x, list) and len(x) <= MAX_ROOMS),
+)
+
+ROOM_FIELDS = (
+    ("name", lambda x: _opt_text(x, ROOM_NAME)),
+    # isinstance first: `in` against a frozenset raises on an unhashable value, and a list here
+    # would come back as a 500 instead of the 400 it is.
+    ("type", lambda x: isinstance(x, str) and x in ROOM_TYPES),
+    ("shape", lambda x: _opt_text(x, SHAPE)),
+    # From -1, which is the mod's "the room database had no entry for this" rather than a count.
+    # It is written as a number, so it has to pass rather than read as corrupt.
+    ("maxSecrets", lambda x: _opt_num(x, -1, MAX_SECRETS)),
+    ("crypts", lambda x: _opt_num(x, -1, MAX_SECRETS)),
+    ("segments", lambda x: _opt_num(x, 0, 8)),
+    ("clearTick", lambda x: _opt_num(x, 0, MAX_TICKS)),
+    ("secretsTick", lambda x: _opt_num(x, 0, MAX_TICKS)),
+    ("secretRunTicks", lambda x: _opt_num(x, 0, MAX_TICKS)),
+    ("playerTicks", lambda x: _opt_num(x, 0, MAX_TICKS * MAX_PARTY)),
+    ("playersInRoom", lambda x: _opt_num(x, 0, MAX_PARTY)),
+    ("ownTicks", lambda x: _opt_num(x, 0, MAX_TICKS)),
+    ("secretsFound", lambda x: _opt_num(x, 0, MAX_SECRETS)),
+    ("ownSecrets", lambda x: _opt_num(x, 0, MAX_SECRETS)),
+    ("deaths", lambda x: _opt_num(x, 0, MAX_DEATHS)),
+    # Not _opt_num: this is the one field where a bool is the only right answer, and an int check
+    # would take 0 and 1 in the other direction.
+    ("preCleared", lambda x: isinstance(x, bool)),
+)
+
+
+def check_run(report, uuid):
+    """The first field that does not fit, or None when the report is exactly the shape the mod
+    writes.
 
     Strict rather than tolerant, and that is the entire point of this function. The token on /runs
     is compiled into a published jar, so anybody who decompiles it can post here: the token no
@@ -154,69 +201,59 @@ def validate_run(report, uuid):
     ride along in a future payload. ponytail: that also means a mod that adds a field gets 400 until
     this list grows, which is the intended direction. The upgrade path is bumping `v` in the report
     and adding the field here in the same change.
+
+    It names the field rather than answering yes or no because the first real upload was rejected
+    and neither side could say why: the mod logs a 400 and moves on, and the receiver knew exactly
+    which field it was and threw that away. A validator this strict has to be able to explain itself
+    or every future mod change costs an evening.
     """
     if not isinstance(report, dict):
-        return False
-    # Required keys all present and nothing beyond them, in one comparison: subtracting the
-    # optional ones has to leave exactly the required set.
-    if set(report) - RUN_OPTIONAL != RUN_KEYS:
-        return False
-    if "player" in report and not _text(report["player"], PLAYER):
-        return False
-    return (
-        _num(report["v"], 1, 10)
-        and _num(report["ts"], 10 ** 9, 10 ** 17 - 1)
-        and _text(report["uuid"], UUID)
-        # The filename decides which profile this line is appended to, so a body claiming a
-        # different install than the file it arrived as is a mismatch, not a detail.
-        and report["uuid"] == uuid
-        and _text(report["floor"], FLOOR)
-        and _num(report["runTicks"], 0, MAX_TICKS)
-        and _num(report["partySize"], 0, MAX_PARTY)
-        and _num(report["roomsCleared"], 0, MAX_CLEARED)
-        and _num(report["deaths"], 0, MAX_DEATHS)
-        and _real(report["unattributed"], 0, MAX_CLEARED)
-        and _text(report["modVersion"], MOD_VERSION)
-        and _text(report["mcVersion"], MOD_VERSION)
-        and _opt_text(report["class"], CLASS)
-        and _opt_text(report["classLevel"], CLASS_LEVEL)
-        and isinstance(report["classes"], list)
-        and len(report["classes"]) <= MAX_PARTY
-        and all(_text(entry, CLASS_ENTRY) for entry in report["classes"])
-        and isinstance(report["rooms"], list)
-        and len(report["rooms"]) <= MAX_ROOMS
-        and all(_room(room) for room in report["rooms"])
-    )
+        return "body is not an object"
+    unknown = set(report) - RUN_KEYS - RUN_OPTIONAL
+    if unknown:
+        # Sanitised: a key name is a stranger's string, and this goes into a log a human reads.
+        return f"unknown key {_safe(sorted(unknown)[0])}"
+    missing = RUN_KEYS - set(report)
+    if missing:
+        return f"missing key {sorted(missing)[0]}"
+    for key, ok in RUN_FIELDS:
+        # `player` is the one optional key; the rest are known to be present by now.
+        if key in report and not ok(report[key]):
+            return key
+    # The filename decides which profile this line is appended to, so a body claiming a different
+    # install than the file it arrived as is a mismatch, not a detail.
+    if report["uuid"] != uuid:
+        return "uuid does not match the filename"
+    for index, room in enumerate(report["rooms"]):
+        bad = _check_room(room)
+        if bad:
+            return f"rooms[{index}].{bad}"
+    return None
 
 
-def _room(room):
-    if not isinstance(room, dict) or set(room) != ROOM_KEYS:
-        return False
-    return (
-        _opt_text(room["name"], ROOM_NAME)
-        # isinstance first: `in` against a frozenset raises on an unhashable value, and a list here
-        # would come back as a 500 instead of the 400 it is.
-        and isinstance(room["type"], str)
-        and room["type"] in ROOM_TYPES
-        and _opt_text(room["shape"], SHAPE)
-        # From -1, which is the mod's "the room database had no entry for this" rather than a
-        # count. It is written as a number, so it has to pass rather than read as corrupt.
-        and _opt_num(room["maxSecrets"], -1, MAX_SECRETS)
-        and _opt_num(room["crypts"], -1, MAX_SECRETS)
-        and _opt_num(room["segments"], 0, 8)
-        and _opt_num(room["clearTick"], 0, MAX_TICKS)
-        and _opt_num(room["secretsTick"], 0, MAX_TICKS)
-        and _opt_num(room["secretRunTicks"], 0, MAX_TICKS)
-        and _opt_num(room["playerTicks"], 0, MAX_TICKS * MAX_PARTY)
-        and _opt_num(room["playersInRoom"], 0, MAX_PARTY)
-        and _opt_num(room["ownTicks"], 0, MAX_TICKS)
-        and _opt_num(room["secretsFound"], 0, MAX_SECRETS)
-        and _opt_num(room["ownSecrets"], 0, MAX_SECRETS)
-        and _opt_num(room["deaths"], 0, MAX_DEATHS)
-        # Not _opt_num: this is the one field where a bool is the only right answer, and an int
-        # check would take 0 and 1 in the other direction.
-        and isinstance(room["preCleared"], bool)
-    )
+def validate_run(report, uuid):
+    return check_run(report, uuid) is None
+
+
+def _check_room(room):
+    if not isinstance(room, dict):
+        return "not an object"
+    unknown = set(room) - ROOM_KEYS
+    if unknown:
+        return f"unknown key {_safe(sorted(unknown)[0])}"
+    missing = ROOM_KEYS - set(room)
+    if missing:
+        return f"missing key {sorted(missing)[0]}"
+    for key, ok in ROOM_FIELDS:
+        if not ok(room[key]):
+            return key
+    return None
+
+
+def _safe(text):
+    """A stranger's string on its way into the log, cut down to something that cannot pretend to be
+    anything else."""
+    return re.sub(r"[^A-Za-z0-9_.-]", "?", str(text))[:32]
 
 
 _hits = {}
@@ -345,8 +382,11 @@ class Ingest(BaseHTTPRequestHandler):
             report = json.loads(body)
         except ValueError:
             return self.reply(400)
-        if not validate_run(report, match.group(1)):
-            print(f"rejected run {name} from {self.address_string()} ({who})", flush=True)
+        bad = check_run(report, match.group(1))
+        if bad:
+            # The field, not just the fact. A 400 that the mod cannot explain and the server will
+            # not is a silent hole between two codebases nobody is reading at the same time.
+            print(f"rejected run {name} from {self.address_string()} ({who}): {bad}", flush=True)
             return self.reply(400)
 
         PROFILES.mkdir(parents=True, exist_ok=True)
