@@ -100,6 +100,37 @@ class TelemetryUploadTest {
     }
 
     /**
+     * Reports go oldest first, so a file the server will never accept must leave the queue. Treating
+     * its rejection as fatal put one report from an older schema in front of every newer one and
+     * blocked the lot, at every launch, for good.
+     */
+    @Test
+    fun `a rejected file leaves the queue instead of stopping it`() {
+        assertEquals(TelemetryUpload.Outcome.REJECTED, TelemetryUpload.outcome(400))
+        assertEquals(TelemetryUpload.Outcome.REJECTED, TelemetryUpload.outcome(413))
+    }
+
+    /** The one genuinely global failure: a token the server refuses refuses every file the same way. */
+    @Test
+    fun `only a refused token stops the run`() {
+        assertEquals(TelemetryUpload.Outcome.STOP, TelemetryUpload.outcome(401))
+    }
+
+    @Test
+    fun `anything else is retried at the next launch`() {
+        assertEquals(TelemetryUpload.Outcome.RETRY, TelemetryUpload.outcome(404))
+        assertEquals(TelemetryUpload.Outcome.RETRY, TelemetryUpload.outcome(429))
+        assertEquals(TelemetryUpload.Outcome.RETRY, TelemetryUpload.outcome(500))
+        assertEquals(TelemetryUpload.Outcome.RETRY, TelemetryUpload.outcome(503))
+    }
+
+    @Test
+    fun `any 2xx counts as delivered`() {
+        assertEquals(TelemetryUpload.Outcome.DONE, TelemetryUpload.outcome(204))
+        assertEquals(TelemetryUpload.Outcome.DONE, TelemetryUpload.outcome(200))
+    }
+
+    /**
      * A typo in the author's own config must not quietly demote them to the public tier — their
      * sessions would stop arriving and the log would say nothing about why.
      */
