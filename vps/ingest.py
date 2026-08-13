@@ -441,6 +441,21 @@ class Ingest(BaseHTTPRequestHandler):
     # a memory problem that costs the other side nothing. Well above the seconds a real upload takes.
     timeout = 30
 
+    def client(self):
+        """The address to attribute this request to, which is not `client_address` any more.
+
+        Caddy is the peer now that the receiver only listens on loopback, so the raw peer prints
+        `127.0.0.1` for every request — including a flood and a token-guesser, which are the two
+        things these lines exist to tell apart. `client_ip` still falls back to the peer when the
+        header is absent, so this stays correct if the proxy is ever taken back out.
+
+        `headers` is missing when the request line itself failed to parse: `parse_request` calls
+        `send_error` before it reads them, and that path logs too.
+        """
+        headers = getattr(self, "headers", None)
+        forwarded = headers.get("X-Forwarded-For", "") if headers else ""
+        return client_ip(self.client_address[0], forwarded, TRUST_PROXY)
+
     def do_GET(self):
         # Not rate limited: it is the reachability probe, it writes nothing, and a monitoring curl
         # that starts answering 429 is a worse problem than the one the limit solves.
@@ -451,7 +466,7 @@ class Ingest(BaseHTTPRequestHandler):
             return self.reply(404)
 
         who = tier(self.headers.get("Authorization", ""))
-        ip = client_ip(self.client_address[0], self.headers.get("X-Forwarded-For", ""), TRUST_PROXY)
+        ip = self.client()
         # Counted before the token decides anything, so guessing it runs out of attempts. The
         # author's own uploader is exempt from the ceiling: it hands over a whole backlog at game
         # start and would otherwise rate-limit itself out of its own inbox.
@@ -552,7 +567,7 @@ class Ingest(BaseHTTPRequestHandler):
         self.end_headers()
 
     def log_request(self, code="-", size="-"):
-        """The request line, and the peer address only when the request was refused.
+        """The request line, and the client address only when the request was refused.
 
         The mod tells the player their runs go up "under a random id, without your name" — the
         default, and all it is for anyone who never switched *send my name* on. A 204 line carrying
@@ -560,15 +575,16 @@ class Ingest(BaseHTTPRequestHandler):
         keeps both for as long as the box lives — which quietly turns the random id into a pseudonym
         for a network address. The named uploaders lose nothing by this either: their name is already
         in the line, and their address is what would be new. On a refusal the address is the only
-        thing that makes a flood or a token-guesser investigatable, so that direction keeps it.
+        thing that makes a flood or a token-guesser investigatable, so that direction keeps it — and
+        `client()` rather than `address_string()` is what makes it that address rather than Caddy's.
         """
         refused = code == "-" or int(code) >= 400
-        where = f"{self.address_string()} " if refused else ""
+        where = f"{self.client()} " if refused else ""
         print(f'{where}"{self.requestline}" {code}', file=sys.stderr, flush=True)
 
     def log_message(self, fmt, *args):
         # Everything reaching this is an error path (log_error), where the address is the point.
-        print(f"{self.address_string()} {fmt % args}", file=sys.stderr, flush=True)
+        print(f"{self.client()} {fmt % args}", file=sys.stderr, flush=True)
 
 
 if __name__ == "__main__":

@@ -538,22 +538,46 @@ sudo apt install -y caddy
 sudo tee /etc/caddy/Caddyfile >/dev/null <<'EOF'
 217.160.51.229.sslip.io {
 	reverse_proxy 127.0.0.1:8420
+
+	request_body {
+		max_size 64MiB
+	}
 }
 EOF
 sudo systemctl reload caddy
 ```
 
+`request_body` mirrors `MAX_BYTES`, so a body the receiver would refuse is dropped by the proxy
+instead of being buffered on its way to a `413`. `MiB` and not `MB`: Caddy reads `MB` as 10⁶, which
+is 3 MiB *under* the receiver's own cap and would turn a large private session into a rejection that
+never reached the code deciding it.
+
+Automatic HTTPS covers the redirect as well — Caddy answers `308` on `:80` for the same hostname, so
+nothing needs to be said here about port 80 beyond leaving it open for the ACME challenge.
+
 Then bind the receiver to loopback only, so 8420 stops being reachable from outside at all, and tell
 it that the peer address it now sees is Caddy rather than a client:
 
 ```bash
-printf 'SIGHTE_HOST=127.0.0.1\nSIGHTE_TRUST_PROXY=1\n' | sudo tee -a /etc/sighte-ingest.env && sudo ufw delete allow 8420/tcp && sudo systemctl restart sighte-ingest
+printf 'SIGHTE_HOST=127.0.0.1\nSIGHTE_TRUST_PROXY=1\n' | sudo tee -a /etc/sighte-ingest.env && sudo systemctl restart sighte-ingest
 ```
+
+The bind is what closes the port, and it is the whole of it. This command used to carry a
+`sudo ufw delete allow 8420/tcp` in the middle, which is a no-op on a box where `ufw status` is
+`inactive` — worse than useless, because it reads like the step doing the work. Check with
+`ss -tln | grep 8420`: `127.0.0.1:8420` is closed to the internet no matter what any firewall says,
+and `0.0.0.0:8420` is open no matter what it says either.
 
 `SIGHTE_TRUST_PROXY=1` is what makes the rate limit read `X-Forwarded-For`. Set it **only** here,
 with a proxy actually in front: on a directly exposed port it would mean any client can pick its own
 identity for the limit and never hit it. Without it behind Caddy the opposite happens — every
 uploader in the world shares the one bucket belonging to `127.0.0.1`.
+
+Caddy **replaces** `X-Forwarded-For` rather than appending to it — verified against an echo upstream,
+a request arriving with `X-Forwarded-For: 9.9.9.9` reaches the receiver carrying the real peer and
+nothing else. That is what makes trusting the header safe here rather than an invitation to pick your
+own bucket; a proxy that appended would need `header_up X-Forwarded-For {remote_host}` to get the
+same property.
 
 `ingest.py` reads `SIGHTE_HOST` (default `0.0.0.0`). On the private tier the only change is the URL in
 `upload.properties`:
