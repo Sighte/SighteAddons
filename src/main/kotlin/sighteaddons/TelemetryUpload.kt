@@ -29,7 +29,7 @@ import kotlin.io.path.name
  *   sessions. Only the author has that file; the mod never writes it and it is never committed.
  *
  * ```properties
- * url=http://<vps-ip>:8420
+ * url=https://<host>
  * token=<shared secret>
  * ```
  *
@@ -40,9 +40,11 @@ import kotlin.io.path.name
  * Uploaded files move to `uploaded/` instead of being deleted, so a server-side mistake cannot
  * destroy the only copy of a run.
  *
- * ponytail: plain HTTP. Everything travels readable, and [PUBLIC_TOKEN] is compiled into a jar
- * anybody can decompile, so it is a spam filter and not a secret — the server treats the public tier
- * as untrusted for exactly that reason. Caddy with a real hostname is the transport fix.
+ * Both tiers travel over TLS now — Caddy in front, terminating and forwarding to loopback. That
+ * closes the readable-on-the-wire hole; it does nothing about [PUBLIC_TOKEN], which is compiled into
+ * a jar anybody can decompile and is therefore a spam filter and not a secret. The server treats the
+ * public tier as untrusted for exactly that reason, and encryption cannot change who is holding the
+ * token at the other end.
  */
 object TelemetryUpload {
     private const val CONFIG = "sighteaddons/upload.properties"
@@ -50,8 +52,15 @@ object TelemetryUpload {
     /**
      * Where an ordinary install sends its run reports. Public by construction: it ships inside the
      * jar, so treat it as a filter against drive-by noise rather than as authentication.
+     *
+     * HTTPS through Caddy, which terminates TLS and forwards to the receiver on loopback. The
+     * hostname is the IP with `.sslip.io` after it — that service resolves the address back out of
+     * the name, which is what lets Let's Encrypt issue for a box that owns no domain. `8420` is not
+     * reachable from outside any more, so an older jar with the plain-HTTP URL compiled in cannot
+     * upload at all: it keeps its reports queued and retries at every launch, which is the one shape
+     * of this change that loses nothing.
      */
-    private const val PUBLIC_URL = "http://217.160.51.229:8420"
+    private const val PUBLIC_URL = "https://217.160.51.229.sslip.io"
     private const val PUBLIC_TOKEN = "003c2cc7060f6029a94a4219ac7d7b5a9954eaf04cf89529"
 
     /** The receiver's own caps, mirrored so a file that cannot land is never put on the wire. */

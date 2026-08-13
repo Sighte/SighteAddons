@@ -6,8 +6,8 @@ themselves, except the two python programs: `ingest.py` and `roomstats.py` are t
 repository, and sections 4 and 10 copy them out of the clone.
 
 ```
-Minecraft ─┬─ POST /ingest ─▶ 217.160.51.229:8420 ─▶ /srv/sighte/inbox      (diagnostics, private)
-           └─ POST /runs   ─▶                     ─▶ /srv/sighte/profiles   (permanent, public)
+Minecraft ─┬─ POST /ingest ─▶ https://217.160.51.229.sslip.io ─▶ /srv/sighte/inbox     (diagnostics, private)
+           └─ POST /runs   ─▶ Caddy ─▶ 127.0.0.1:8420        ─▶ /srv/sighte/profiles  (permanent, public)
                                                              │
                                           cron every 30 min: run-agent.sh      roomstats.py
                                                              │                      │
@@ -157,6 +157,10 @@ is the one that is easy to forget, and without it the port stays closed no matte
 ```bash
 sudo ufw allow 8420/tcp
 ```
+
+Section 9 takes this rule back out again: with Caddy in front, 8420 only has to be reachable from
+loopback, and 443 is the port that faces the internet. Open it here anyway — the receiver is worth
+testing on its own before a proxy is in the path, and that is the order these sections are in.
 
 ### Who may post what
 
@@ -487,8 +491,9 @@ sudo -u sighte crontab -l 2>/dev/null | { cat; echo '*/30 * * * * /srv/sighte/ru
 
 ## 9. Narrowing the exposure
 
-Both of these are optional and independent. The mod works unchanged without them; nothing below
-needs a new build.
+The firewall half below is optional and no longer available anyway. The TLS half is **deployed and
+load-bearing**: the URL compiled into the published mod is the HTTPS one, and 8420 no longer answers
+from outside. Read it as a description of the running box rather than as a suggestion.
 
 ### The port does not have to face the internet — but it does now
 
@@ -515,11 +520,15 @@ connection usually has a **dynamic** address, so this breaks on every reconnect 
 silent non-upload — the mod logs a warning and moves on. And SSH is a separate rule, so this cannot
 lock you out.
 
-### TLS in front
+### TLS in front — deployed, and the public URL now points at it
 
-Caddy terminates HTTPS and forwards to the receiver on loopback. This needs a **hostname you own**
-pointed at `217.160.51.229` — Let's Encrypt will not issue for a bare IP, so there is no version of
-this step that works with the IP alone.
+Caddy terminates HTTPS and forwards to the receiver on loopback.
+
+Let's Encrypt will not issue for a bare IP, and this box owns no domain — `sslip.io` is the way
+around that: it resolves any `<a.b.c.d>.sslip.io` back to that address, so
+`217.160.51.229.sslip.io` is a real hostname pointing here that nobody had to buy or configure. The
+certificate is issued against the name, DNS-01 is not involved, and the section used to claim no
+version of this step worked with the IP alone. It does.
 
 ```bash
 sudo apt install -y caddy
@@ -527,7 +536,7 @@ sudo apt install -y caddy
 
 ```bash
 sudo tee /etc/caddy/Caddyfile >/dev/null <<'EOF'
-sighte.example.org {
+217.160.51.229.sslip.io {
 	reverse_proxy 127.0.0.1:8420
 }
 EOF
@@ -546,13 +555,21 @@ with a proxy actually in front: on a directly exposed port it would mean any cli
 identity for the limit and never hit it. Without it behind Caddy the opposite happens — every
 uploader in the world shares the one bucket belonging to `127.0.0.1`.
 
-`ingest.py` reads `SIGHTE_HOST` (default `0.0.0.0`). On the mod side the only change is the URL:
+`ingest.py` reads `SIGHTE_HOST` (default `0.0.0.0`). On the private tier the only change is the URL in
+`upload.properties`:
 
 ```properties
-url=https://sighte.example.org
+url=https://217.160.51.229.sslip.io
 ```
 
-`java.net.http` does TLS on its own, so no mod rebuild is involved.
+`java.net.http` does TLS on its own, so that side needs no rebuild.
+
+**The public tier does.** Its URL is a constant in `TelemetryUpload.kt`, compiled into every jar, so
+closing 8420 to the outside took every already-installed build off the air at the same moment. Those
+installs are not losing anything — a connection that fails is `Outcome.RETRY`, the report stays in
+`runs/` and goes up whenever a jar that can reach the box runs — but nothing arrives from them until
+their owner updates. That is why this section is no longer "optional and independent": from 0.9.0 the
+published URL *is* the TLS one, and the two have to move together.
 
 ## 10. Room averages
 

@@ -56,7 +56,7 @@ click a row to toggle it — every change is written to `config/sighteaddons/con
 so there is no save button that could be forgotten.
 
 ```
-  SIGHTE ADDONS                                            0.8.0
+  SIGHTE ADDONS                                            0.9.0
   ────────────────────────────────────────────────────────────────
   hud    chat    history    debug
   ────────────────────────────────────────────────────────────────
@@ -275,7 +275,7 @@ Volume is bounded: only *changes* are written, and the file stops at 20 000 even
 > on yourself, see [Sending your name](#sending-your-name--off-by-default) — **and nobody else's ever
 > is.**
 > Switch it off in `/sa` → **debug** → *upload run reports*. The mod says this once in chat the first
-> time it runs. The transport is plain HTTP.
+> time it runs. The transport is HTTPS.
 
 Two tiers, and what separates them is what may leave the machine:
 
@@ -296,7 +296,7 @@ The private tier is opt-in by existing: `config/sighteaddons/upload.properties`,
 folder.
 
 ```properties
-url=http://<server>:8420
+url=https://<host>
 token=<shared secret>
 ```
 
@@ -379,8 +379,10 @@ keeping the format and dropping anything name-shaped.
 Party size, classes and player-ticks, filed under your upload id. No Minecraft UUID anywhere in it,
 and no name unless you switch *send my name* on, which adds yours and only ever yours.
 
-The transport is plain HTTP, so nothing on the way is encrypted — put Caddy in front with a real
-hostname if that matters. Nobody else's name travels either way.
+The transport is HTTPS: Caddy terminates TLS on the box and forwards to the receiver on loopback, so
+nothing travels readable. That protects what is on the wire and nothing else — the public token is
+compiled into the jar and stays a spam filter rather than a secret, which is why the server validates
+every field instead of trusting the bearer. Nobody else's name travels either way.
 
 ## Run reports
 
@@ -432,7 +434,7 @@ JDK 26 works too — no toolchain is pinned. If Gradle 9.5.1 refuses your JDK as
 ./gradlew test
 ```
 
-The latest build is committed at [`dist/sighteaddons-0.8.0.jar`](dist/sighteaddons-0.8.0.jar) —
+The latest build is committed at [`dist/sighteaddons-0.9.0.jar`](dist/sighteaddons-0.9.0.jar) —
 `build` copies it there automatically, so the checked-in jar can never go stale relative to the
 source. The filename carries `mod_version`, so a jar already sitting in `mods/` still says which
 build it is; the copy deletes the previous version, so `dist/` holds exactly one jar and git history
