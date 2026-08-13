@@ -1,6 +1,5 @@
 package sighteaddons
 
-import net.fabricmc.loader.api.FabricLoader
 import net.minecraft.client.gui.GuiGraphicsExtractor
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.input.MouseButtonEvent
@@ -196,7 +195,7 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
      */
     private fun recordRows(): List<RecordRow> {
         val records = RoomHistory.records()
-        val rows = records.keys.map { it.substringBefore('|') }.distinct().map { room ->
+        val rows = RoomHistory.roomsWithRecords(records.keys).map { room ->
             val clear = records["$room|${RoomHistory.CLEAR}"]
             val secrets = records["$room|${RoomHistory.SECRETS}"]
             RecordRow(
@@ -370,8 +369,7 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         private val RULE_TEXT = 0xFF5C636E.toInt()
         private val HOVER = 0x14FFFFFF
 
-        private val VERSION: String = FabricLoader.getInstance().getModContainer(SighteAddons.ID)
-            .map { it.metadata.version.friendlyString }
-            .orElse("")
+        /** Same lookup the uploader stamps its requests with; blank rather than "unknown" in a header. */
+        private val VERSION: String = TelemetryUpload.modVersion().takeUnless { it == "unknown" } ?: ""
     }
 }

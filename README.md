@@ -198,9 +198,14 @@ Item and bat secrets are also not detected as "yours" — only block interaction
 
 ## Debug telemetry
 
-On by default in 0.1.x — the point of this version is producing a diagnostic log. Silence it with
-`-Dsighteaddons.debug=false`; gate it behind the development environment again once anyone but the
-author installs the mod.
+**Off for an ordinary install**, on in the development environment. The public upload tier never
+ships sessions — only the private one does — so a session written on somebody else's machine is a few
+MB per launch that nobody can ever read. Turn it on in `/sa` → **DEBUG** → *JSONL telemetry*, or with
+`-Dsighteaddons.debug=true`.
+
+The property only seeds the *first* launch: from then on `config.json` holds the value and the `/sa`
+switch owns it. An install that ran a version before 0.5.2 therefore already has it persisted as on,
+and turning it off is one click in that screen.
 
 The log goes into the game directory, so it stays with the instance rather than in a shared
 `.minecraft`:

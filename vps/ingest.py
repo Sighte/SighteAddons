@@ -344,7 +344,9 @@ class Ingest(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             return self.reply(411)
-        if length <= 0 or length > MAX_BYTES:
+        # The endpoint's own cap, before the read rather than after it: a run report is a few kB, so
+        # pulling 64 MB into memory to then answer 413 is work a stranger gets for free.
+        if length <= 0 or length > (MAX_RUN if self.path == "/runs" else MAX_BYTES):
             return self.reply(413)
         body = self.rfile.read(length)
         if len(body) != length:
@@ -374,8 +376,6 @@ class Ingest(BaseHTTPRequestHandler):
         match = RUN.fullmatch(name)
         if not match:
             return self.reply(400)
-        if len(body) > MAX_RUN:
-            return self.reply(413)
         # Parsed and re-serialised rather than appended raw: this file is permanent and append-only,
         # so a torn upload must not be able to leave a broken line in it forever.
         try:

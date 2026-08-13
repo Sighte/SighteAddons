@@ -33,8 +33,17 @@ object Config {
     var ownPbsOnly = false
     var runSummary = true
 
-    /** `-Dsighteaddons.debug=false` still decides the first launch, before a config file exists. */
-    var debugLog = System.getProperty("sighteaddons.debug") != "false"
+    /**
+     * Off for an ordinary install: the public upload tier never ships sessions, so a session written
+     * on a stranger's machine is a few MB per launch that nobody can ever read. On in the development
+     * environment, which is where the log is actually used.
+     *
+     * `-Dsighteaddons.debug=true|false` overrides either way, and still decides the first launch
+     * before a config file exists. Only the first launch — [save] persists every key, so an install
+     * that has run once keeps whatever its `config.json` says and the `/sa` DEBUG tab owns it.
+     */
+    var debugLog = System.getProperty("sighteaddons.debug")?.toBooleanStrictOrNull()
+        ?: FabricLoader.getInstance().isDevelopmentEnvironment
 
     /** Sending run reports to the analysis server. On by default; the `/sa` DEBUG tab turns it off. */
     var upload = true
