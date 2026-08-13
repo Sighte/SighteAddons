@@ -56,7 +56,7 @@ click a row to toggle it — every change is written to `config/sighteaddons/con
 so there is no save button that could be forgotten.
 
 ```
-  SIGHTE ADDONS                                            0.5.2
+  SIGHTE ADDONS                                            0.6.0
   ────────────────────────────────────────────────────────────────
   hud    chat    history    debug
   ────────────────────────────────────────────────────────────────
@@ -334,12 +334,19 @@ played and *then* opted into therefore go up named; three runs already uploaded 
 changes nothing about that: the four strangers from party finder cannot consent through somebody
 else's settings screen. Same reason debug sessions stay off the public tier even pseudonymised.
 
-No schema bump — `player` has been the run report's one optional key since the receiver was written
-(`check_run` in `vps/ingest.py`), precisely so this could be switched on without invalidating a
-single stored report. The receiver reads the key's *presence* as the consent, which is why an
-anonymous report omits the key rather than sending null: `check_run` rejects `"player": null` outright,
-so absent is the only way to say nothing. A report the switch reached carries the key at the end of the
-object instead of after `uuid`, which the validator does not care about — it walks its own field list.
+`player` needs no schema bump of its own — it has been the run report's one optional key since the
+receiver was written (`check_run` in `vps/ingest.py`), precisely so this could be switched on without
+invalidating a single stored report. An anonymous report omits the key rather than sending null:
+`check_run` rejects `"player": null` outright, so absent is the only way to say nothing. A report the
+switch reached carries the key at the end of the object instead of after `uuid`, which the validator
+does not care about — it walks its own field list.
+
+The receiver decides what to *keep* by schema version, not by the field. Below v3 a name is dropped
+before the profile line is written: v1 sent the Minecraft name unconditionally, before any of this was
+a choice, and such a report can still be sitting in somebody's backlog. From v3 the mod writes the
+field only when this switch is on, so there its presence is the consent and it is kept — see
+`to_store` and `NAMED_FROM_SCHEMA` in `vps/ingest.py`. Without that half the switch would validate,
+upload, and change nothing.
 
 Uploads happen **at game start, for what previous sessions left behind** — not at `run_end`, which
 never fires when the game crashes or the run is left early, losing exactly the material worth

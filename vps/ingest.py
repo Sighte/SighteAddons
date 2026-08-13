@@ -137,6 +137,10 @@ RUN_KEYS = frozenset((
 # The uploader's own name. Their own data on the private path, absent from a report that carries
 # nobody else's — optional so a build that stops sending it validates too.
 RUN_OPTIONAL = frozenset(("player",))
+# From this schema on, `player` is only ever there because the player switched it on in /sa, so it is
+# kept rather than dropped. Below it the field was sent without asking. See to_store, which is the
+# only place this matters — validation accepts the field either way.
+NAMED_FROM_SCHEMA = 3
 ROOM_KEYS = frozenset((
     "name", "type", "shape", "maxSecrets", "crypts", "segments", "clearTick", "secretsTick",
     "secretRunTicks", "preCleared", "playerTicks", "playersInRoom", "ownTicks", "secretsFound",
@@ -320,11 +324,21 @@ def _check_room(room):
 def to_store(report):
     """What gets appended, which is not quite what arrived.
 
-    `player` validates — a v1 file written before 0.5.0 can still be sitting in a backlog and should
-    still be accepted — but it must not be written. Schema 2 stopped sending a name on purpose (see
-    RunReport.kt's header) and a profile line is permanent, so the one place where a name could
-    become permanent anyway is here.
+    The schema version is what separates a name nobody was asked about from one that was given.
+
+    A **v1** report carries `player` because that build sent the Minecraft name unconditionally, before
+    any of this was a choice. It still validates — one can be sitting in a backlog right now — but that
+    name must never become permanent, and a profile line is permanent. **v2** never sent the field at
+    all, which is why the boundary sits at 3 rather than at 2.
+
+    From **v3** the field exists only when the player switched *send my name* on in `/sa`
+    (`Config.uploadName`, see RunReport.kt's header): the mod writes it in no other case, so its
+    presence *is* the consent, and dropping it here would silently make the switch do nothing. That is
+    also the whole reason this is keyed on the version rather than on the field — the field alone
+    cannot tell the two apart.
     """
+    if "player" not in report or report.get("v", 0) >= NAMED_FROM_SCHEMA:
+        return report
     return {key: value for key, value in report.items() if key != "player"}
 
 

@@ -378,12 +378,36 @@ class ClosedVocabularies(unittest.TestCase):
 class StoredLine(unittest.TestCase):
     """What ends up in a profile is not quite what arrived: see to_store."""
 
-    def test_player_is_dropped(self):
-        stored = ingest.to_store(report())
+    def test_a_v1_name_is_dropped_because_nobody_was_asked(self):
+        stored = ingest.to_store(report())  # report() defaults to v1
         self.assertNotIn("player", stored)
         # ...and nothing else is touched, because the line is permanent either way.
         self.assertEqual(set(stored), ingest.RUN_KEYS)
         self.assertEqual(stored["rooms"], report()["rooms"])
+
+    def test_a_v3_name_is_kept_because_it_is_the_consent(self):
+        """From schema 3 the mod writes `player` only when /sa -> send my name is on, so the field's
+        presence is the player's decision. Dropping it here would make that switch do nothing."""
+        stored = ingest.to_store(report(v=3, player="Sighte"))
+        self.assertEqual("Sighte", stored["player"])
+        self.assertEqual(set(stored), ingest.RUN_KEYS | {"player"})
+
+    def test_the_boundary_is_the_schema_and_not_the_field(self):
+        # v2 never sent a name at all, so a v2 report carrying one is not a consent this server can
+        # read — it is a build that should not exist, and it is treated like the v1 case.
+        self.assertNotIn("player", ingest.to_store(report(v=2, player="Sighte")))
+        for version in (1, 2):
+            self.assertNotIn("player", ingest.to_store(report(v=version, player="Sighte")))
+        self.assertIn("player", ingest.to_store(report(v=ingest.NAMED_FROM_SCHEMA, player="Sighte")))
+
+    def test_a_restamped_report_carries_the_name_last_and_is_still_kept(self):
+        """RunReport.restamp parses a queued report and appends `player`, so it arrives as the last
+        key rather than after `uuid`. Nothing here may depend on where in the object it sits."""
+        payload = report(v=3)
+        del payload["player"]
+        payload["player"] = "Sighte"
+        self.assertIsNone(ingest.check_run(payload, INSTALL))
+        self.assertEqual("Sighte", ingest.to_store(payload)["player"])
 
     def test_a_report_without_a_name_is_passed_through_unchanged(self):
         payload = report(v=2)

@@ -211,10 +211,15 @@ until `rooms.json` catches up, which is the same trade, and it says so in the lo
 
 Two things the receiver does not write back literally:
 
-- **`player` is dropped.** A v1 report — written before 0.5.0, and possibly still sitting in a backlog
-  — carries the uploader's Minecraft name. It still validates, because rejecting that backlog would be
-  worse, but the name never reaches the profile. Schema 2 stopped sending it on purpose and a profile
-  line is permanent.
+- **`player` is dropped below schema 3.** A v1 report — written before 0.5.0, and possibly still
+  sitting in a backlog — carries the uploader's Minecraft name because that build sent it without
+  asking. It still validates, because rejecting that backlog would be worse, but the name never
+  reaches the profile: schema 2 stopped sending it on purpose and a profile line is permanent.
+
+  **From v3 it is kept.** There the mod writes the field only when the player switched *send my name*
+  on in `/sa`, so its presence is the consent itself, and dropping it would make that switch silently
+  do nothing. The boundary is the schema version and not the field, because the field alone cannot
+  tell a name that was given from one that was taken — see `to_store` and `NAMED_FROM_SCHEMA`.
 - **A repeat is not appended twice.** The mod keeps a report until it hears `204`, so a reply lost
   after the append comes back at the next game start. A report whose `ts` is already in the profile
   answers `204` and writes nothing, and the log says `duplicate run`. `/ingest` has always been
