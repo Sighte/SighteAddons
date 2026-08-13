@@ -175,6 +175,37 @@ class SchemaThree(unittest.TestCase):
                 self.assertFalse(ingest.validate_run(report(rooms=[room(enterTick=value)]), INSTALL))
 
 
+class SchemaFour(unittest.TestCase):
+    """`complete`: whether the run reached its end.
+
+    From v4 the mod also reports a floor the party walked out of, because the rooms they cleared are
+    valid either way and used to be thrown away with the run. Only the run-level numbers are partial,
+    so the field exists to keep those separable — forever, in an append-only store.
+    """
+
+    def test_both_values_validate(self):
+        for value in (True, False):
+            with self.subTest(value=value):
+                self.assertTrue(ingest.validate_run(report(v=4, complete=value), INSTALL))
+
+    def test_a_report_without_the_field_still_validates(self):
+        # The reason it is optional: a v3 report can be sitting in a backlog right now, and up to v3 a
+        # report only ever existed for a finished run — so absent reads as complete downstream.
+        self.assertNotIn("complete", report())
+        self.assertTrue(ingest.validate_run(report(v=3), INSTALL))
+
+    def test_anything_but_a_bool_is_refused(self):
+        # 0 and 1 are the ones an int check would have taken, which is why it is not an int check.
+        for value in (0, 1, "true", None, []):
+            with self.subTest(value=value):
+                self.assertFalse(ingest.validate_run(report(v=4, complete=value), INSTALL))
+
+    def test_the_field_survives_into_the_store(self):
+        # It decides how the line may be read later, so losing it here would be losing it permanently.
+        stored = ingest.to_store(report(v=4, complete=False))
+        self.assertIs(stored["complete"], False)
+
+
 class RejectedTopLevel(unittest.TestCase):
     def reject(self, **overrides):
         self.assertFalse(ingest.validate_run(report(**overrides), INSTALL))

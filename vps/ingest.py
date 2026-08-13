@@ -134,9 +134,13 @@ RUN_KEYS = frozenset((
     "v", "ts", "uuid", "floor", "runTicks", "partySize", "roomsCleared", "unattributed", "deaths",
     "modVersion", "mcVersion", "class", "classLevel", "classes", "rooms",
 ))
-# The uploader's own name. Their own data on the private path, absent from a report that carries
-# nobody else's — optional so a build that stops sending it validates too.
-RUN_OPTIONAL = frozenset(("player",))
+# `player`: the uploader's own name. Their own data on the private path, absent from a report that
+# carries nobody else's — optional so a build that stops sending it validates too.
+# `complete`: schema 4. Whether the run reached its end; false for a floor that was left early, whose
+# rooms are still worth having. Optional for the same reason `enterTick` is — a v3 report can be
+# sitting in a backlog right now — and absent means true, because up to 3 a report was only ever
+# written at the end-of-run headline.
+RUN_OPTIONAL = frozenset(("player", "complete"))
 # From this schema on, `player` is only ever there because the player switched it on in /sa, so it is
 # kept rather than dropped. Below it the field was sent without asking. See to_store, which is the
 # only place this matters — validation accepts the field either way.
@@ -208,6 +212,9 @@ RUN_FIELDS = (
     ("uuid", lambda x: _text(x, UUID)),
     ("player", lambda x: _text(x, PLAYER)),
     ("floor", lambda x: _text(x, FLOOR)),
+    # Not _opt_num and not truthiness: a bool is the only right answer here, and an int check would
+    # take 0 and 1 — the same reason `preCleared` is spelled out in ROOM_FIELDS.
+    ("complete", lambda x: isinstance(x, bool)),
     ("runTicks", lambda x: _num(x, 0, MAX_TICKS)),
     ("partySize", lambda x: _num(x, 0, MAX_PARTY)),
     ("roomsCleared", lambda x: _num(x, 0, MAX_CLEARED)),
