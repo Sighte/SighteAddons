@@ -17,6 +17,9 @@ internal object RecordTable {
     /** Column, and therefore sort key. [SECRETS] and [LAST] were headers without a sort before. */
     enum class Sort { ROOM, TYPE, CLEAR, SECRETS, RUNS, LAST }
 
+    /** What the table is narrowed by, and therefore what escape undoes next. [NONE] means it closes. */
+    enum class Narrowing { SEARCH, CHIP, NONE }
+
     /** The type chips. Exactly one is active, and [ALL] is the default. */
     enum class Filter(val label: String) {
         ALL("all"),
@@ -75,6 +78,20 @@ internal object RecordTable {
                 lastTs = maxOf(clear?.lastTs ?: 0L, secrets?.lastTs ?: 0L),
             )
         }
+
+    /**
+     * One narrowing at a time, search first — escape undoes exactly this one, and the footer promises
+     * exactly this one.
+     *
+     * Both of them ask here rather than each testing the two fields themselves, because they did: the
+     * footer said "esc  close" while escape was resetting the chip and leaving the screen open. Two
+     * copies of a three-case condition are one edit away from disagreeing again.
+     */
+    fun narrowing(query: String, filter: Filter) = when {
+        query.isNotEmpty() -> Narrowing.SEARCH
+        filter != Filter.ALL -> Narrowing.CHIP
+        else -> Narrowing.NONE
+    }
 
     /** Case-insensitive substring on the room name. Blank query means everything. */
     fun search(rows: List<Row>, query: String): List<Row> {

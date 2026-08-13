@@ -117,9 +117,13 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         graphics.flat(footer(), left, height - 14, RULE_TEXT)
     }
 
+    /** What escape is currently for. The footer names it, [keyPressed] does it, neither decides it. */
+    private val narrowing get() = RecordTable.narrowing(query, filter)
+
     private fun footer() = when {
         tab != Tab.RECORDS -> "esc  close"
-        query.isNotEmpty() -> "esc  clear the filter · backspace  delete"
+        narrowing == RecordTable.Narrowing.SEARCH -> "esc  clear the search · backspace  delete"
+        narrowing == RecordTable.Narrowing.CHIP -> "esc  show every room · type to filter"
         else -> "esc  close · type to filter · click a row for detail"
     }
 
@@ -220,9 +224,16 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     private fun renderEmpty(graphics: GuiGraphicsExtractor) {
         val left = contentLeft
         val y = firstRow + ROW
-        if (query.isNotEmpty() || filter != RecordTable.Filter.ALL) {
+        // Same key, same words as the footer: the hint says which of the two narrowings escape takes
+        // off, not "the search" while a chip is what is actually hiding every room.
+        if (narrowing != RecordTable.Narrowing.NONE) {
             graphics.flat("nothing matches this filter", left, y, DIM)
-            graphics.flat("esc clears the search · click \"all\" for every room", left, y + ROW, RULE_TEXT)
+            val hint = if (narrowing == RecordTable.Narrowing.SEARCH) {
+                "esc clears the search · click \"all\" for every room"
+            } else {
+                "esc shows every room"
+            }
+            graphics.flat(hint, left, y + ROW, RULE_TEXT)
         } else {
             graphics.flat("no history yet", left, y, DIM)
             graphics.flat("finish a dungeon room and it lands here", left, y + ROW, RULE_TEXT)
@@ -459,10 +470,15 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
                 scroll = 0
                 return true
             }
-            // Both halves of the filter, search first: escape undoes one narrowing at a time, and
-            // only closes the screen once the table shows everything again.
-            if (event.key() == GLFW.GLFW_KEY_ESCAPE && (query.isNotEmpty() || filter != RecordTable.Filter.ALL)) {
-                if (query.isNotEmpty()) query = "" else filter = RecordTable.Filter.ALL
+            // Escape undoes one narrowing at a time and only closes the screen once the table shows
+            // everything again. Which one is [RecordTable.narrowing]'s call, so the footer cannot
+            // promise a different key than this takes.
+            if (event.key() == GLFW.GLFW_KEY_ESCAPE) {
+                when (narrowing) {
+                    RecordTable.Narrowing.SEARCH -> query = ""
+                    RecordTable.Narrowing.CHIP -> filter = RecordTable.Filter.ALL
+                    RecordTable.Narrowing.NONE -> return super.keyPressed(event)
+                }
                 scroll = 0
                 return true
             }

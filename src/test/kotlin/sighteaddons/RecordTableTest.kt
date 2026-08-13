@@ -130,6 +130,19 @@ class RecordTableTest {
         assertEquals(listOf("Catwalk", "Ice Fill"), byType.filter { it.typeLabel == "normal" }.map { it.room })
     }
 
+    /**
+     * The order escape works in, which is also what the footer prints. The screen said "esc  close"
+     * while a chip was active and escape reset the chip instead — the two conditions had drifted, so
+     * now there is only one of them and it is here.
+     */
+    @Test
+    fun `escape undoes the search before the chip and only then closes`() {
+        assertEquals(RecordTable.Narrowing.SEARCH, RecordTable.narrowing("water", RecordTable.Filter.PUZZLE))
+        assertEquals(RecordTable.Narrowing.SEARCH, RecordTable.narrowing("water", RecordTable.Filter.ALL))
+        assertEquals(RecordTable.Narrowing.CHIP, RecordTable.narrowing("", RecordTable.Filter.PUZZLE))
+        assertEquals(RecordTable.Narrowing.NONE, RecordTable.narrowing("", RecordTable.Filter.ALL))
+    }
+
     @Test
     fun `filter and sort do not interfere`() {
         val normal = rows().filter { RecordTable.Filter.NORMAL.matches(it.type) }
