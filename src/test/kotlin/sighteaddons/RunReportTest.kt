@@ -16,6 +16,7 @@ class RunReportTest {
             this.name = name
             info = RoomInfo(name, "normal", "1x2", secrets = 4, crypts = 2)
             ticks.forEach { (player, t) -> this.ticks[player] = t }
+            enteredAtTick = 120
             clearedAtTick = 400
             secretsFound = 3
             ownSecrets = 2
@@ -40,7 +41,7 @@ class RunReportTest {
     @Test
     fun `run context survives`() {
         val json = report()
-        assertEquals(2, json["v"].asInt)
+        assertEquals(3, json["v"].asInt)
         assertEquals("M5", json["floor"].asString)
         assertEquals(2, json["partySize"].asInt)
         assertEquals(1.25, json["unattributed"].asDouble)
@@ -101,5 +102,37 @@ class RunReportTest {
         assertEquals(2, room["crypts"].asInt)
         assertEquals(1, room["deaths"].asInt)
         assertTrue(room["secretsTick"].isJsonNull)
+    }
+
+    /**
+     * Both ticks are run timestamps. Only together are they a clear duration, which is the whole
+     * reason `enterTick` exists — the server subtracts them, so a report carrying one without the
+     * other contributes nothing.
+     */
+    @Test
+    fun `room carries the clear anchor next to the checkmark`() {
+        val room = report()["rooms"].asJsonArray[0].asJsonObject
+        assertEquals(120, room["enterTick"].asInt)
+        assertEquals(400, room["clearTick"].asInt)
+    }
+
+    @Test
+    fun `a room nobody was ever seen in reports a null anchor`() {
+        val untouched = TrackedRoom(RoomType.ROOM, setOf(Pos(0, 0)), setOf(Pos(0, 0)))
+        val json = RunReport.build(
+            ts = 1786530882102,
+            installId = "0f5e4a1c-1111-2222-3333-444455556666",
+            player = "Sighte",
+            floor = "M5",
+            runTicks = 8000,
+            roster = listOf(DungeonPlayer("Sighte", "Berserk", "VII")),
+            rooms = listOf(untouched),
+            roomsCleared = 0,
+            unattributed = 0.0,
+            deaths = 0,
+            modVersion = "0.3.0",
+            mcVersion = "26.1.2",
+        )
+        assertTrue(json["rooms"].asJsonArray[0].asJsonObject["enterTick"].isJsonNull)
     }
 }
