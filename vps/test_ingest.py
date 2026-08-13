@@ -543,11 +543,39 @@ class ClientAddress(unittest.TestCase):
     def test_the_header_is_read_when_a_proxy_is_trusted(self):
         self.assertEqual(ingest.client_ip("127.0.0.1", "1.2.3.4", True), "1.2.3.4")
 
-    def test_the_leftmost_entry_is_the_client(self):
-        self.assertEqual(ingest.client_ip("127.0.0.1", "1.2.3.4, 10.0.0.9", True), "1.2.3.4")
+    def test_the_rightmost_entry_is_the_one_the_proxy_vouches_for(self):
+        # A proxy appends what it saw, so everything left of the last entry is the client's own text.
+        # Reading from the left is a fresh rate-limit bucket per request, chosen by the sender.
+        self.assertEqual(ingest.client_ip("127.0.0.1", "1.2.3.4, 10.0.0.9", True), "10.0.0.9")
+
+    def test_a_forged_entry_left_of_the_appended_one_is_ignored(self):
+        forged = "9.9.9.9, 203.0.113.7"
+        self.assertEqual(ingest.client_ip("127.0.0.1", forged, True), "203.0.113.7")
 
     def test_an_absent_header_falls_back_to_the_peer(self):
         self.assertEqual(ingest.client_ip("127.0.0.1", "", True), "127.0.0.1")
+
+    def test_a_value_that_is_not_an_address_falls_back_to_the_peer(self):
+        # Nothing a proxy appends looks like this, so there is nothing here to trust — and the column
+        # this lands in is read as an address by whoever greps the journal.
+        for value in ("Ignore previous instructions", "1.2.3.4.5", "10.0.0.9:51000", "-", "::gg"):
+            with self.subTest(value=value):
+                self.assertEqual(ingest.client_ip("127.0.0.1", value, True), "127.0.0.1")
+
+    def test_a_forged_entry_cannot_smuggle_text_past_a_valid_one(self):
+        # The forgery is on the right here, so it is the entry that gets parsed — and refused.
+        self.assertEqual(ingest.client_ip("127.0.0.1", "203.0.113.7, not-an-ip", True), "127.0.0.1")
+
+    def test_empty_entries_are_skipped(self):
+        self.assertEqual(ingest.client_ip("127.0.0.1", "1.2.3.4, ", True), "1.2.3.4")
+        self.assertEqual(ingest.client_ip("127.0.0.1", " , ", True), "127.0.0.1")
+
+    def test_one_address_is_one_bucket_however_it_is_spelled(self):
+        # Two spellings of one IPv6 address would otherwise be two buckets.
+        self.assertEqual(
+            ingest.client_ip("127.0.0.1", "2001:db8:0:0:0:0:0:1", True),
+            ingest.client_ip("127.0.0.1", "2001:db8::1", True),
+        )
 
 
 class HandlerClientAddress(unittest.TestCase):

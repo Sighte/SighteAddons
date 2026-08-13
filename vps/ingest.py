@@ -23,6 +23,7 @@ hours — and a validator in a markdown code block cannot be unit tested.
 """
 
 import hmac
+import ipaddress
 import json
 import math
 import os
@@ -402,17 +403,43 @@ def units_for(size):
 
 
 def client_ip(peer, forwarded, trust_proxy):
-    """The address the rate limit counts against.
+    """The address the rate limit counts against, and the one a refusal is logged as.
 
     X-Forwarded-For is read only when SIGHTE_TRUST_PROXY=1. Anyone can send that header, so
     trusting it by default would mean the limit is bypassed by setting it — while behind a reverse
     proxy the peer is always 127.0.0.1 and every uploader in the world would share one bucket.
+
+    The **right-most** entry, and only if it parses as an address. A proxy appends what it saw to
+    whatever arrived, so the right-most entry is the one it vouches for and everything left of it is
+    text the client wrote. Caddy as configured here does not append at all: `trusted_proxies` is
+    empty, so an incoming header is replaced rather than extended and a client-supplied value never
+    reaches this function — measured through the deployed chain, not assumed. That makes both ends the
+    same entry today and this choice invisible.
+
+    It stops being invisible the moment `trusted_proxies` is set, which is what putting a CDN in front
+    would require. Caddy then appends, and reading from the left would hand a token-guesser a fresh
+    bucket for every attempt simply by varying the header — defeating the count that `do_POST` does
+    before the token decides anything — and would print a string of their choosing into a journal
+    where a human reads that column as an address.
+
+    ponytail: right-most is the immediate peer, so a real chain of trusted proxies in front would
+    collapse every user behind the nearest one into a single bucket. That is the safe direction to be
+    wrong in — a shared bucket throttles too much, an attacker-chosen bucket throttles nothing — and
+    the upgrade path is to count in from the right by however many proxies are actually trusted.
     """
     if not trust_proxy:
         return peer
-    # Left-most entry is the client, everything after it is the proxy chain.
-    first = (forwarded or "").split(",")[0].strip()
-    return first or peer
+    entries = [entry.strip() for entry in (forwarded or "").split(",") if entry.strip()]
+    if not entries:
+        return peer
+    try:
+        # Normalised rather than echoed back: two spellings of one IPv6 address would otherwise be
+        # two buckets, and this value is also what gets printed.
+        return str(ipaddress.ip_address(entries[-1]))
+    except ValueError:
+        # The proxy did not append what a proxy appends, so there is nothing here to trust. The peer
+        # is always an address, which is what makes it the right answer rather than a guess.
+        return peer
 
 
 def tier(auth):

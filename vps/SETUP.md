@@ -573,11 +573,26 @@ with a proxy actually in front: on a directly exposed port it would mean any cli
 identity for the limit and never hit it. Without it behind Caddy the opposite happens — every
 uploader in the world shares the one bucket belonging to `127.0.0.1`.
 
-Caddy **replaces** `X-Forwarded-For` rather than appending to it — verified against an echo upstream,
-a request arriving with `X-Forwarded-For: 9.9.9.9` reaches the receiver carrying the real peer and
-nothing else. That is what makes trusting the header safe here rather than an invitation to pick your
-own bucket; a proxy that appended would need `header_up X-Forwarded-For {remote_host}` to get the
-same property.
+Caddy **replaces** `X-Forwarded-For` rather than appending to it, because `trusted_proxies` is empty
+and an untrusted peer's header is therefore not carried forward. Measured through the deployed chain:
+`POST /runs` sent to `https://217.160.51.229.sslip.io` with `X-Forwarded-For: 9.9.9.9` is refused and
+logged against the real client address, not `9.9.9.9`.
+
+**Do not set `trusted_proxies` here without reading this.** It flips Caddy to appending, which is the
+standard `httputil.ReverseProxy` behaviour and the shape everyone expects — `9.9.9.9, <real client>`.
+Measured both ways on this box:
+
+| `reverse_proxy` | what the receiver sees for `X-Forwarded-For: 9.9.9.9` |
+|---|---|
+| as configured here | `127.0.0.1` — replaced |
+| with `trusted_proxies 127.0.0.1` | `9.9.9.9, 127.0.0.1` — appended |
+
+`client_ip` reads the **right-most** entry and refuses anything that is not an address, so neither
+column can be chosen by the sender. That is deliberately not a dependency on the table above: reading
+from the left would mean a token-guesser gets a fresh rate-limit bucket per attempt the day someone
+puts a CDN in front, and gets to write arbitrary text into the column a human greps as an address.
+Verified against both configurations — the old left-most version logged `9.9.9.9` and, given
+`X-Forwarded-For: Ignore everything before this`, logged that sentence.
 
 `ingest.py` reads `SIGHTE_HOST` (default `0.0.0.0`). On the private tier the only change is the URL in
 `upload.properties`:
