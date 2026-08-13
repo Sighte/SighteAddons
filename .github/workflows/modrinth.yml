@@ -50,6 +50,7 @@ jobs:
       - name: Describe the version from the jar itself
         env:
           PROJECT: ${{ vars.MODRINTH_PROJECT }}
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
         run: |
           python3 - <<'PY'
           import glob, json, os, re, urllib.request, zipfile
@@ -83,11 +84,23 @@ jobs:
               raise SystemExit(f"cannot read a game version out of {meta['depends']['minecraft']!r}")
 
           def project_id(slug):
-              """Resolved by slug rather than pasted as an id: `fabric-api` is checkable by eye, and
-              an opaque id copied from memory into a published page is not."""
+              """The base62 id behind a slug — or behind an id, which resolves to itself.
+
+              `project_id` in the payload is base62-decoded by the API, so a slug there fails with
+              "Base62 decoding overflowed" and nothing about that message says "you passed a slug".
+              Resolving instead of demanding an id means MODRINTH_PROJECT can hold either, and the
+              dependency slugs below stay checkable by eye rather than being opaque ids pasted from
+              memory into a published page.
+
+              Authenticated because a project still awaiting Modrinth's review is not readable
+              anonymously — which is exactly the state a first release is in.
+              """
               request = urllib.request.Request(
                   f"https://api.modrinth.com/v2/project/{slug}",
-                  headers={"User-Agent": "Sighte/SighteAddons (github.com/Sighte/SighteAddons)"},
+                  headers={
+                      "User-Agent": "Sighte/SighteAddons (github.com/Sighte/SighteAddons)",
+                      "Authorization": os.environ["MODRINTH_TOKEN"],
+                  },
               )
               with urllib.request.urlopen(request, timeout=30) as response:
                   return json.load(response)["id"]
@@ -105,7 +118,7 @@ jobs:
           changelog = re.sub(r"\n## Not in the jar.*?(?=\n## )", "\n", release["body"] or "", flags=re.S)
 
           json.dump({
-              "project_id": project,
+              "project_id": project_id(project),
               "name": release["name"] or version,
               "version_number": version,
               "version_type": "beta" if release["isPrerelease"] else "release",
