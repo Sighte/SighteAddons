@@ -316,8 +316,9 @@ hostname if that matters. What travels carries no names either way.
 
 The debug log is a diagnostic: bounded at 20 000 events and switchable off in `/sa`. What has to
 survive instead goes into `config/sighteaddons/runs/run-<millis>-<uuid>.json`, one closed file per
-finished run, which the server files under that player's permanent profile. Room difficulty and
-per-room clear scores are derived from that history later — the mod does no scoring itself.
+finished run, which the server files under that player's permanent profile. Room difficulty is
+derived from that history on the server by `vps/roomstats.py`, which averages how long each room
+takes to clear and how long its secrets take **separately** — the mod does no scoring itself.
 
 Per run: floor, duration, party size, the classes present, own class and level, rooms cleared,
 unattributed remainder, deaths, mod and Minecraft version, and a `v` schema number. Per room: name,
@@ -330,8 +331,9 @@ what a difficulty estimate needs to see.
 Teammates appear in aggregate only — party size, classes without names, player-ticks. Installing
 the mod is consent for your own data; the four strangers from party finder never gave any.
 
-The server side is one file, [`vps/SETUP.md`](vps/SETUP.md): a stdlib receiver, the master prompt
-for the Claude agent that reads the sessions and opens pull requests, and the setup to paste.
+The server side is one file, [`vps/SETUP.md`](vps/SETUP.md): a stdlib receiver, the per-room averages
+folded back out of the profiles, the master prompt for the Claude agent that reads the sessions and
+opens pull requests, and the setup to paste.
 
 ## Build
 
