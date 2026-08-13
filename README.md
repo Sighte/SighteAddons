@@ -338,7 +338,7 @@ changes nothing about that: the four strangers from party finder cannot consent 
 else's settings screen. Same reason debug sessions stay off the public tier even pseudonymised.
 
 `player` needs no schema bump of its own — it has been the run report's one optional key since the
-receiver was written (`check_run` in `vps/ingest.py`), precisely so this could be switched on without
+receiver was written (`check_run` in the server's `ingest.py`), precisely so this could be switched on without
 invalidating a single stored report. An anonymous report omits the key rather than sending null:
 `check_run` rejects `"player": null` outright, so absent is the only way to say nothing. A report the
 switch reached carries the key at the end of the object instead of after `uuid`, which the validator
@@ -348,7 +348,7 @@ The receiver decides what to *keep* by schema version, not by the field. Below v
 before the profile line is written: v1 sent the Minecraft name unconditionally, before any of this was
 a choice, and such a report can still be sitting in somebody's backlog. From v3 the mod writes the
 field only when this switch is on, so there its presence is the consent and it is kept — see
-`to_store` and `NAMED_FROM_SCHEMA` in `vps/ingest.py`. Without that half the switch would validate,
+`to_store` and `NAMED_FROM_SCHEMA` in the server's `ingest.py`. Without that half the switch would validate,
 upload, and change nothing.
 
 Uploads happen **at game start, for what previous sessions left behind** — not at `run_end`, which
@@ -389,7 +389,7 @@ every field instead of trusting the bearer. Nobody else's name travels either wa
 The debug log is a diagnostic: bounded at 20 000 events and switchable off in `/sa`. What has to
 survive instead goes into `config/sighteaddons/runs/run-<millis>-<uuid>.json`, one closed file per
 run, which the server files under that player's permanent profile. Room difficulty is
-derived from that history on the server by `vps/roomstats.py`, which averages how long each room
+derived from that history on the server by `roomstats.py`, which averages how long each room
 takes to clear and how long its secrets take **separately** — the mod does no scoring itself.
 
 Per run, not per *finished* run. Leaving a floor early is the most ordinary thing a party does, and
@@ -417,9 +417,12 @@ arrived with schema 3, so runs uploaded before it have no clear duration and nev
 Teammates appear in aggregate only — party size, classes without names, player-ticks. Installing
 the mod is consent for your own data; the four strangers from party finder never gave any.
 
-The server side is one file, [`vps/SETUP.md`](vps/SETUP.md): a stdlib receiver, the per-room averages
-folded back out of the profiles, the master prompt for the Claude agent that reads the sessions and
-opens pull requests, and the setup to paste.
+The server side is its own repository now,
+[Sighte/skyblock-server](https://github.com/Sighte/skyblock-server): a stdlib receiver, the per-room
+averages folded back out of the profiles, the master prompt for the Claude agent that reads the
+sessions and opens pull requests here, and the whole box's setup. It deploys itself when its `master`
+moves, which is why it no longer lives in this repository — nothing about a jar players install has to
+move at the speed of a server.
 
 ## Build
 

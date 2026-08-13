@@ -88,7 +88,7 @@ class RunReportTest {
         assertEquals(listOf("Berserk VII", "Mage L"), json["classes"].asJsonArray.map { it.asString })
 
         // The receiver takes the key's presence as the consent, so "not named" has to mean absent
-        // rather than null — see check_run in vps/ingest.py, where `player` is the one optional key.
+        // rather than null — see check_run in the receiver's ingest.py, where `player` is the one optional key.
         assertFalse(report(named = false).has("player"))
     }
 
