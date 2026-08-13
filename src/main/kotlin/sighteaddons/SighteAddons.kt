@@ -47,6 +47,14 @@ class SighteAddons : ClientModInitializer {
         // Entering or leaving a dungeon is a server transfer on Hypixel, so this starts each run clean.
         // The history is append-only and flushed per line, so there is nothing to save on the way out.
         ClientPlayConnectionEvents.JOIN.register { _, _, _ ->
+            // Before the reset, because the reset is what erases the run this reports on. Warping out
+            // of a floor mid-run lands here and nowhere else — the end-of-run headline never comes, so
+            // without this the rooms that *were* cleared went nowhere. write() ignores a session with
+            // no rooms, which is every ordinary hub hop.
+            // ponytail: quitting the game straight from a dungeon has no JOIN and still loses the run,
+            // the same gap DebugLog's sessions have. DISCONNECT is the upgrade path and needs the
+            // player to still be resolvable there, which is exactly what makes it not a one-liner.
+            if (!summaryPrinted) RunReport.write(complete = false)
             DungeonSession.reset()
             uploadNotice()
         }
@@ -79,7 +87,7 @@ class SighteAddons : ClientModInitializer {
             client.gui.chat.addClientSystemMessage(
                 Component.literal("Sighte Addons ").withStyle(ChatFormatting.GOLD).append(
                     Component.literal(
-                        "sends a report of each finished dungeon run to the mod's analysis server: " +
+                        "sends a report of each dungeon run to the mod's analysis server: " +
                             "rooms, times and classes, under a random id, without your name. " +
                             "Turn it off — or put your name on it — with /sa → debug.",
                     ).withStyle(ChatFormatting.GRAY),
@@ -146,8 +154,10 @@ class SighteAddons : ClientModInitializer {
             "newRecords" to RoomHistory.newBestsThisRun().size,
         )
         RoomHistory.printSummary()
-        // Permanent record of the whole run, unlike the chat summary and unlike the debug log.
-        RunReport.write()
+        // Permanent record of the whole run, unlike the chat summary and unlike the debug log. The
+        // headline is the only evidence that the run reached its end, which is why this is the one
+        // call site that may claim it.
+        RunReport.write(complete = true)
     }
 
     private fun renderHud(graphics: GuiGraphicsExtractor) {
