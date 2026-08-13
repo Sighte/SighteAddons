@@ -550,6 +550,41 @@ class ClientAddress(unittest.TestCase):
         self.assertEqual(ingest.client_ip("127.0.0.1", "", True), "127.0.0.1")
 
 
+class HandlerClientAddress(unittest.TestCase):
+    """Ingest.client, which is what the log lines use.
+
+    `__new__` skips the handler's own `__init__` — that is the part that wants a connection, and
+    nothing in this method touches one. Still no socket bound anywhere in this file.
+    """
+
+    def setUp(self):
+        self.addCleanup(setattr, ingest, "TRUST_PROXY", ingest.TRUST_PROXY)
+
+    def handler(self, peer, headers=None):
+        handler = ingest.Ingest.__new__(ingest.Ingest)
+        handler.client_address = (peer, 51000)
+        if headers is not None:
+            handler.headers = headers
+        return handler
+
+    def test_the_forwarded_client_is_logged_behind_a_proxy(self):
+        # The point of the whole method: with Caddy in front the peer is always 127.0.0.1, so a
+        # refusal logged against the peer cannot tell a flood from the monitoring curl.
+        ingest.TRUST_PROXY = True
+        self.assertEqual(self.handler("127.0.0.1", {"X-Forwarded-For": "1.2.3.4"}).client(), "1.2.3.4")
+
+    def test_the_peer_is_logged_without_a_trusted_proxy(self):
+        ingest.TRUST_PROXY = False
+        self.assertEqual(self.handler("127.0.0.1", {"X-Forwarded-For": "1.2.3.4"}).client(), "127.0.0.1")
+
+    def test_a_request_line_that_never_parsed_still_logs_an_address(self):
+        # parse_request calls send_error before it reads any headers, so the attribute is absent
+        # rather than empty. Without the guard the AttributeError would come out of the logging path
+        # of a request that is already being refused.
+        ingest.TRUST_PROXY = True
+        self.assertEqual(self.handler("10.0.0.7").client(), "10.0.0.7")
+
+
 class Tiers(unittest.TestCase):
     """ingest.tier reads module globals, so each case sets the pair it is describing."""
 
