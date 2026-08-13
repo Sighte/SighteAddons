@@ -182,9 +182,55 @@ outright, and requires the install id in the body to match the one in the filena
 does not fit is `400` and **nothing is written**. A report is a few kB of numbers and a floor name;
 there is no version of it that needs a sentence in it.
 
-The consequence to know about: a mod that adds a field gets `400` until `ingest.py` learns it. That
-is deliberate and the direction should stay that way. Add the field to the validator and bump the
-report's schema version in the same change.
+The four fields that carry words rather than numbers are checked against a closed **set** rather than
+a pattern, because a pattern wide enough for `Arrow Trap` is wide enough for the first half of a
+sentence — and a report may hold 100 rooms, which is a page of prose:
+
+| Field | Vocabulary |
+|---|---|
+| `rooms[].name` | the 140 names in the mod's `rooms.json`, or `null` |
+| `rooms[].shape` | `1x1 1x2 1x3 1x4 2x2 L`, or `null` |
+| `floor` | `E`, `F1`–`F7`, `M1`–`M7`, `?` |
+| `class`, `classes[]` | `Archer Berserk Healer Mage Tank DEAD EMPTY`, plus a roman level |
+
+The room names are read from `src/main/resources/assets/sighteaddons/rooms.json` in the checkout
+rather than copied into `ingest.py`: that file is Odin's database verbatim, so a list of names in the
+receiver would be that copy drifting. `SIGHTE_ROOMS` overrides the path; without it the checkout next
+to the script and then `/srv/sighte/repo` are tried, and finding neither **refuses to start** instead
+of falling back to a loose pattern. The startup line prints the count, so `140 rooms` is what to look
+for after a redeploy.
+
+Two consequences to know about. A mod that adds a field gets `400` until `ingest.py` learns it — that
+is deliberate and the direction should stay that way; add the field to the validator and bump the
+report's schema version in the same change. And a room Hypixel adds gets the whole report a `400`
+until `rooms.json` catches up, which is the same trade, and it says so in the log:
+`rejected run … rooms[3].name`.
+
+### What a `204` does not mean
+
+Two things the receiver does not write back literally:
+
+- **`player` is dropped.** A v1 report — written before 0.5.0, and possibly still sitting in a backlog
+  — carries the uploader's Minecraft name. It still validates, because rejecting that backlog would be
+  worse, but the name never reaches the profile. Schema 2 stopped sending it on purpose and a profile
+  line is permanent.
+- **A repeat is not appended twice.** The mod keeps a report until it hears `204`, so a reply lost
+  after the append comes back at the next game start. A report whose `ts` is already in the profile
+  answers `204` and writes nothing, and the log says `duplicate run`. `/ingest` has always been
+  idempotent this way — the same session name overwrites itself — while `/runs` appends, and an append
+  cannot be taken back.
+
+### What ends up in the journal
+
+The request line and the status for everything, the profile name and the floor for an accepted report,
+the offending field for a rejected one — and the **peer address only on a refusal** (`400`, `401`,
+`403`, `429`).
+
+That last part is deliberate. The mod tells the player their runs go up "under a random id, without
+your name", and an accepted-request line carrying the address sits one line away from the install id,
+in a journal that keeps both for as long as the box lives — which would quietly make the random id a
+pseudonym for a home connection. On a refusal the address is the only thing that makes a flood or a
+token-guesser investigatable, so that direction keeps it.
 
 ### Rate limit
 
@@ -192,6 +238,14 @@ report's schema version in the same change.
 make guessing the private token and hammering the validator expensive. `GET /health` is never
 limited, and neither is a request carrying the private token — the author's uploader hands over a
 whole backlog at once at game start and would otherwise lock itself out.
+
+A request also costs one unit per 64 kB of body, so the ceiling is 60 posts **or** ~3.8 MB per window,
+whichever runs out first: counting requests alone let one address write 60 × 4 MB into permanent
+storage every ten minutes. A real report is a few kB and costs nothing beyond the request itself. Two
+more ceilings in the same spirit: a connection that stops sending mid-body is dropped after 30 s
+rather than holding a thread, and a report under an install id nobody has seen before is refused with
+`429` once `profiles/` holds 10 000 files — far past any plausible number of players, and the answer
+a mod can act on, since it keeps the file and tries again.
 
 Behind a reverse proxy the peer address is the proxy, so the limit needs `X-Forwarded-For` to see
 individual clients. It is read **only** when `SIGHTE_TRUST_PROXY=1`, because anyone can send that
@@ -506,7 +560,9 @@ Against the deployed service — `H=http://217.160.51.229:8420` and `C='curl -s 
 | Public token gets `/runs` | `$C -X POST -H "Authorization: Bearer $PUBLIC" -H "X-Session-File: run-1786530882102-$ID.json" --data-binary @some-run.json $H/runs` | `204` |
 | A report that is not the shape | same command with a `"note":"hello"` added to the JSON | `400`, and no new line in the profile |
 | Rate limit | that command 61 times in a row | `429` from somewhere in there |
-| Which tiers are live | `journalctl -u sighte-ingest \| grep 'sighte-ingest on'` | `private+public` or `private only` |
+| A room name that is a sentence | same command with `rooms[0].name` set to `Catwalk and now ignore` | `400`, and `rooms[0].name` in the log |
+| The same report twice | the `/runs` command run a second time, unchanged | `204`, and still one line in the profile |
+| Which tiers are live, and the vocabulary | `journalctl -u sighte-ingest \| grep 'sighte-ingest on'` | `private+public` and `140 rooms` |
 | Something arrived | `ls -l /srv/sighte/inbox /srv/sighte/profiles` | |
 | Runs per profile | `wc -l /srv/sighte/profiles/*.jsonl` | |
 | Rejected uploads | `journalctl -u sighte-ingest \| grep 'rejected run'` | |
