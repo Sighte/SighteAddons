@@ -32,9 +32,12 @@ In this project the jar is regularly only half of a change, so the notes carry:
 
 - **What changed**, per merged PR, in one line each — behaviour first, internals only if they are
   visible from outside.
-- **What is not in the jar.** Receiver deploys (`vps/ingest.py`, `vps/roomstats.py` to `/srv/sighte`,
-  restart `sighte-ingest`), the `AGENT-PROMPT.md` re-paste out of `vps/SETUP.md`'s heredoc, env
-  changes. A release whose server side is not deployed silently rejects every report it produces.
+- **What is not in the jar.** The receiver lives in
+  [`Sighte/skyblock-server`](https://github.com/Sighte/skyblock-server) and a push to its `master`
+  deploys, so the question is whether the matching change is *pushed there* rather than whether
+  somebody copied a file. Name the commit or PR it needs. A build whose receiver side is behind
+  silently rejects every report it produces — the report schema is compiled in, and a field the
+  validator has not learned yet is a `400` the client never retries.
 - **What breaks for older installs.** The upload URL and the report schema are compiled in, so a
   bump can take previous builds off the air — say so plainly, and say whether their queued data
   survives.
@@ -47,3 +50,32 @@ In this project the jar is regularly only half of a change, so the notes carry:
 
 Do not backfill releases for versions that never had one — the tags would claim a review that never
 happened. Start where the habit starts.
+
+## The same build goes to Modrinth, in the same step
+
+A jar on GitHub and not on Modrinth means the players who actually install this mod are on an older
+build than the one whose notes describe the current server behaviour. The report schema and the upload
+URL are compiled in, so "older build" here is not cosmetic: it decides whether their runs arrive at
+all. A GitHub release is therefore not finished until the same file is on Modrinth.
+
+`.github/workflows/modrinth.yml` does it on `release: published`, so this is a trigger rather than
+something to remember. It needs `MODRINTH_TOKEN` as a repo secret and `MODRINTH_PROJECT` as a repo
+variable. **Check the run after publishing a release** — a failed upload leaves exactly the split this
+section exists to prevent, and nothing else will tell you.
+
+- **Same version number, same jar** — the file attached to the release, not a rebuild. A second build
+  of the same source is a different `sha256`, and then neither number identifies anything.
+- **Same `version_type`** and the same changelog text, so the two pages cannot tell different stories
+  about one build.
+- **`loaders`, `game_versions` and dependencies** come out of `fabric.mod.json` in the jar being
+  uploaded rather than from memory — that file is the only place that cannot be out of date with the
+  artifact.
+
+One deliberate difference: the operator steps — anything waiting in `Sighte/skyblock-server`, env
+changes on the box — stay in the GitHub notes only. Nobody installing from Modrinth runs that box, so
+on their page those lines are noise that reads like a setup requirement for the mod. Everything a
+player can act on (what changed, requirements, what is unverified) belongs on both.
+
+Publishing there is the point at which the public token in the jar is genuinely public and strangers
+can post to `/runs`. That is by design and documented, but it happens on the first Modrinth upload and
+not on the first GitHub release — so it is worth saying out loud when it is about to happen.

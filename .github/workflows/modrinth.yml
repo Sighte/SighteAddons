@@ -1,0 +1,147 @@
+# Every jar published on a GitHub release goes to Modrinth as the same version, automatically.
+#
+# A habit would drift: the players who install this mod are the ones whose runs have to match what the
+# receiver expects, and the report schema and upload URL are compiled into the jar. A build that sits
+# on GitHub while Modrinth serves the previous one is a build whose uploads get rejected. So the rule
+# is a trigger rather than a line in CLAUDE.md.
+#
+# `workflow_dispatch` takes a tag, which is how an already-published release gets uploaded — v0.9.0
+# existed before this workflow did — and how a failed run is retried without touching the release.
+#
+# Configuration, both one-off:
+#   gh secret set MODRINTH_TOKEN        # a Modrinth PAT with "Create versions" scope
+#   gh variable set MODRINTH_PROJECT    # the project's slug or id
+name: Publish to Modrinth
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish, e.g. v0.9.0
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      # The artifact from the release, never a rebuild: a second build of the same source has a
+      # different sha256, and then the number in the release notes identifies nothing.
+      #
+      # The notes come through `gh` as JSON rather than through ${{ github.event.release.body }}.
+      # Interpolating them into a shell script would make anything written in them executable here,
+      # and they are edited by hand — reading them from a file has no such shape at all. It is also
+      # what lets one code path serve both triggers, since a dispatch has no release payload.
+      - name: Take the jar and the notes from the release
+        run: |
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.jar' --dir .
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --json name,body,isPrerelease,isDraft > release.json
+
+      # Every value the API needs comes out of the jar being uploaded rather than out of this file.
+      # fabric.mod.json is the one place that cannot disagree with the artifact.
+      - name: Describe the version from the jar itself
+        env:
+          PROJECT: ${{ vars.MODRINTH_PROJECT }}
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import glob, json, os, re, urllib.request, zipfile
+
+          project = os.environ["PROJECT"].strip()
+          if not project:
+              raise SystemExit("MODRINTH_PROJECT is not set: gh variable set MODRINTH_PROJECT <slug>")
+
+          release = json.load(open("release.json"))
+          if release["isDraft"]:
+              raise SystemExit("that release is still a draft; publishing it is what triggers this")
+
+          jars = [name for name in glob.glob("*.jar") if not name.endswith("-sources.jar")]
+          if len(jars) != 1:
+              raise SystemExit(f"expected exactly one jar on the release, found {jars}")
+          jar = jars[0]
+
+          with zipfile.ZipFile(jar) as archive:
+              meta = json.loads(archive.read("fabric.mod.json"))
+
+          # The tag is what a human typed and the jar is what the build produced. A release where they
+          # disagree is mislabelled, and uploading it would put that mistake on a page strangers read.
+          version = meta["version"]
+          if os.environ["TAG"] != f"v{version}":
+              raise SystemExit(f"tag {os.environ['TAG']} does not match the jar's version {version}")
+
+          # `~26.1.2` and friends: Modrinth wants the versions themselves, and this mod is built
+          # against exactly one.
+          game = re.sub(r"^[~^>=<]+", "", meta["depends"]["minecraft"]).strip()
+          if not re.fullmatch(r"\d+\.\d+(\.\d+)?", game):
+              raise SystemExit(f"cannot read a game version out of {meta['depends']['minecraft']!r}")
+
+          def project_id(slug):
+              """The base62 id behind a slug — or behind an id, which resolves to itself.
+
+              `project_id` in the payload is base62-decoded by the API, so a slug there fails with
+              "Base62 decoding overflowed" and nothing about that message says "you passed a slug".
+              Resolving instead of demanding an id means MODRINTH_PROJECT can hold either, and the
+              dependency slugs below stay checkable by eye rather than being opaque ids pasted from
+              memory into a published page.
+
+              Authenticated because a project still awaiting Modrinth's review is not readable
+              anonymously — which is exactly the state a first release is in.
+              """
+              request = urllib.request.Request(
+                  f"https://api.modrinth.com/v2/project/{slug}",
+                  headers={
+                      "User-Agent": "Sighte/SighteAddons (github.com/Sighte/SighteAddons)",
+                      "Authorization": os.environ["MODRINTH_TOKEN"],
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  return json.load(response)["id"]
+
+          # Required at load time, so the page has to say so — a missing fabric-language-kotlin is a
+          # crash on startup, not a degraded feature.
+          dependencies = [
+              {"project_id": project_id(slug), "dependency_type": "required"}
+              for slug in ("fabric-api", "fabric-language-kotlin")
+          ]
+
+          # The operator half of the notes stays on GitHub: deploying the receiver and re-pasting the
+          # agent prompt are things only whoever runs the analysis box can do, and on a player's page
+          # they read as a setup requirement for the mod. Everything else is the same text.
+          changelog = re.sub(r"\n## Not in the jar.*?(?=\n## )", "\n", release["body"] or "", flags=re.S)
+
+          json.dump({
+              "project_id": project_id(project),
+              "name": release["name"] or version,
+              "version_number": version,
+              "version_type": "beta" if release["isPrerelease"] else "release",
+              "changelog": changelog,
+              "game_versions": [game],
+              "loaders": ["fabric"],
+              "dependencies": dependencies,
+              "featured": True,
+              "file_parts": [jar],
+              "primary_file": jar,
+          }, open("version.json", "w"))
+          print(f"{jar} -> {project} {version} (mc {game}, {len(changelog)} chars of changelog)")
+          PY
+
+      - name: Publish
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+        run: |
+          jar=$(ls *.jar | grep -v -- '-sources\.jar$')
+          # --fail-with-body: the API explains a rejection in the response, and a bare exit code turns
+          # "this version already exists" into an hour of guessing.
+          curl -sS --fail-with-body -X POST https://api.modrinth.com/v2/version \
+            -H "Authorization: $MODRINTH_TOKEN" \
+            -H "User-Agent: Sighte/SighteAddons (github.com/Sighte/SighteAddons)" \
+            -F "data=@version.json;type=application/json" \
+            -F "$jar=@$jar"
