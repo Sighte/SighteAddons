@@ -165,7 +165,7 @@ def fold(lines):
     worth printing.
     """
     rooms = {}
-    tally = {"runs": 0, "visits": 0, "unnamed": 0, "preCleared": 0, "malformed": 0}
+    tally = {"runs": 0, "visits": 0, "incomplete": 0, "unnamed": 0, "preCleared": 0, "malformed": 0}
     for line in lines:
         line = line.strip()
         if not line:
@@ -180,9 +180,16 @@ def fold(lines):
             tally["malformed"] += 1
             continue
         tally["runs"] += 1
-        # v1, v2 and v3 all fold: the schema number changed what a line means about its uploader, not
-        # what a room entry means. An unknown `v` is not a reason to skip a run either — every field
-        # read here is looked up rather than assumed.
+        # Every schema folds: the version changed what a line says about its uploader and about the
+        # run, never what a room entry means. An unknown `v` is not a reason to skip a run either —
+        # every field read here is looked up rather than assumed.
+        #
+        # Counted, not skipped. From v4 a run can end by the party walking out, and the rooms they did
+        # clear are exactly as valid as any other — that is the whole reason those reports exist. Only
+        # the run-level numbers are partial, and nothing here averages those. Absent means true: up to
+        # v3 a report was only ever written at the end-of-run headline.
+        if not report.get("complete", True):
+            tally["incomplete"] += 1
         floor = report.get("floor") or "?"
         for entry in entries:
             if not isinstance(entry, dict):
@@ -242,6 +249,6 @@ if __name__ == "__main__":
         rated = sum(1 for room in rooms.values() if room.times[metric].n)
         visits = sum(room.times[metric].n for room in rooms.values())
         print(f"  {metric}: {rated} rooms, {visits} visits", flush=True)
-    for label in ("unnamed", "preCleared", "malformed"):
+    for label in ("incomplete", "unnamed", "preCleared", "malformed"):
         if tally[label]:
             print(f"  {tally[label]} {label}", flush=True)

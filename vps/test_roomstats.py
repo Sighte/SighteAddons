@@ -250,6 +250,39 @@ class Tally(unittest.TestCase):
         self.assertEqual(rooms["Catwalk"].visits, 1)
 
 
+class AbandonedRuns(unittest.TestCase):
+    """A floor the party walked out of, which from v4 is reported like any other.
+
+    The rooms they did clear are the entire reason those reports exist, so they have to fold exactly as
+    a finished run's do. What must stay separable is the run level: `runTicks` and `roomsCleared` cover
+    the part that was played, and this store counts such runs rather than averaging anything over them.
+    """
+
+    def test_a_cleared_room_counts_even_though_the_run_did_not_finish(self):
+        summary = only(report(v=4, complete=False))
+        self.assertEqual(summary["clear"]["n"], 1)
+        self.assertEqual(summary["clear"]["avgTicks"], 300)
+        self.assertEqual(summary["afterClear"]["n"], 1)
+
+    def test_a_room_left_uncleared_times_nothing_and_still_counts_as_a_visit(self):
+        # Walking out mid-room is the ordinary case: no checkmark, so no clear to time.
+        summary = only(report(v=4, complete=False, rooms=[room(clearTick=None, secretsTick=None)]))
+        self.assertEqual(summary["visits"], 1)
+        self.assertEqual(summary["clear"]["n"], 0)
+        self.assertEqual(summary["afterClear"]["n"], 0)
+
+    def test_incomplete_runs_are_counted_apart_without_being_dropped(self):
+        rooms, tally = fold(report(v=4, complete=True), report(v=4, complete=False))
+        self.assertEqual(tally["runs"], 2)
+        self.assertEqual(tally["incomplete"], 1)
+        self.assertEqual(rooms["Catwalk"].visits, 2)
+
+    def test_an_older_report_without_the_field_is_not_counted_as_incomplete(self):
+        # Up to v3 a report only existed for a finished run, so absent has to read as complete.
+        _, tally = fold(report(v=3))
+        self.assertEqual(tally["incomplete"], 0)
+
+
 class MixedSchemas(unittest.TestCase):
     """v1, v2 and v3 in one profile, which is what a real file looks like after an upgrade."""
 

@@ -27,12 +27,13 @@ class RunReportTest {
             deaths = 1
         }
 
-    private fun report(named: Boolean = false) = RunReport.build(
+    private fun report(named: Boolean = false, complete: Boolean = true) = RunReport.build(
         named = named,
         ts = 1786530882102,
         installId = "0f5e4a1c-1111-2222-3333-444455556666",
         player = "Sighte",
         floor = "M5",
+        complete = complete,
         runTicks = 8000,
         roster = listOf(DungeonPlayer("Sighte", "Berserk", "VII"), DungeonPlayer("Stranger", "Mage", "L")),
         rooms = listOf(room("Catwalk", mapOf("Sighte" to 300, "Stranger" to 15))),
@@ -46,7 +47,7 @@ class RunReportTest {
     @Test
     fun `run context survives`() {
         val json = report()
-        assertEquals(3, json["v"].asInt)
+        assertEquals(4, json["v"].asInt)
         assertEquals("M5", json["floor"].asString)
         assertEquals(2, json["partySize"].asInt)
         assertEquals(1.25, json["unattributed"].asDouble)
@@ -99,6 +100,7 @@ class RunReportTest {
             installId = "0f5e4a1c-1111-2222-3333-444455556666",
             player = "Sighte",
             floor = "M5",
+            complete = true,
             runTicks = 8000,
             roster = listOf(
                 DungeonPlayer("Sighte", "Berserk", "VII"),
@@ -112,6 +114,23 @@ class RunReportTest {
             mcVersion = "26.1.2",
         )
         assertEquals(listOf("Berserk VII", "Mage L"), json["classes"].asJsonArray.map { it.asString })
+    }
+
+    /**
+     * A floor that was walked out of still reports its rooms — that is the point of the field — and it
+     * has to say so, because `runTicks`, `roomsCleared` and `deaths` then cover the part that was
+     * played. The room entries are byte-identical either way: a clear time is a fact about the room,
+     * not about how the run ended.
+     */
+    @Test
+    fun `an abandoned run reports its rooms and admits it was abandoned`() {
+        val left = report(complete = false)
+        assertFalse(left["complete"].asBoolean)
+        assertTrue(report()["complete"].asBoolean)
+        assertEquals(
+            report()["rooms"].toString(),
+            left["rooms"].toString(),
+        )
     }
 
     @Test
@@ -149,6 +168,7 @@ class RunReportTest {
             installId = "0f5e4a1c-1111-2222-3333-444455556666",
             player = "Sighte",
             floor = "M5",
+            complete = true,
             runTicks = 8000,
             roster = listOf(DungeonPlayer("Sighte", "Berserk", "VII")),
             rooms = listOf(untouched),

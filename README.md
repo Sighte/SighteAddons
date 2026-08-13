@@ -56,7 +56,7 @@ click a row to toggle it — every change is written to `config/sighteaddons/con
 so there is no save button that could be forgotten.
 
 ```
-  SIGHTE ADDONS                                            0.7.0
+  SIGHTE ADDONS                                            0.8.0
   ────────────────────────────────────────────────────────────────
   hud    chat    history    debug
   ────────────────────────────────────────────────────────────────
@@ -268,8 +268,9 @@ Volume is bounded: only *changes* are written, and the file stops at 20 000 even
 
 ### Upload
 
-> **This mod uploads by default.** When a dungeon run finishes, a report of it is sent to the mod's
-> analysis server: rooms, times, party size and classes, filed under a random id that is generated on
+> **This mod uploads by default.** When a dungeon run ends — finished or left early — a report of it
+> is sent to the mod's analysis server: rooms, times, party size and classes, filed under a random id
+> that is generated on
 > your machine. **Your Minecraft name and UUID are not part of it** — not unless you switch the name
 > on yourself, see [Sending your name](#sending-your-name--off-by-default) — **and nobody else's ever
 > is.**
@@ -326,7 +327,7 @@ The id stays the identity either way. The name annotates it rather than replacin
 back off keeps the profile and merely stops naming it.
 
 **The switch reaches back as far as the queue, and no further.** A report is written when the run ends
-but only handed over at the *next* game start, so there is a window where a finished run sits in
+but only handed over at the *next* game start, so there is a window where a report sits in
 `config/sighteaddons/runs/` waiting. Flipping the switch rewrites what is still in there — in both
 directions, so turning it off un-names them again. The boundary is `runs/uploaded/`: once a report has
 left the machine it stays exactly as it left, and so does everything already on the server. Three runs
@@ -385,14 +386,22 @@ hostname if that matters. Nobody else's name travels either way.
 
 The debug log is a diagnostic: bounded at 20 000 events and switchable off in `/sa`. What has to
 survive instead goes into `config/sighteaddons/runs/run-<millis>-<uuid>.json`, one closed file per
-finished run, which the server files under that player's permanent profile. Room difficulty is
+run, which the server files under that player's permanent profile. Room difficulty is
 derived from that history on the server by `vps/roomstats.py`, which averages how long each room
 takes to clear and how long its secrets take **separately** — the mod does no scoring itself.
 
-Per run: floor, duration, party size, the classes present, own class and level, rooms cleared,
-unattributed remainder, deaths, mod and Minecraft version, and a `v` schema number. Per room: name,
-type, shape, secret and crypt counts, segment count, entry, clear and all-secrets tick, whether it
-was already green on arrival, secrets found, own secrets, deaths, and the effort numbers —
+Per run, not per *finished* run. Leaving a floor early is the most ordinary thing a party does, and
+the rooms they cleared on the way are as valid as anybody's — reporting only completed runs threw all
+of them away. A run that was left carries `complete: false`, which is the only thing separating it
+from a whole one: `runTicks`, `roomsCleared` and `deaths` then describe the part that was played,
+while every room entry means exactly what it always did. Since schema 4; in an older line the field is
+absent and reads as complete, because back then a report only existed once the run had ended.
+
+Per run: floor, whether it completed, duration, party size, the classes present, own class and level,
+rooms cleared, unattributed remainder, deaths, mod and Minecraft version, and a `v` schema number.
+Per room: name, type, shape, secret and crypt counts, segment count, entry, clear and all-secrets
+tick, whether it was already green on arrival, secrets found, own secrets, deaths, and the effort
+numbers —
 `playerTicks` (the whole party's time in the room), `playersInRoom`, `ownTicks`. One player for 60
 seconds and four players for 15 are the same clear time and very different rooms, which is exactly
 what a difficulty estimate needs to see.
@@ -423,7 +432,7 @@ JDK 26 works too — no toolchain is pinned. If Gradle 9.5.1 refuses your JDK as
 ./gradlew test
 ```
 
-The latest build is committed at [`dist/sighteaddons-0.7.0.jar`](dist/sighteaddons-0.7.0.jar) —
+The latest build is committed at [`dist/sighteaddons-0.8.0.jar`](dist/sighteaddons-0.8.0.jar) —
 `build` copies it there automatically, so the checked-in jar can never go stale relative to the
 source. The filename carries `mod_version`, so a jar already sitting in `mods/` still says which
 build it is; the copy deletes the previous version, so `dist/` holds exactly one jar and git history

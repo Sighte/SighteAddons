@@ -322,7 +322,7 @@ the mapping below is where to start, not a diagnosis.
 | `unattributed` large relative to `roomsCleared` in `run_end` | Same decoration→player mapping as above; the gap is the built-in diagnostic for it. |
 | `cleared` / `all_secrets` missing for rooms that clearly were done | `DungeonMapReader` checkmark scan — map colour IDs or the "centre pixel equals room colour" rule. |
 | Secret counts never rise, or rise in the wrong room | `SecretTracker` — the action-bar guard requires the reported total to match the room's database count; if the room is unnamed the guard blocks everything, which is correct behaviour, not a bug. |
-| No `run_end` although the run finished | The `RUN_END` regex in `SighteAddons.kt` vs. Hypixel's actual headline. |
+| No `run_end` although the run finished | The `RUN_END` regex in `SighteAddons.kt` vs. Hypixel's actual headline. Rule the ordinary case out first: from schema 4 a party that walks out mid-floor still produces a run report, and that one carries `"complete":false` and legitimately has no `run_end`. A missing headline is only a finding when the run actually ended. |
 | No `death` events although the run clearly had deaths | Death detection reads the tab class flipping to `DEAD`, which assumes a dead player's row still matches the `TAB` regex. Check what `tab_slot` logged for that slot: if the row stopped parsing, `parsed` is null and the flip is missed. Deaths in the boss phase are never seen by design — `PartyTracker` stops updating there. |
 | `truncated` record | The session hit 20 000 events. Everything after it is missing — say so in the report before drawing conclusions from absence. |
 

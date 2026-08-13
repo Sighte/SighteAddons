@@ -12,8 +12,14 @@ import java.nio.file.StandardCopyOption
 import kotlin.io.path.name
 
 /**
- * One JSON file per finished run: every room with what it cost the party, plus the context that
- * makes those numbers comparable between runs.
+ * One JSON file per run: every room with what it cost the party, plus the context that makes those
+ * numbers comparable between runs.
+ *
+ * Per run, not per *finished* run. A room's clear time is a fact about that room whether or not
+ * anybody killed the boss afterwards, and abandoning a floor is the most ordinary thing a party does
+ * — reporting only completed runs threw away the rooms of every one of them. What the end of the run
+ * decides is not whether the rooms count, only whether the run-level numbers describe a whole run,
+ * which is what `complete` says out loud.
  *
  * Separate from [DebugLog] on purpose. The debug log is a diagnostic — bounded at 20 000 events and
  * switchable off in `/sa` — while this is the permanent record that room scoring is derived from
@@ -43,15 +49,23 @@ object RunReport {
      * Bumped whenever a field changes meaning: this data outlives the code that wrote it. 2 dropped
      * `player` and repurposed `uuid` from the Minecraft identity to the install id, so a v1 line and
      * a v2 line with the same `uuid` are about different things. 3 added `enterTick`, without which
-     * no line before it can yield a clear duration.
+     * no line before it can yield a clear duration. 4 added `complete`, and that one changes what
+     * every *earlier* line means: up to 3 a report existing at all implied a finished run, so an
+     * absent `complete` reads as true and must keep reading that way forever.
      */
-    private const val SCHEMA = 3
+    private const val SCHEMA = 4
 
-    fun write() {
+    /**
+     * [complete] is false for a run that was left before the end. Everything below the run level is
+     * unaffected — a room that was cleared has its ticks either way — but `runTicks`, `roomsCleared`
+     * and `deaths` then describe the part that was played rather than a whole run, and nothing
+     * downstream could tell without being told.
+     */
+    fun write(complete: Boolean) {
         val client = Minecraft.getInstance()
         val self = client.player ?: return
         val rooms = ContributionTracker.visitedRooms()
-        // A run that saw no rooms is a false headline match, not a run.
+        // No rooms is a false headline match or a server hop outside a dungeon, not a run.
         if (rooms.isEmpty()) return
 
         val ts = System.currentTimeMillis()
@@ -64,6 +78,7 @@ object RunReport {
             player = self.name.string,
             named = Config.uploadName,
             floor = DungeonSession.floor ?: "?",
+            complete = complete,
             runTicks = DungeonSession.runTicks,
             roster = PartyTracker.roster(),
             rooms = rooms,
@@ -178,6 +193,9 @@ object RunReport {
         /** Used to find the uploader's own class and ticks. Written to the report only when [named]. */
         player: String,
         floor: String,
+        /** Whether the run reached its end. Required rather than defaulted: a run wrongly stored as
+         *  complete is a permanent claim about a whole run that nobody played. */
+        complete: Boolean,
         runTicks: Int,
         roster: List<DungeonPlayer>,
         rooms: List<TrackedRoom>,
@@ -199,6 +217,9 @@ object RunReport {
         // written, precisely so this could be turned on without invalidating a single stored report.
         if (named) obj.addProperty("player", player)
         obj.addProperty("floor", floor)
+        // Sits in front of the three numbers it qualifies: they are the part of the run that was
+        // played, and only this field separates that from a whole one.
+        obj.addProperty("complete", complete)
         obj.addProperty("runTicks", runTicks)
         obj.addProperty("partySize", roster.size)
         obj.addProperty("roomsCleared", roomsCleared)
