@@ -75,7 +75,7 @@ class SighteAddons : ClientModInitializer {
                     Component.literal(
                         "sends a report of each finished dungeon run to the mod's analysis server: " +
                             "rooms, times and classes, under a random id, without your name. " +
-                            "Turn it off with /sa → DEBUG.",
+                            "Turn it off with /sa → debug.",
                     ).withStyle(ChatFormatting.GRAY),
                 ),
             )
