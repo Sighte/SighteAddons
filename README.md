@@ -55,7 +55,7 @@ grid, click a row to toggle it — every change is written to `config/sighteaddo
 immediately, so there is no save button that could be forgotten.
 
 ```
-  SIGHTE ADDONS                                            0.4.0
+  SIGHTE ADDONS                                            0.5.1
   ────────────────────────────────────────────────────────────────
   HUD    CHAT    RECORDS    DEBUG
   ────────────────────────────────────────────────────────────────
@@ -341,7 +341,7 @@ JDK 26 works too — no toolchain is pinned. If Gradle 9.5.1 refuses your JDK as
 ./gradlew test
 ```
 
-The latest build is committed at [`dist/sighteaddons-0.4.0.jar`](dist/sighteaddons-0.4.0.jar) —
+The latest build is committed at [`dist/sighteaddons-0.5.1.jar`](dist/sighteaddons-0.5.1.jar) —
 `build` copies it there automatically, so the checked-in jar can never go stale relative to the
 source. The filename carries `mod_version`, so a jar already sitting in `mods/` still says which
 build it is; the copy deletes the previous version, so `dist/` holds exactly one jar and git history
