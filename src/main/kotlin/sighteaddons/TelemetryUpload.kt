@@ -90,6 +90,24 @@ object TelemetryUpload {
         }, "sighteaddons-upload").apply { isDaemon = true }.start()
     }
 
+    internal enum class Outcome { DONE, REJECTED, RETRY, STOP }
+
+    /**
+     * What a status code means for the *queue*, which is not the same as what it means for the file.
+     *
+     * Only `401` is about the run as a whole: a token the server does not accept fails every file
+     * identically, so walking the rest is pointless noise. `400` and `413` are about this one file —
+     * its name, its size, its contents — and say nothing about the next one. Treating them as fatal
+     * was a real bug: reports are sent oldest first, so a single report from an older schema sat at
+     * the head of the queue and blocked every newer one, at every launch, permanently.
+     */
+    internal fun outcome(code: Int): Outcome = when {
+        code in 200..299 -> Outcome.DONE
+        code == 401 -> Outcome.STOP
+        code == 400 || code == 413 -> Outcome.REJECTED
+        else -> Outcome.RETRY
+    }
+
     /** [sessions] is what separates the tiers: only the private one may ship other people's names. */
     internal class Tier(val base: String, val token: String, val sessions: Boolean)
 
@@ -159,24 +177,29 @@ object TelemetryUpload {
                     )
                     continue
                 }
-                val code = post(client, file, url, token)
-                when {
-                    code in 200..299 -> {
+                when (outcome(post(client, file, url, token))) {
+                    Outcome.DONE -> {
                         Files.move(file, done.resolve(file.name), StandardCopyOption.REPLACE_EXISTING)
                         SighteAddons.LOGGER.info("Uploaded telemetry {}", file.name)
                     }
-                    // A wrong token fails every file identically, and 400/413 after the checks above
-                    // mean the mod and the receiver disagree about the contract — so does the rest.
-                    code == 400 || code == 401 || code == 413 -> {
-                        SighteAddons.LOGGER.warn(
-                            "Telemetry upload of {} rejected: HTTP {}; giving up for this launch", file.name, code,
-                        )
-                        return false
+                    Outcome.REJECTED -> {
+                        // Moved out of the queue, not deleted. It will never be accepted as it
+                        // stands, and leaving it where it is means retrying it at every launch
+                        // forever — with oldest-first ordering, one such file in front of the queue
+                        // is enough to keep everything behind it from ever being sent.
+                        val out = dir.resolve("rejected")
+                        Files.createDirectories(out)
+                        Files.move(file, out.resolve(file.name), StandardCopyOption.REPLACE_EXISTING)
+                        SighteAddons.LOGGER.warn("Telemetry {} was rejected; moved to rejected/", file.name)
                     }
                     // Left in place on purpose — the next launch retries it.
                     // ponytail: the retry schedule is "next game start". No backoff, no queue; a real
                     // one belongs here if the server ever stays down long enough for that to matter.
-                    else -> SighteAddons.LOGGER.warn("Telemetry upload of {} rejected: HTTP {}", file.name, code)
+                    Outcome.RETRY -> SighteAddons.LOGGER.warn("Telemetry upload of {} deferred", file.name)
+                    Outcome.STOP -> {
+                        SighteAddons.LOGGER.warn("Telemetry upload rejected the token; giving up for this launch")
+                        return false
+                    }
                 }
             } catch (e: Exception) {
                 SighteAddons.LOGGER.warn("Telemetry upload of {} failed", file.name, e)
