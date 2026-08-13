@@ -78,6 +78,10 @@ class TelemetryUploadTest {
     fun `an ordinary install lands on the public tier and sends no sessions`(@TempDir dir: Path) {
         val tier = TelemetryUpload.tier(enabled = true, path = dir.resolve("upload.properties"))!!
         assertFalse(tier.sessions)
+        // Every install in the world uses this one URL, and the bearer token rides in a header on
+        // every request. Falling back to plain http would put both on the wire readable, so the
+        // scheme is part of the contract rather than a detail of the constant.
+        assertTrue(tier.base.startsWith("https://"))
     }
 
     @Test
