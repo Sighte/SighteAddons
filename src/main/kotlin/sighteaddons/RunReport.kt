@@ -83,7 +83,7 @@ object RunReport {
             roster = PartyTracker.roster(),
             rooms = rooms,
             roomsCleared = ContributionTracker.roomsCleared,
-            unattributed = ContributionTracker.roomsCleared - ContributionTracker.pointsByPlayer().values.sum(),
+            unattributed = ContributionTracker.unattributed(),
             deaths = ContributionTracker.deaths,
             modVersion = TelemetryUpload.modVersion(),
             mcVersion = client.launchedVersion,
@@ -223,9 +223,11 @@ object RunReport {
         obj.addProperty("runTicks", runTicks)
         obj.addProperty("partySize", roster.size)
         obj.addProperty("roomsCleared", roomsCleared)
-        // Clamped: the point split can leave a tiny negative remainder, and a written profile line
-        // can never be corrected afterwards.
-        obj.addProperty("unattributed", unattributed.coerceAtLeast(0.0))
+        // Settled here rather than at the call site: [build] is the contract, so a caller that
+        // computes this figure itself gets the same treatment as [write] does. The point split
+        // leaves a residue of either sign and a written profile line can never be corrected
+        // afterwards — see ContributionTracker.settle for what "either sign" cost us once already.
+        obj.addProperty("unattributed", ContributionTracker.settle(unattributed))
         obj.addProperty("deaths", deaths)
         obj.addProperty("modVersion", modVersion)
         obj.addProperty("mcVersion", mcVersion)

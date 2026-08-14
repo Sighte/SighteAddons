@@ -181,6 +181,104 @@ class RunReportTest {
         assertTrue(json["rooms"].asJsonArray[0].asJsonObject["enterTick"].isJsonNull)
     }
 
+    // --- unattributed: the one legitimately fractional field ---
+
+    /** [build] with everything but the field under test held at its ordinary value. */
+    private fun unattributed(value: Double) = RunReport.build(
+        ts = 1786530882102,
+        installId = installId,
+        player = "Sighte",
+        floor = "M5",
+        complete = true,
+        runTicks = 8000,
+        roster = listOf(DungeonPlayer("Sighte", "Berserk", "VII")),
+        rooms = listOf(room("Catwalk", mapOf("Sighte" to 300))),
+        roomsCleared = 30,
+        unattributed = value,
+        deaths = 0,
+        modVersion = "0.3.0",
+        mcVersion = "26.1.2",
+    )["unattributed"]
+
+    /**
+     * The defect this exists for, with the value a real uploaded report actually carried. The
+     * receiver appends it to `profiles/`, which is permanent and append-only, so a residue that gets
+     * through is wrong forever — and `3.552713678800501e-15` is not a number anybody reading a
+     * profile can act on.
+     */
+    @Test
+    fun `the split residue is not reported as a fraction of a room`() {
+        assertEquals(0.0, unattributed(3.552713678800501e-15).asDouble)
+        // The serialised form too: this is what is posted, and a stored line is read as text long
+        // after this code is gone.
+        assertEquals("0.0", unattributed(3.552713678800501e-15).toString())
+    }
+
+    /** What [ContributionTracker.award] does to a run of [rooms] rooms shared three ways. */
+    private fun drift(rooms: Int): Double {
+        val credited = HashMap<String, Double>()
+        repeat(rooms) {
+            DungeonGrid.splitPoints(mapOf("A" to 100, "B" to 100, "C" to 100), 1.0, ContributionTracker.MIN_TICKS)
+                .forEach { (name, points) -> credited.merge(name, points, Double::plus) }
+        }
+        return rooms - credited.values.sum()
+    }
+
+    /**
+     * The residue is not hypothetical and not a constant somebody typed into a test. This is how it
+     * is made: one point per room, split by ticks, accumulated over a floor. Three thirds do not add
+     * back up to the point they came from, and sixteen rooms of that reproduce the exact value the
+     * live report carried.
+     */
+    @Test
+    fun `the residue this removes is the one the point split actually produces`() {
+        assertEquals(3.552713678800501e-15, drift(16))
+        assertEquals(0.0, unattributed(drift(16)).asDouble)
+    }
+
+    /**
+     * Why the old one-sided clamp could never have been enough, stated as the property rather than
+     * as a claim in a comment: the same arithmetic drifts either way depending only on how many
+     * rooms the floor had. `coerceAtLeast(0.0)` covered the 36-room case and shipped the 16-room one.
+     */
+    @Test
+    fun `the residue drifts in both directions, which is what the clamp alone missed`() {
+        assertTrue(drift(16) > 0.0, "expected a positive residue, got ${drift(16)}")
+        assertTrue(drift(36) < 0.0, "expected a negative residue, got ${drift(36)}")
+        assertEquals(0.0, unattributed(drift(16)).asDouble)
+        assertEquals(0.0, unattributed(drift(36)).asDouble)
+    }
+
+    /**
+     * The other half of the same residue, which is what the original clamp was written for and what
+     * it was never tested against. A negative is not merely untidy here: the receiver validates this
+     * field as `_real(x, 0, MAX_CLEARED)`, so it is a 400, and TelemetryUpload never retries.
+     */
+    @Test
+    fun `a negative never reaches the report`() {
+        assertEquals(0.0, unattributed(-3.552713678800501e-15).asDouble)
+        // Not only the residue-sized ones: whatever produced it, a negative count of rooms is not a
+        // thing the report may claim.
+        assertEquals(0.0, unattributed(-0.5).asDouble)
+        assertEquals(0.0, unattributed(-7.0).asDouble)
+    }
+
+    /**
+     * Only the noise goes. A room that cleared with nobody ever seen in it is a real unattributed
+     * point, and the gap between this field and `roomsCleared` is the receiver's own diagnostic for
+     * a broken decoration mapping — zeroing the field would delete the signal with the noise.
+     */
+    @Test
+    fun `a genuinely unattributed room still counts`() {
+        assertEquals(1.0, unattributed(1.0).asDouble)
+        assertEquals(3.25, unattributed(3.25).asDouble)
+        // Rounded to the two decimals every path that shows this number already truncates to, so the
+        // stored figure and the one the player was shown are the same figure.
+        assertEquals(0.33, unattributed(1.0 / 3.0).asDouble)
+        // Small, but a whole percent of a room is a real gap and not float noise.
+        assertEquals(0.01, unattributed(0.01).asDouble)
+    }
+
     // --- restamp: the queue between "written" and "sent" ---
 
     private val installId = "0f5e4a1c-1111-2222-3333-444455556666"
