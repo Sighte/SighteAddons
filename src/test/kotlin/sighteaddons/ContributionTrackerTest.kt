@@ -938,4 +938,93 @@ class ContributionTrackerTest {
         assertEquals(0.0, ContributionTracker.unattributed())
         assertTrue(ContributionTracker.pointsByPlayer().isEmpty())
     }
+
+    /**
+     * Two sources, one death — `chat-001`.
+     *
+     * The tab row flipping to `DEAD` was the only death signal this mod had, and it is late twice
+     * over: the row trails the event, and [PartyTracker.update] only reads it once a second. Chat
+     * states the same death outright on the tick it happens. Both paths are kept, because a death
+     * message this client never received still shows up in tab, and losing a death is worse than
+     * recording it late. So the two must not both charge it, and this is the seam that decides.
+     *
+     * [ContributionTracker.onDeath] takes the tick rather than reading [DungeonSession.runTicks],
+     * which is what makes this testable at all: the clock is `private set` and only `tickClock`
+     * moves it, so a version that read the clock could only ever be exercised at tick zero. Same
+     * seam as `onPresence` and `onSecret`.
+     */
+    @Test
+    fun `chat and the tab list do not both charge one death`() {
+        assertTrue(ContributionTracker.onDeath("Alice", 100, ContributionTracker.DeathSource.CHAT))
+        // The tab poll notices a second later. Same death.
+        assertFalse(ContributionTracker.onDeath("Alice", 120, ContributionTracker.DeathSource.TAB))
+        assertEquals(1, ContributionTracker.deaths)
+    }
+
+    /** Order is not guaranteed — the poll can land first — and the guard is symmetric either way. */
+    @Test
+    fun `whichever source arrives first is the one that charges it`() {
+        assertTrue(ContributionTracker.onDeath("Alice", 120, ContributionTracker.DeathSource.TAB))
+        assertFalse(ContributionTracker.onDeath("Alice", 121, ContributionTracker.DeathSource.CHAT))
+        assertEquals(1, ContributionTracker.deaths)
+    }
+
+    /**
+     * The window is a guard, not the mechanism. What actually separates two deaths is the revive
+     * between them: a dead player cannot die again without one, so clearing the entry on ` ❣ ` makes
+     * a genuine second death countable however fast it follows the first — which no window on its
+     * own could do without also letting a duplicate through.
+     */
+    @Test
+    fun `a revive makes the next death a new death`() {
+        assertTrue(ContributionTracker.onDeath("Alice", 100, ContributionTracker.DeathSource.CHAT))
+        ContributionTracker.onRevive("Alice")
+        // Well inside DEATH_DEDUP_TICKS, and still a real second death.
+        assertTrue(ContributionTracker.onDeath("Alice", 110, ContributionTracker.DeathSource.CHAT))
+        assertEquals(2, ContributionTracker.deaths)
+    }
+
+    /** Two players dying together are two deaths; the guard is per player, not per tick. */
+    @Test
+    fun `two members dying at once are two deaths`() {
+        assertTrue(ContributionTracker.onDeath("Alice", 100, ContributionTracker.DeathSource.CHAT))
+        assertTrue(ContributionTracker.onDeath("Bob", 100, ContributionTracker.DeathSource.CHAT))
+        assertEquals(2, ContributionTracker.deaths)
+    }
+
+    /**
+     * The window itself, at both edges and below zero.
+     *
+     * The negative case is why this is a range and not a `<=`: a 20-tick tab poll can in principle
+     * report a death with an earlier timestamp than one already charged, and a `<=` would then drop
+     * the *later* death in favour of the earlier one — silently, and in the direction that loses
+     * data. Nothing here has been observed on a real floor; the range costs one character.
+     */
+    @Test
+    fun `the duplicate window covers the lag between the two reports and nothing else`() {
+        assertFalse(ContributionTracker.isDuplicateDeath(previous = null, at = 100))
+        assertTrue(ContributionTracker.isDuplicateDeath(previous = 100, at = 100))
+        assertTrue(
+            ContributionTracker.isDuplicateDeath(
+                previous = 100, at = 100 + ContributionTracker.DEATH_DEDUP_TICKS,
+            ),
+        )
+        assertFalse(
+            ContributionTracker.isDuplicateDeath(
+                previous = 100, at = 101 + ContributionTracker.DEATH_DEDUP_TICKS,
+            ),
+        )
+        assertFalse(ContributionTracker.isDuplicateDeath(previous = 100, at = 99))
+    }
+
+    /** Death state is run state. A charge that survived `reset` would suppress the next run's first. */
+    @Test
+    fun `a death does not survive the run`() {
+        assertTrue(ContributionTracker.onDeath("Alice", 100, ContributionTracker.DeathSource.CHAT))
+        ContributionTracker.reset()
+
+        assertEquals(0, ContributionTracker.deaths)
+        assertTrue(ContributionTracker.onDeath("Alice", 100, ContributionTracker.DeathSource.CHAT))
+        assertEquals(1, ContributionTracker.deaths)
+    }
 }

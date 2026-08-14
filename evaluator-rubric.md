@@ -15,73 +15,93 @@ read the recorded evidence.
 
 ---
 
-**Evaluated:** `artifacts-001` — "Commit the real dungeon run as evidence, and retire the statements
-that outlived it".
-**Branch:** `artifacts-001` at `d7943eb`, off `main` at `9f71b96`. Not pushed, not merged. For the
-commit count run `git rev-list --count 9f71b96..d7943eb` — it reads **2**, and it is deliberately not
-transcribed into any artifact. That discipline has now held across three features.
+**Evaluated:** `chat-001` — "Read the events Hypixel puts in chat".
+**Branch:** `chat-001` at `936e233`, code at `382c2c2`, off `main` at `a6dc629`. Not pushed, not
+merged. For the commit count run `git rev-list --count a6dc629..936e233` — it is deliberately not
+transcribed here, and that discipline has now held across four features.
 **Evaluated on:** 2026-08-14, by a session that implemented none of this work, in a detached worktree
-at `d7943eb` (the main checkout was in use and already held the branch, so `git worktree add
-../artifacts-wt artifacts-001` is refused — use `--detach <sha>`). This is the **first** grading of
-`artifacts-001`.
+at `936e233` (`git worktree add --detach ../chat-wt 936e233`; the plain `add <path> <branch>` form is
+still refused while the main checkout holds the branch — see follow-up 8). This is the **first**
+grading of `chat-001`.
 
 ### Commands re-run, and what they actually printed
 
 | Command | Result |
 | --- | --- |
-| `bash docs/evidence/session-1786719912927/readout.sh` (the feature's own `verification_command`, and `ingame-001`'s, run verbatim) | `==> READOUT: OK`, **exit 0**, `grep -c '^ok'` → **35**, `grep -ci fail` → **0**. Matches the recorded 35/0 exactly |
-| `./gradlew test --rerun-tasks`, summing `build/test-results/test/TEST-*.xml` | `classes 13 tests 140 skipped 0 failures 0 errors 0` |
-| **The same, at `main` (`9f71b96`) in a second throwaway worktree** | `classes 13 tests 140 skipped 0 failures 0 errors 0`. **"Identical to `main`" is measured on both sides here, not inferred from the diff** |
-| `git diff 9f71b96..d7943eb -- src/ \| grep -E '^[+-][^+-]' \| grep -vE '^[+-]\s*(\*\|//\|/\*)'` | **empty** (0 lines) |
-| `git diff 9f71b96..d7943eb -- src/test/ \| grep -cE '^[+-]\s*@Test'` | **`0`** |
-| **Bytecode comparison, `main` vs branch** — `javap -p -c` over all 9 differing `.class` files | **Instruction streams byte-identical for every one.** The `.class` files do differ; `javap -p -c -l` shows every difference is a `line N: M` entry in the `LineNumberTable`, i.e. debug metadata shifted by added KDoc lines. See Correctness — this is a stronger proof than the grep and it confirms it |
-| **Probe 1, rebuilt from scratch** — `Cathedral`'s `award` 4.5 → 4.0 in `session-excerpt.jsonl` | `READOUT: FAILED`, **exit 1, exactly 2 assertions failed**: `sum of award points expected 26.25, got 25.75` and `Cathedral, the dearest expected 4.5, got 4.0`. Matches. Restored with `git checkout`; readout back to exit 0 |
-| **Probe 2, rebuilt** — deleted line 106, the single `anchoredOnClear":true` line (Duncan) | `READOUT: FAILED`, **exit 1, exactly 7 assertions failed**: excerpt lines 143→142, cleared 10→9, anchored by the fallback 1→0, the fallback room is Duncan 1→0, cleared 6 ticks after entry 1→0, cleared WHITE 8→7, no other cleared room holds 0 8→7. Matches to the count and to the identity of all seven |
-| **The excerpt against the original**, `diff <(grep -v player_room "$ORIG") session-excerpt.jsonl` | **IDENTICAL.** The original is present on this machine at the `%APPDATA%` path the handoff names: 220 lines, 77 `player_room`, 143 not. The committed excerpt is *byte-for-byte* the original minus the `player_room` lines — nothing edited, reordered, added or rounded |
-| **The 3 sample lines against the original** | All three found verbatim (`grep -Fqx`). `t=20`, `t=24`, `t=4357` — the first two and the last `player_room` line, exactly as the README claims |
-| **The full 77 dropped lines** — distinct `player`, distinct `decoIndex` | **1 and 1** (`p-cad01af7`, `0`) — identical to what the 3-line sample asserts. The sample does not understate the stream |
-| **The checkmark claim against `rooms.json` directly** | Of the ten cleared rooms, **exactly `Default` and `Hall` carry no `secrets` key**; the other eight are 4, 8, 6, 3, 5, 1, 2, 7. Those two are exactly the two reading `checkmark:30`. **Ten for ten, verified against the database rather than against the excerpt's own `room_identified` lines** |
-| **`ingame-001`'s old `verification_command`** — `git show 9f71b96:feature_list.json` | It was `grep -c '"roomName"' run/config/sighteaddons/debug/session-*.jsonl`. `grep -rn roomName src/main/` → six hits, **all a local `val` in `RoomHistory.kt`**; the property it writes at `RoomHistory.kt:294` is `"room"`, and the `room_identified` key is `"name"`. `git check-ignore -v run/...` → `.gitignore:33:run/`. **Confirmed: it could never have returned non-zero, against any file** |
-| `./gradlew assemble check`; `md5sum dist/*.jar` before and after | `BUILD SUCCESSFUL`; md5 `b2ebc35ccfeb9cc96134eb3b18f0306f` **identical both sides**; `git status --short dist/ gradle.properties` empty; `mod_version=0.9.0`; `RunReport.kt:66 SCHEMA = 5` |
-| `git diff --name-only 9f71b96..d7943eb` | 13 files: 5 artifacts, 4 evidence, `.gitattributes`, 2 source, 2 test. **`RunReport.kt` absent, `rooms.json` absent, `dist/` absent, `gradle.properties` absent** |
-| `bash init.sh` | `BASELINE: PASSING`. Its "Full verification command" block prints `./gradlew assemble check` with the `copyToDist`/`cleanDist` reasoning inline |
-| Final state after both evidence mutations | `git status --short` **empty** across the whole tree |
+| `./gradlew test --tests 'sighteaddons.ChatEventsTest' --tests 'sighteaddons.SecretTrackerTest' --tests 'sighteaddons.ContributionTrackerTest'` (the feature's own `verification_command`, verbatim) | `BUILD SUCCESSFUL`. **ChatEventsTest 11, SecretTrackerTest 8, ContributionTrackerTest 48, 0 failures, 0 errors.** Matches the recorded 11/8/48 exactly |
+| `./gradlew test --rerun-tasks`, summing `build/test-results/test/TEST-*.xml`, cold in a fresh worktree | **`classes 14 tests 160 skipped 0 failures 0 errors 0`.** Matches. `main` at `a6dc629` is 13/140, and the delta is exactly the 20 added tests |
+| `./gradlew assemble check`; `md5sum dist/*.jar` before and after | `BUILD SUCCESSFUL`; md5 **`b2ebc35ccfeb9cc96134eb3b18f0306f` identical both sides**; `git status --short dist/ gradle.properties` empty; `mod_version=0.9.0`; `RunReport.kt:66 SCHEMA = 5` |
+| `git diff a6dc629..936e233 -- src/main/kotlin/sighteaddons/RunReport.kt \| wc -l` | **`0`.** `RunReport.kt` is absent from the branch entirely, as are `rooms.json`, `dist/` and `gradle.properties` |
+| `bash init.sh` | `==> BASELINE: PASSING` |
+| **The paired check, rebuilt mechanically from scratch** — my own script extracting every `addProperty`/`add` key from `RunReport.build()` and `room()` and diffing against `RUN_KEYS`/`RUN_OPTIONAL`/`ROOM_KEYS`/`ROOM_OPTIONAL` parsed out of `SighteAddonServerside/ingest.py:137-159` | **Four empty sets, both directions.** The one apparent mismatch my first pass threw up, `${it.livingClass} ${it.livingLevel}`, is `RunReport.kt:254` `classes.add(...)` — a **JsonArray element, not an object key** — and my regex over-matched. Excluding it: nothing the receiver would reject, nothing required that the mod omits. **`chat-001` writes no new field and is genuinely not paired** |
+| **`/ingest` validates the filename and never the body** — `ingest.py:538-549` | Confirmed. `store_session` does `if not SESSION.fullmatch(name): return self.reply(400)` and then `tmp.write_bytes(body)`. The body is never parsed. `store_run` by contrast `json.loads`es and validates. A grep for any event-type reader across `ingest.py` returns **nothing**. So a new debug event kind cannot be rejected, exactly as claimed |
+| **Recorded probe 1** — remove `^` from `ChatEvents.LEAD` **and** `matchEntire`→`find` | **2 of 11 FAILED**, and they are the two named: `a party member typing a death message does not kill anybody`, `reads the blood door, which names nobody` |
+| **Probe 1's sub-claim, run as two separate mutations** | `^` removed **alone** → `BUILD SUCCESSFUL`, fails nothing. `find` **alone** → `BUILD SUCCESSFUL`, fails nothing. **The redundancy claim is exactly right** |
+| **Recorded probe 2** — `chatAttribution` returns `false` instead of `null` | **3 of 8 FAILED**: `the sentinel cannot be subtracted from here either`, `a named finder settles it either way`, `chat says nothing about the secrets it does not name a finder for`. Matches, and those three are precisely the three-state cases |
+| **My probe A** — idempotency keyed globally (`deathAt["*"]`) instead of per player | **2 FAILED**: `two members dying at once are two deaths`, `a revive makes the next death a new death`. Mis-keying is pinned |
+| **My probe B** — `onRevive` reads instead of removing (`deathAt[player] != null`) | **1 FAILED**: `a revive makes the next death a new death` |
+| **My probe C** — dedup window unbounded (`at - previous >= 0`), i.e. the lost-death direction | **1 FAILED**: `the duplicate window covers the lag between the two reports and nothing else` |
+| `git diff a6dc629..936e233 -- src/test/ \| grep -cE '^-\s*@Test'` | **`0`**. Added: **20**. Deleted lines in test files of any kind: **none**. Assertions removed anywhere under `src/`: **0**. Test files 13 → 14 |
+| `git status --porcelain src/` after all six mutations, each restored with `git checkout` | **empty** |
 
-### The excerpt, judged as the handoff asked
+### The citations, checked against the cited sources rather than read
 
-The handoff singles this out as "the judgement most worth a second pair of eyes". It is an honest
-subset, and I could check that harder than the session could record it, because the original file is
-still on this machine.
+This is the whole feature and the session sourced it by `gh api .../contents/...` rather than from
+memory. I fetched five of the five cited mods myself. **Not one citation is fabricated, and the two
+I expected to be loose are verbatim.**
 
-- **It is a subset, not a rewrite.** The committed 143 lines are byte-identical to the original's 143
-  non-`player_room` lines, in order. There is no editorial hand in it at all.
-- **The dropped lines carry nothing an assertion needs.** Their only keys are `t`, `e`, `player`,
-  `cell`, `decoIndex`, `decoType`, `decoX`, `decoY`, `worldX`, `worldZ`. Every assertion in
-  `readout.sh` reads `session-excerpt.jsonl` except the two that read the sample, and those two are
-  accurate for the whole stream — I checked all 77, not the 3.
-- **No identity survives.** The only player token anywhere is `p-cad01af7`. No UUIDs. The place a real
-  name would leak is `tab_slot`'s raw `row` field, and it reads `[391] p-cad01af7 ☄ (Berserk L)` —
-  pseudonymised by `Pseudonym` before `DebugLog` saw it, exactly as the README claims, so nothing was
-  scrubbed after the fact and nothing needed to be.
-- **The dropped stream is not the sighting stream**, which is what makes dropping it cheap:
-  `player_room` fires on room change (77 lines over 4357 ticks, gaps 4–291), not per tick. The
-  `MIN_TICKS` reading rests on `room_anchored`'s own `at` and `t`, both committed and both asserted.
-- **The README's provenance claim is self-verifying and I verified it.** It says the writing build
-  predates `clearpoints-002` because no `award` event carries `scoresTs`. At `HEAD`,
-  `ContributionTracker.kt:727` puts `scoresTs` on every `award`; the run's nine carry none. That is a
-  property of the bytes, as claimed.
+- **Cowlection** (`cow-mc/Cowlection`, `DungeonsListener.java`) — `DUNGEON_DEATH_PATTERN` at `:102` is
+  `"^ ☠ (\\w+) .+ and became a ghost\\.$"` and `DUNGEON_REVIVED_PATTERN` at `:103` is
+  `"^ ❣ (\\w+) was revived.*?$"`. The KDoc's claim that the file "documents them as a list and matches
+  them with one pattern" is literally true: `:95-99` is a javadoc `<li>` block carrying **exactly the
+  five middles the KDoc names** — `disconnected from the Dungeon`, `died`, `fell to their death with
+  help from`, `was killed by`, and second-person `You were killed by`. The `SELF` KDoc's claim that
+  Cowlection "maps the literal `You` to the client's own name and stops there" is `:578-580`, verbatim.
+  `text.startsWith("PUZZLE FAIL!")` at `:589` backs the second `PuzzleFailed` citation.
+- **IllegalMap** (`UnclaimedBloom6/IllegalMap`, `components/DmapDungeon.js:295-296`) —
+  `/^(?:\[[^\]]+\] )*\w+ opened a WITHER door!/` is **character-for-character** the regex quoted in the
+  `WitherDoor` KDoc, and `:296` carries the blood door as the whole-line literal
+  `/^The BLOOD DOOR has been opened!$/`.
+- **OdinLegacy** (`odtheking/OdinLegacy`, `AutoGFS.kt:38`) — the alternation is verbatim, including
+  `(\w{1,16})` twice, which also substantiates the separate claim that `NAME` is "bounded the way
+  `OdinLegacy` bounds it". The KDoc elides the tail with `...`; the real tail is `I shall never forget
+  this moment of misrememberance.` and the mod's own `QUIZ_WRONG` uses `.*$` there instead, which is
+  the tolerant direction and is consistent with its stated design.
+- **SkyHanni** (`hannibal002/SkyHanni`, `DungeonChatFilter.kt`) — all three named lists exist under
+  exactly those names: `puzzlePatterns:108`, `pickupPatterns:133`, `pickupMessages:148`. The two
+  `PUZZLE SOLVED!` examples the KDoc quotes are `:109-110` verbatim. Both Wither Essence forms are
+  verbatim: third-person in `pickupPatterns` at `:138`, second-person in `pickupMessages` at `:149`.
+  The `(.*) §r§ffound a §r§dWither Essence§r§f!` string quoted in `parse`'s KDoc as "three codes in one
+  sentence" is `:138` exactly. **The one overstatement in the pass is here — see follow-up 2.**
+- **DulkirMod** (`inglettronald/DulkirMod`, `DungeonKeyDisplay.kt:9-10`) — `([a-zA-Z]+) opened a WITHER
+  door!` and `The BLOOD DOOR has been opened!`. **Harry282/Skyblock-Client** (`FastLeap.kt:32`) —
+  `message == "The BLOOD DOOR has been opened!"`, a whole-line literal as claimed. With OdinLegacy's
+  `SplitsManager.kt` that is the fourth independent blood-door source the KDoc says it has.
+
+### The three unverified paths, and whether a reader will find them
+
+The session names all three — the strings, the wiring, the ordering — in `feature_list.json`'s notes,
+in `verification_manual`, in `session-handoff.md`, in `quality-document.md`'s row, and in
+`ChatEvents`' own header. **Nothing anywhere implies the dev client reached Hypixel**; every artifact
+that could says the opposite. The strings and the wiring are named and correctly fenced, and the
+benign-failure argument for a wrong pattern is sound: an anchored pattern that does not match returns
+null and the pre-existing inference runs unchanged.
+
+**The ordering is the sharp one, and the artifacts are half right about it — see follow-up 1.** The
+risk itself is stated prominently and correctly in the two artifacts a reader meets first. But two of
+the four places it is written say the opposite, and they are the operational two.
 
 | Category | Question | Score (0-2) | Notes |
 | --- | --- | --- | --- |
-| Correctness | Does the implemented behavior match the requested feature? | 2 | **None of the harness's Correctness-0 conditions is met, and I checked rather than inherited.** `RunReport.kt` is absent from `git diff --name-only 9f71b96..d7943eb` entirely, `SCHEMA` is 5, `mod_version` is 0.9.0. No schema change landed, so none could have landed ahead of the receiver; `SighteAddonServerside` was neither read nor written and nothing here reaches the wire. **The hard constraint — change no runtime behaviour — holds, and I proved it a second way rather than re-running the session's grep.** I compiled `main` and the branch and compared with `javap -p -c`: nine `.class` files differ, and **every one has a byte-identical instruction stream**; `javap -c -l` shows the whole delta is `LineNumberTable` entries shifted by added KDoc lines. That is the mechanical proof the pass claims, obtained independently of the diff filter the session used, and it closes the one hole a comment-grep leaves (a filter that hides a real line because it happens to start with `*`). **The evidence is real and it is a faithful subset**, verified against the original file rather than against its own README — byte-identical minus `player_room`, samples verbatim, census correct in all 17 event kinds. **The checkmark claim holds and it is the substantive new result.** Two of ten clears read GREEN(30); `Default` and `Hall` are exactly the two cleared rooms `rooms.json` gives no secrets; the other eight hold 1–8 and all read WHITE(34). Ten for ten, checked against the database directly — which matters, because `readout.sh`'s own version of that check reads the excerpt's `room_identified` lines and is therefore self-referential. It is the first real evidence `ingame-001` has ever had, and the session correctly limits it: the RED path never occurred. **The old weights reproduce.** All nine `award` figures match the README's arithmetic under `clearpoints-001`'s deleted formula against the real database secret counts, and sum to 26.25. |
-| Verification | Did the required checks actually run, with evidence? | 2 | **The `verification_command` re-runs green and the readout is a real verifier, not a description.** 35 `ok`, 0 fail, exit 0; `check()` sets `fail=1` and the script `exit "$fail"`s, so it can and does return non-zero. **Both mutation probes rebuilt from their descriptions and both reproduce exactly** — Cathedral 4.5→4.0 fails 2 (and the session's claim that it is caught "twice, once directly and once through the checksum-like sum" is correct), deleting the one `anchoredOnClear` line fails 7, and all seven are the ones recorded. So the excerpt cannot be quietly trimmed, which is the failure mode a committed evidence file has that no compiler or test would catch. That answers the standing concern in this repository's history: **a verifier that cannot fail is the defect two grading passes were lost to, and this one bites.** **Nothing was removed or loosened.** Zero `@Test` lines touched; every changed line in both test files is KDoc, read individually; `@Test` counts per file identical to `main` (42 and 8); the other eleven test files untouched. So the Verification-0 condition does not apply. **The suite is 140 at `main` and 140 here, both measured cold in separate worktrees** — for a comment-only branch an unchanged count is the correct reading and is itself part of the evidence, since a KDoc edit that moved a fixture would show up there. **Unverified paths are named, not implied.** The party half, the RED checkmark, every `/sa` pixel, the measured half of the scoring model, layer 2, and `tick()`'s wiring are each named — in `session-handoff.md`, in `ingame-001`'s `blocked_reason`, in `quality-document.md`'s promoted rows, and at equal length in the evidence README's own §4. **Nothing implies the dev client reached Hypixel**; the README states the run came from a real install on a debug build of `72e0825` and is emphatic that `HEAD` does not produce its numbers. |
-| Regression | Are previously passing features still passing? | 2 | Full suite green from a forced cold run in a fresh worktree: `classes 13 tests 140 skipped 0 failures 0 errors 0`, and **identical to `main` measured independently at `9f71b96`**. `./gradlew assemble check` → `BUILD SUCCESSFUL`; jar md5 `b2ebc35ccfeb9cc96134eb3b18f0306f` before and after and identical; `git status --short dist/ gradle.properties` empty; `bash init.sh` → `BASELINE: PASSING`. Bytecode instruction-identical to `main`, so no previously passing behaviour *can* have regressed. Diffing statuses in `feature_list.json` against `9f71b96`: nothing was downgraded, removed or quietly moved — `artifacts-001` went `in_progress`→`passing`, `runloss-001` was *added* per `CLAUDE.md`'s discovered-work rule, and `ingame-001` stayed `blocked` (see below). `clearpoints-001`'s five named guards and `clear-001`'s cases are inside the green run and untouched. |
-| Scope discipline | Did the session stay inside the chosen feature scope? | 2 | Two commits, 13 files, and the boundary held under a real temptation: the pass found a live data-loss bug and **recorded it as `runloss-001` instead of fixing it**, which is both `CLAUDE.md`'s discovered-work rule and the only way the no-runtime-change constraint survives. No version bump, no `dist/` touch, `rooms.json` untouched, `RunReport.kt` untouched, `SighteAddonServerside` neither read nor written. `README.md`'s contributor `./gradlew build` line left alone again — the fifth session to make that call correctly. The one harness-adjacent edit is `.gitattributes` (`*.jsonl text eol=lf`); it is not in `CLAUDE.md`'s protected list, it is necessary — the committed evidence is asserted by line and its bytes must not depend on the checkout — and it is justified in place and in the progress log. |
-| Reliability | Does the result survive restart or rerun without repair? | 2 | Reconstructed cold by a session with no prior context, in a detached worktree. Baseline green first attempt, no repair, no environment fixing beyond what `session-handoff.md` documents. Both evidence mutations applied and reverted; `git status --short` came back empty over the whole tree. The handoff's quirks are correct and load-bearing rather than decorative: **restoring the mutated `.jsonl` with `git checkout` rather than rewriting it from Python is not optional** — `core.autocrlf=true` here and the `*.jsonl` LF pin makes a Python round-trip show as modified; `python` resolves and `python3` does not; `assemble check` and not `build` is right and `init.sh` prints the reasoning itself. One quirk the handoff should gain: the worktree recipe in the delegation brief cannot work while the main checkout holds the branch. |
-| Maintainability | Is the code and documentation clear enough for the next session? | 2 | **All four stale statements this pass set out to close are genuinely closed, checked one at a time rather than as a group.** (1) `clearpoints-001`'s note now opens `SUPERSEDED BY clearpoints-002 AT 0d81667 — READ THIS BEFORE THE REST OF THIS NOTE`, and the formula paragraph is retitled `WHAT THE WEIGHTING WAS — SUPERSEDED, PAST TENSE`; the paragraph is kept, which is right, since its load-bearing half (`unattributed` is a count of rooms) is still live. (2) `ingame-001`'s dead cross-reference is not merely deleted — it names what it used to say, names the five deleted constants, and says where the concern moved (the seed table and `TIME_EXPONENT`). That is the better fix. (3) The real-M7 figures now cite committed, asserted evidence in all three places the previous rubric listed, and `readout.sh` turns a future hand-copy drift into a failure rather than a disagreement. (4) `TIME_EXPONENT`'s proxy is named in **both** KDocs that carried the calibration (`ContributionTracker` and `RoomScores`), including the concession that a narrower true `clearStay` spread would *weaken* the argument — an unusually honest way to close that one. Two further statements were retired beyond the four: the impossible `verification_command` and `quality-document.md`'s "nothing here has run against real Hypixel data" preamble. **The two grade promotions are argued from the data and fenced**: room naming and Map reading C→B on real evidence with the version-coupling expiry stated, party held at C with an explicit "this run is not evidence for this domain and must not be read as promoting it", and telemetry deliberately held at B despite the measured loss with the reasoning written out. Nothing new is asserted without a source that I could find. The deductions I considered and did not take are follow-ups 1 and 2 below — both are precision, not drift. |
-| Handoff readiness | Can a fresh session continue work from repo artifacts only? | 2 | I reconstructed the entire state from the artifacts alone: branch and head, what each of the two commits is for, every command, both mutation probes precisely enough to rebuild them from their descriptions and hit identical failure counts and identical failing assertions, which figures are asserted and which are descriptive, why the run does not cover the party half, and why `assemble check` and never `build`. The handoff's "Next Best Step" asked for exactly this evaluation, named exactly the probes that matter, and named the excerpt as the judgement most worth a second pair of eyes — which was the right call and is where the most work went. The durable-findings migration **still holds and I checked each rather than trusting it**: `residue-001`'s `settle` KDoc finding, `clear-001`'s three notes (two now closed *in `feature_list.json` itself*, with the measurement, rather than in this file), and `ingame-001`'s cross-references are all present. Nothing was lost across this rewrite, and two items that previously survived only here have now been promoted into the feature list where they belong. |
+| Correctness | Does the implemented behavior match the requested feature? | 2 | **No Correctness-0 condition is met and I checked rather than inherited.** `git diff -- RunReport.kt` is **0 lines**, `SCHEMA` is 5, `mod_version` 0.9.0. No schema change landed, so none could have landed ahead of the receiver. I rebuilt the paired check mechanically from its description rather than re-reading the session's: **four empty sets, both directions** (the lone apparent mismatch is a `JsonArray` element, not a key). `SighteAddonServerside` was read and not written. **The citations are the feature and they hold.** Five of five cited mods fetched; the Cowlection death and revive patterns, IllegalMap's wither-door regex and OdinLegacy's puzzle alternation are **verbatim**, and the two claims most likely to be loose — Cowlection's five death shapes and the `You`→client-name mapping — are in the cited file as described. A fabricated citation would have been worse than an uncited guess; there are none. **The three-state `chatAttribution` genuinely distinguishes all three cases**: `null` when `chatAt == NO_INTERACTION` or the window has passed, `chatMine` otherwise, and `val mine = chat ?: clicked` leaves the silent case falling through to the *unmodified* `isOwn`. Probe 2 reproduces at 3 of 8 and the three failures are exactly the three-state cases. The `in 0..CHAT_WINDOW` range check (rather than `<=`) makes the `Int.MIN_VALUE` overflow that bit `isOwn` in a real M7 unrepresentable here. **The death change is correct where it touches working code.** Both sources key on the same string — `PartyTracker.TAB` captures `(?<name>[A-Za-z0-9_]+)` with ranks stripped, `ChatEvents` captures `(\w{1,16})`, the same alphabet, and `resolve()` maps `SELF` to the local name at the only site that knows it — so the idempotency key cannot diverge between the two paths. **Doors and puzzles really do stop at the debug log**: all four reach `DebugLog.event` and nothing else, and `/ingest` validates only the filename. Reservations recorded as follow-ups 1-3, none of which is a defect in behaviour that ships. |
+| Verification | Did the required checks actually run, with evidence? | 2 | **Every recorded number reproduced, and both mutation probes reproduced to the failing test name.** 11/8/48 on the `verification_command` verbatim; 14 classes / 160 tests / 0 failures cold with `--rerun-tasks`; `assemble check` green with the jar md5 identical either side; `init.sh` `BASELINE: PASSING`. Probe 1 fails 2 of 11 and they are the two named; **its sub-claim is the part worth crediting** — I ran the two mutations separately and each alone fails nothing, so the redundancy is real rather than one guard sitting on a dead one, exactly as the comment on `parse` says. Probe 2 fails 3 of 8, the three named. **Nothing was removed, deleted or loosened**: `0` `@Test` lines removed, `0` deleted lines in test files of any kind, `0` assertions removed anywhere under `src/`, 13 → 14 test files. So the Verification-0 condition does not apply. **The `verification_command` change is honest scope-widening, not a bigger green number.** `git show a6dc629:feature_list.json` shows the old entry was `--tests 'sighteaddons.ChatEventsTest'` **while the feature was `not_started`** — a planning placeholder that was never the basis of any passing claim, which materially defuses the concern. The widening pulls in exactly the two classes carrying the feature's other nine tests, which are the ones both mutation probes bite on; running only `ChatEventsTest` would have missed every death-dedup and `chatAttribution` case. And the evidence entry **states the before-counts per class** (`SecretTrackerTest 8 (was 5)`, `ContributionTrackerTest 48 (was 42)`), so a reader can see that 20 of the 67 are new and 140 are inherited — the opposite of inflating. It is disclosed in `session-handoff.md` rather than swapped quietly. One durability gap on it, follow-up 4. **All three unverified paths are named** in five artifacts, and nothing implies a real run. |
+| Regression | Are previously passing features still passing? | 2 | Full suite green from a forced cold run in a fresh detached worktree: `classes 14 tests 160 skipped 0 failures 0 errors 0`; `main` is 13/140 and the delta is exactly the 20 added tests, with zero removed. `assemble check` → `BUILD SUCCESSFUL`, jar md5 `b2ebc35ccfeb9cc96134eb3b18f0306f` before and after, `dist/` and `gradle.properties` clean, no version bump, `RunReport.kt` and `rooms.json` untouched. **The death path is the one behaviour change to code that already worked, so I attacked it directly rather than trusting the suite.** All three failure modes are pinned by a test that actually goes red: mis-keying the idempotency (global key) fails **2** — `two members dying at once are two deaths` and `a revive makes the next death a new death`; `onRevive` not clearing fails **1**; and the lost-death direction, an unbounded dedup window, fails **1** — `the duplicate window covers the lag between the two reports and nothing else`. So double-counting, wrong-keying and swallowing a genuine second death are each guarded, and the tab path is kept rather than replaced, which is the conservative choice. Diffing statuses against `a6dc629`: nothing downgraded, removed or quietly moved — `chat-001` `not_started`→`passing`, `chatfields-001` *added* per `CLAUDE.md`'s discovered-work rule. One residual risk found that no test can catch, recorded as follow-up 5; it is a consequence of the design, not a regression. |
+| Scope discipline | Did the session stay inside the chosen feature scope? | 2 | Two commits, 12 files, and the boundary held where it mattered. `RunReport.kt` absent, `rooms.json` absent, `dist/` absent, `gradle.properties` absent, no version bump, so the release gate never engaged. The temptation here was real and was refused twice: the door and puzzle events **are** parsed and **do** stop at the debug log, with `chatfields-001` recorded rather than built — and its `blocked_reason` correctly puts the receiver first and carries the teammate-names design question that makes it a feature rather than a follow-up commit. `SighteAddons.RUN_END` was left untested on purpose with the reason written down (private, in a companion needing Fabric, and the sole trigger of the permanent report — `runloss-001`'s territory). `SighteAddonServerside` read and not written. The `user_visible_behavior` correction is scope *honesty* rather than scope creep: it narrows three of four promises to what the code actually does. |
+| Reliability | Does the result survive restart or rerun without repair? | 2 | Reconstructed cold by a session with no prior context, in a detached worktree, baseline green on the first attempt with no repair and no environment fixing beyond what `session-handoff.md` documents. Six mutations applied and every one restored with `git checkout`; `git status --porcelain src/` came back empty. The handoff's quirks are load-bearing and correct rather than decorative: `python` resolves and `python3` does not, `assemble check` and never `build`, restore with `git checkout` rather than a Python round-trip (`core.autocrlf=true` plus the `*.jsonl` LF pin), `RoomStats.use(RoomScores.NONE)` in `@BeforeEach`, and `DungeonSession.runTicks` being `private set` — which is exactly why `onDeath`, `onChatSecret` and `onPresence` all take `at` as a parameter and are therefore testable at all. That seam is the reason this feature could be graded rather than described. |
+| Maintainability | Is the code and documentation clear enough for the next session? | 1 | **The deduction, and it is the sharpest thing in this pass: the artifacts contradict themselves on the one risk that decides whether half the feature works.** `feature_list.json` note (3) says the ordering failure means "`CHAT_WINDOW` cannot fix it" and `session-handoff.md` says the same. But `verification_manual` step 5 says "`click` next to a preceding `chat_secret` proves it does not and **CHAT_WINDOW is the fix**", and the comment inside `SecretTracker.onChatSecret` says "**the window is the fix**". Two say cannot, two say is. **The two that are wrong are the operational two** — the procedure somebody follows after a real floor, and the comment at the logging site they will be staring at. Reading the code settles it: `chatAttribution` is a *forward-only* window from chat arrival, so if the line lands after the bar there is nothing in `chatSecretAt` to widen toward; the fix is deferring the credit, a different mechanism. A reader who follows the manual would widen a constant, see nothing change, and have to rediscover the design risk the notes already knew. Second, smaller: the SkyHanni negative claim is overstated (follow-up 2). Everything else is genuinely good — per-pattern citations with the source named at each shape, the `DeathSource` KDoc arguing why the tab path is *kept*, `CHAT_WINDOW`'s asymmetry-against-`OWN_WINDOW` reasoning, `nearMiss`'s privacy argument and the explicit statement of what it therefore cannot cover, and the `user_visible_behavior` correction done in place with the grep that disproved it. This is a 1 for two fixable sentences and one overstated one, not for the state of the code. |
+| Handoff readiness | Can a fresh session continue work from repo artifacts only? | 2 | I reconstructed the entire state from the artifacts alone: branch and head, what each commit is for, every command, both mutation probes precisely enough to rebuild them from their descriptions and hit identical failure counts **and identical failing test names**, the paired check rebuilt from scratch from its one-line description, why the grade moved to C and not B, and all three unverified paths. The "Next Best Step" asked for exactly this evaluation, named exactly the probes and counts to expect, and named the judgement most worth a second pair of eyes. **On that judgement — whether `passing` is right for a feature whose strings are unverified — the session's argument is correct.** `blocked` would misstate it: nothing is waiting on anything, the `verification_command` covers the layer this repository can reach exhaustively, the unreachable layer is named in five places, and a wrong pattern degrades to the pre-existing inference rather than to a wrong number. It is the same condition every other `passing` feature's wiring is under. Held at 2 rather than 1 because nothing blocked reconstruction — but see follow-ups 4 and 8, both of which are about this file. |
 
-**Total: 14 / 14.**
+**Total: 13 / 14.**
 
 ## Verdict
 
@@ -92,165 +112,175 @@ Derived from the scores — do not override without written justification:
 - **Revise**: no category scored 0, but the Accept bar is not met.
 - **Block**: any category scored 0, or evidence could not be reproduced.
 
-Verdict: **ACCEPT** — 14/14, no category 0, and Correctness, Verification and Regression all 2. Not
+Verdict: **ACCEPT** — 13/14, no category 0, and Correctness, Verification and Regression all 2. Not
 overridden.
 
-**Every number the session recorded reproduced.** 35 assertions ok and 0 failed; the Cathedral probe
-fails exactly 2 and the trimmed-excerpt probe exactly 7, with all seven being the seven recorded; 140
-tests in 13 classes at both `main` and `HEAD`; jar md5 unchanged; `SCHEMA` 5; `mod_version` 0.9.0.
+**Every number the session recorded reproduced**: 11/8/48 on the `verification_command`, 160 tests in
+14 classes cold, jar md5 unchanged, `SCHEMA` 5, `mod_version` 0.9.0, `RunReport.kt` diff empty, four
+empty sets on a paired check I rebuilt myself, and both mutation probes to the exact failing test
+names.
 
-**`readout.sh` is a verifier and not a description, which is the thing this repository has twice been
-burned on.** It fails, it exits non-zero, and it fails *loudly and redundantly* — one edited number
-trips two assertions, one deleted line out of 143 trips seven. That redundancy is what makes a
-committed evidence file trustworthy, because unlike source it has no compiler and no test reading it.
+**The citations are real, and that was the thing most worth checking.** A cited pattern reads as
+evidence, so a fabricated one would have been worse than an honest guess. I fetched all five mods:
+Cowlection's death and revive patterns, IllegalMap's wither-door regex and OdinLegacy's puzzle
+alternation are verbatim; SkyHanni's three lists exist under exactly those names with both essence
+forms verbatim; the five death shapes and the `You`→client-name mapping are in Cowlection's file as
+described. The one flaw is an overstated *negative* (follow-up 2), not an invented positive.
 
-**The comment-only claim is true, and I proved it a second way.** Rather than re-run the session's own
-grep and believe it, I compiled both revisions and compared bytecode: nine class files differ and every
-one is instruction-identical, with the entire delta in `LineNumberTable` entries pushed down by added
-KDoc lines. A comment-grep can in principle hide a code line; this cannot. For a comment-only branch an
-unchanged test count is the correct regression reading, and I confirmed `main`'s 140 by running it
-rather than by inferring it from the diff.
+**The `verification_command` change is honest.** The old entry was a placeholder on a `not_started`
+feature, never the basis of a passing claim; the widening pulls in precisely the classes carrying the
+tests both mutation probes bite on; and the evidence states the before-counts per class, so the
+inherited 140 are visible rather than folded into a bigger number.
 
-**The excerpt is the most honest thing in this pass.** The original session file is still on this
-machine, so I did not have to take the subset on trust: the committed 143 lines are byte-identical to
-the original's 143 non-`player_room` lines, the three samples are verbatim, the event census is right
-in all 17 kinds, and the two assertions computed over the 3-line sample are accurate for all 77. The
-only identity anywhere is `p-cad01af7`, including inside the raw tab-list row where a real name would
-have leaked if `Pseudonym` had not run first.
+**The death change does not lose, double-count or misplace a death, and I made it fail three ways to
+find out.** Mis-keying, a non-clearing `onRevive` and an unbounded window each go red. The two sources
+key on the same alphabet with ranks stripped on both sides, so the dedup key cannot diverge.
 
-**The checkmark result is genuine and it is new.** `Default` and `Hall` are exactly the two cleared
-rooms `rooms.json` gives no secrets, and they are exactly the two that read GREEN(30); the other eight
-hold 1 to 8 secrets and all read WHITE(34). I checked that against the database itself, not against the
-excerpt's own `room_identified` lines, because `readout.sh`'s version of that check is self-referential.
-Ten for ten. It is the first evidence `ingame-001` has ever had, and it is correctly fenced — the RED
-path never occurred and the session says so.
+**On the ordering question, which I was asked to opine on directly:** the design risk is real and the
+session identified it correctly — if `chat_secret` arrives after the action-bar update it attributes,
+no window size fixes it, because the window only ever looks forward from a line that has already
+landed. The artifacts state that correctly where a reader meets it first. They then state the opposite
+in the two places a reader would act on it. **My answer to "is it clear enough that nobody ships it
+believing it works" is: yes for the reader, no for the diagnoser** — and since nothing ships without
+the release gate, and a wrong ordering degrades to the inference rather than to a wrong number, that is
+a documentation defect rather than a shipping hazard. Follow-up 1 is two sentences.
 
-**On `ingame-001`'s replaced `verification_command`, the session is right and the old one was worse
-than useless.** `grep -c '"roomName"'` — `roomName` is a local variable in `RoomHistory.kt` and nothing
-else; the JSON property written there is `"room"` and the event key is `"name"`, so the pattern matches
-no `DebugLog` output that has ever existed. It ran against `run/`, which `.gitignore:33` excludes and
-which only a dev client that cannot log in would populate. A `passing` claim could never have rested on
-it. The replacement is a script that asserts 35 figures against a committed file and exits non-zero —
-the largest single improvement in this pass.
-
-**Both judgement calls the session flagged rather than made are correct.** Leaving `ingame-001`
-`blocked` is what `CLAUDE.md` requires ("a feature that depends on a real dungeon run is `blocked`, not
-`passing`"), and the three residual blockers — a party floor, the RED path, the `/sa` screen — are
-genuinely unreachable from this repository; `in_progress` would have falsely implied work can continue
-here. The narrowed `blocked_reason` is the right shape: it says what was resolved, what is not, and why
-none of the remainder is session-work. And recording `runloss-001` rather than fixing it is doubly
-right — it is `CLAUDE.md`'s discovered-work rule, and fixing it would have destroyed the one constraint
-that makes this pass verifiable at all.
+**The grade move `events (chat) D → C` is right, and right for the stated reason.** The domain went
+from not existing to existing and tested at its one testable seam; it is held below B because the
+patterns are cited rather than observed, the wiring is untestable here, and the ordering is unknown.
+`quality-document.md:42` says all three in the row itself, and `:71` explicitly names this as the same
+standard `party` is held to at C — which is accurate: `party`'s C is also "the heuristic is stated
+where it is made, and nothing has put it under load". Promoting to B on citations would have made
+"cited to five mods" equivalent to "seen once", and the `Do Not Touch` entry pinning the citations in
+place is the right guard around that.
 
 ## Required Follow-Up
 
-Nothing here blocks acceptance. None of it is a defect in shipped behaviour, and no receiver change is
-owed — nothing on this branch reaches the wire.
+Nothing here blocks acceptance. None of it is a defect in behaviour that reaches a player, and no
+receiver change is owed — `chat-001` writes no new field and is genuinely not paired.
 
 ### New this pass
 
-1. **The README slightly overstates its own assertion coverage.** It says "Every figure quoted below is
-   asserted in that script", but the event census of the *original* 220-line file — 220, 77
-   `player_room`, and the per-kind counts — cannot be asserted, because the original is not committed
-   and must not be. I verified the census independently against the original and **it is correct in all
-   17 event kinds**; the issue is only that a reader is invited to believe `readout.sh` covers it. One
-   sentence marking the census as descriptive would close it. Recorded here because the same sentence
-   is the pass's central design claim.
+1. **The ordering risk is described two contradictory ways, and the wrong version is in the two
+   operational places.** `feature_list.json` note (3) and `session-handoff.md` say `CHAT_WINDOW`
+   *cannot* fix a late `chat_secret`; `verification_manual` step 5 and the comment in
+   `SecretTracker.onChatSecret` say the window *is* the fix. The notes are right —
+   `chatAttribution`'s window runs forward from a line that has already arrived, so if chat lands
+   after the bar there is nothing to widen toward and the fix would be deferring the credit. Correct
+   the two that are wrong; they are the ones somebody reads while diagnosing a real floor.
 
-2. **The "solo" conclusion is asserted over the 3-line sample, not the 77-line stream.** `distinct
-   players in the player_room sample` and `distinct decoIndex in the player_room sample` are honestly
-   labelled, and I confirmed the full 77 carry exactly one player and one `decoIndex` — so the
-   conclusion is sound. But the assertion cannot catch a stream that disagreed with its own sample. The
-   load-bearing guard for "solo" is `roster_skew == 0`, which *is* asserted over the whole excerpt;
-   worth saying so in the README so the weight rests where it actually holds.
+2. **The SkyHanni negative claim is overstated and the cited file contradicts it.**
+   `Event.SecretFound`'s KDoc says `DungeonChatFilter` "has no other `found a` shape". It has two:
+   `:92-93`, `DUNGEON BUFF! (.*) found a Blessing of (.*)` and its second-person form. The
+   *substantive* negative survives — a Blessing is not a secret, and no false match is possible
+   because `SECRET` requires `found a Wither Essence!` after an anchored name — but the sentence as
+   written is disproved by a one-line grep of the file it cites, which is the standard this feature's
+   own `Do Not Touch` entry sets. Narrow it to "no other shape naming a finder for a *secret*". While
+   there: `pickupPatterns` also carries named-actor lines for Superboom TNT, Revive Stone, Premium
+   Flesh and Beating Heart — items that come *out* of chests, so they are not a secret signal and were
+   right to skip, but the reasoning for skipping them is not written down anywhere.
 
-3. **`readout.sh`'s comment at lines 46–47 calls the input "a per-tick decoration stream".** That is
-   true of `PartyTracker`'s internal sampling but not of the committed `player_room-sample.jsonl`,
-   whose three lines are 4 and 4333 ticks apart — `player_room` logs on room change (77 lines over
-   4357 ticks). A reader checking the comment against the sample will think one of them is wrong.
-   Cosmetic, one clause.
+3. **A late `chat_secret` may mis-attribute the *next* secret, which no artifact says.** Every artifact
+   describes the ordering failure as the attribution being "always too late", implying a benign
+   fallback to `isOwn`. It is slightly worse than that: a line arriving after its own bar update stays
+   in `chatSecretAt` for `CHAT_WINDOW`, so a second secret rising within 20 ticks consumes it and is
+   credited or denied on the *previous* secret's finder. Narrow (needs two secrets inside 20 ticks) and
+   unverified in either direction, but the risk paragraph should say it, because "benign" is currently
+   doing work it has not earned.
 
-4. **The delegation recipe for a worktree does not work on this branch and cost time.** `git worktree
-   add ../artifacts-wt artifacts-001` fails with `'artifacts-001' is already used by worktree at
-   .../SighteAddonMOD` whenever the main checkout holds the branch. `git worktree add --detach
-   ../artifacts-wt <sha>` is the form that works for an evaluator, who wants a fixed commit anyway.
-   Worth a line in `session-handoff.md`'s Environment Quirks.
+4. **The `verification_command` change is recorded only in `session-handoff.md`, which is overwritten
+   every session.** The operating loop mandates that overwrite, so next session the only permanent
+   trace of the scope widening will be gone — and the entry's own `notes` do not mention it. The
+   precedent the handoff cites, `ingame-001` in session 009, *is* in `claude-progress.md` at `:277`.
+   One line in the progress log, or one sentence in the entry's `notes`, closes it. Recorded because
+   the change is legitimate and should not become suspicious later for want of a durable record.
+
+5. **A death can still be lost, in one narrow case the KDoc does not name.** `onRevive` is the only
+   thing that clears `deathAt`, and the `Revived` pattern is itself unverified. So: revive line missed
+   or unmatched, player revived in game, player dies again within `DEATH_DEDUP_TICKS` (60) — both
+   sources are suppressed and the death is gone. The KDoc's "a dead player cannot die again without
+   being revived first" is true of the *game* but not of *this mod's knowledge of it*. Not a defect
+   today and no test can catch it; worth one clause, and worth knowing that the revive pattern is
+   load-bearing for death counts rather than merely informational.
 
 ### Carried forward — still open, verified still open rather than assumed
 
-The rubric is overwritten every pass and items have repeatedly had to be rescued by hand. Each of these
-was re-checked at `d7943eb`:
+The rubric is overwritten every pass and items have repeatedly had to be rescued by hand. Each of
+these was re-checked at `936e233`.
 
-5. **The loosened fixture assertion from `clearpoints-002` is still slack.** `ContributionTrackerTest.kt:868`
-   sanity-checks `weightOf(expensive) > 2 * weightOf(plain())`. `weightOf(plain())` is `0.75`
-   (line 656), so the bound is `1.5` against a fixture actually worth `3.50`. The multiplier could be
-   `4` and still hold with margin. Optional; the case's real assertion is unaffected. **Unchanged this
-   pass** — and note the comment above it now explains the relativising, which is an improvement.
+6. **`residue-001`'s `settle` KDoc still argues against the wrong alternative.** Now at
+   `ContributionTracker.kt:712` (was `:625`; shifted by this feature's additions), still reading "the
+   clamp this replaces only ever caught the negative half" when the real alternative was a symmetric
+   threshold-to-zero. Behaviour is right and tested; only the justification aims at a weaker option
+   than a reader would propose. **The migration into `residue-001`'s `notes` still holds** — I checked
+   the field rather than trusting the previous rubric, and the "OPEN REVIEW FINDING, carried here in
+   session 006" paragraph is present.
 
-6. **`residue-001`'s `settle` KDoc still argues against the wrong alternative.** `ContributionTracker.kt:625`
-   still reads "the clamp this replaces only ever caught the negative half", when the real alternative
-   was a symmetric threshold-to-zero, which would also have caught both signs. Behaviour is right and
-   tested; only the justification is aimed at a weaker option than a reader would propose. Still open,
-   still one paragraph, still living in `residue-001`'s `notes`.
+7. **`clear-001` note (2), the zero-margin gap tolerance, is still genuinely unmeasured.** `MIN_TICKS`
+   as the gap that may not split a stay is 20 against a documented worst-case roster-skew blackout of
+   20. **The migration holds and is in good shape**: `clear-001`'s `notes` carry all three findings,
+   with (1) and (3) marked MEASURED AND CLOSED by `artifacts-001` with the measurement and the artifact
+   path in place, and (2) marked STILL OPEN with the reason the real M7 cannot close it. Nothing was
+   lost in this pass's rewrite. `chat-001` adds a fourth thing waiting on the same party floor.
 
-7. **`clear-001` note (2), the zero-margin gap tolerance, is still genuinely unmeasured** — and the
-   session **re-checked this rather than letting a real run be read as closing it**, which is exactly
-   right and is worth crediting. `MIN_TICKS` as the gap that may not split a stay is 20 against a
-   documented worst-case roster-skew blackout of 20: zero margin. The M7 was solo and deathless, so
-   `PartyTracker`'s blackout path was never entered. Needs a party floor with a death.
+8. **The worktree recipe is still missing from `session-handoff.md`'s Environment Quirks, and it has
+   now cost two evaluators.** `grep -in worktree session-handoff.md` returns nothing. The previous
+   rubric filed this and it was not actioned; the workaround had to be carried by hand in this
+   evaluator's delegation prompt instead, which is exactly the failure being masked. `git worktree add
+   --detach ../<name> <sha>` is the form that works while the main checkout holds the branch. One line.
+   Not scored against this session — actioning a previous rubric's findings is the orchestrator's call
+   — but it belongs in the file this session is required to overwrite.
 
-8. **Notes (1) and (3) of `clear-001` are now closed, and closed in the right place.** Sightings vs
-   elapsed ticks is measured (9 of 10 anchors at delta exactly 19, one at 24) and `anchorOnClear`'s
-   frequency is measured (1 in 10, Duncan). Both now live in `feature_list.json` with the measurement
-   and the artifact path, not in this file. Recorded so a future pass does not re-open them.
+9. **The loosened fixture assertion from `clearpoints-002` is still slack.** `ContributionTrackerTest.kt:868`
+   sanity-checks `weightOf(expensive) > 2 * weightOf(plain())`; `weightOf(plain())` is `0.75` (`:656`),
+   so the bound is `1.5` against a fixture actually worth `3.50`. Unchanged this pass. Optional.
 
-9. **One test still stands between the tree and a reintroduced size/kind bonus** (`size and kind are no
-   longer paid for directly`, `clearpoints-002`'s probe 7 — "fails 1 and *only* 1"). Not a defect; one
-   case with seven exact equalities is a real guard. Carried as context, unchanged by this pass.
+10. **`readout.sh:47` still calls the input "a per-tick decoration stream"** and the evidence README
+    still says "Every figure quoted below is asserted in that script" (`README.md:17`) when the
+    220-line census cannot be. Both cosmetic, both unchanged, both verified still present.
 
-10. **The M7 provenance gap from the previous rubric is CLOSED and can stop being carried.** The
-    figures that were once relayed prose are now a committed file with an asserting script, and all
-    three citations point at it. This item is retired.
-
-11. **`TIME_EXPONENT`'s proxy finding from the previous rubric is CLOSED** — named in both KDocs and in
-    the evidence README §7. Retired. It remains true that the exponent rests on `clear` and should be
-    revisited once `clearStay` has real samples, which is `scores-fetch-001`.
+11. **One test still stands between the tree and a reintroduced size/kind bonus** —
+    `size and kind are no longer paid for directly`, `ContributionTrackerTest.kt:342`. Carried as
+    context; unchanged.
 
 ### Remaining unverified paths, all named by the session, none a deduction
 
-- **Everything party-shaped.** The run was solo and deathless: one player in tab, `decoIndex` 0 across
-  all 77 position lines, `roster_skew` zero. `PartyTracker.kt:134`'s decoration-order assumption was
-  never put under load. `party-001`, `clear-001` note (2) and half of `ingame-001` all still wait on
-  one party floor with a death in it — and `quality-document.md` explicitly refuses to promote the
-  party row on this evidence, which is the right instinct.
-- **The `RED` checkmark path.** Never occurred in the run. GREEN and WHITE are both now evidenced.
-- **Every pixel of the `/sa` screen.** No session file can show it; needs a human to open it.
-- **The measured half of the scoring model, entirely.** Every room is on its seed. The M7 does not
-  help — it was scored under the *old* formula and its report never reached the box, so it added no
-  `clearStay` samples anywhere. Blocked on `scores-fetch-001`, blocked in turn on the receiver.
-- **`tick()`'s wiring to `onCleared`/`onPresence` is read, not asserted.** Unchanged and correctly
-  distinguished: the missing objects are constructor arguments needing a `Minecraft` and a
-  `MapItemSavedData`, so no reflection trick is available. `onCleared` itself is covered.
-- **Layer 2 on a real install.** Unchanged; nothing writes a cache until layer 1 exists.
-- **The cross-repo reading.** `SighteAddonServerside` was neither read nor written this session.
-  Nothing here reaches the wire, so nothing is owed.
-- **The dev client still cannot reach Hypixel**, and the session says so in four artifacts. The one
-  real file came from a real install on a debug build of `72e0825`, and every artifact quoting its
-  numbers now says that `HEAD` does not produce them.
+- **That Hypixel sends these strings.** Cited to five published mods and verified to be cited
+  accurately, which is the standard `SECRET_SKULLS` is already held to and is not the same as having
+  seen one. A wrong pattern matches nothing and the inference continues unchanged; `ChatEvents.nearMiss`
+  writes the offending line, redacted through `Pseudonym.row`, as `chat_unparsed`.
+- **The wiring, entirely** — that Fabric hands `SighteAddons.onDungeonEvent` a given line with
+  `overlay` false on the tick Hypixel sent it. The same condition `PartyTracker.positions` and
+  `ContributionTracker.tick` are under.
+- **The ordering**, per follow-ups 1 and 3. One real floor answers it: read `attributedBy` on each
+  `secret` event.
+- **The death path has never been exercised at all, by either source.** New this feature and correctly
+  flagged: the one real run is solo and deathless.
+- **Everything party-shaped**, the `RED` checkmark path, every pixel of the `/sa` screen, and the
+  measured half of the scoring model. All unchanged.
+- **The dev client still cannot reach Hypixel**, and the session says so in five artifacts.
+- **`runloss-001` remains a measured, permanent data loss and is unfixed.** Unchanged by this feature.
 
 ### Next review trigger
 
-`runloss-001`, per the handoff, and I agree it outranks `chat-001`: it is the only entry known to have
-destroyed real data, it needs no receiver change and no real dungeon to verify the write path, and every
-`clearStay` sample the box is waiting for has to survive it to arrive at all — so it is upstream of
-`clearpoints-002`'s measured half being worth anything. Read its notes first: the fix is *when*
-`RunReport.write` is called, and whether the player is still resolvable at `DISCONNECT` is something to
-**measure** rather than assume. If it touches `RunReport.kt`, diff its fields against `RUN_KEYS` in the
-receiver's `ingest.py` first and **the receiver goes first**. Do **not** start `scores-fetch-001`.
+`runloss-001`, per the handoff, and I agree it still outranks everything else on the list: it is the
+only entry known to have destroyed real data, it needs no receiver change and no real dungeon to
+verify the write path, and every `clearStay` sample the box is waiting for has to survive it to arrive
+at all. Read its notes first — the fix is *when* `RunReport.write` is called, and whether the player is
+still resolvable at `DISCONNECT` is something to **measure** rather than assume. If it touches
+`RunReport.kt`, re-run the mechanical key diff first and **the receiver goes first**. Do **not** start
+`chatfields-001` by editing `RunReport.kt`; its first move is a feature in `Sighte/skyblock-server`. Do
+**not** start `scores-fetch-001`.
 
-This feature needs no further work. It is accepted at `d7943eb`, on a branch, unpushed and unmerged;
-merging and releasing remain the user's decisions and take the release gate at the top of `CLAUDE.md`
-with them. The release notes now owe six things, per the handoff's list plus this pass: the schema moved
-to 5, older installs are unaffected because the receiver still accepts 4, room points are no longer
-flat, room points changed meaning so old and new standings are not comparable, and — if `runloss-001`
-lands first — that runs ended by quitting from inside a floor used to be discarded.
+**If the user offers another run, ask for a party floor with a death in it.** That single file now
+moves `party-001`, `clear-001`'s last open note, the rest of `ingame-001`, and all three of
+`chat-001`'s unverified halves — including the ordering question, which is the one thing here that is
+a design risk rather than a coverage gap.
+
+This feature needs no further work to be accepted. It is accepted at `936e233`, on a branch, unpushed
+and unmerged; merging and releasing remain the user's decisions and take the release gate at the top of
+`CLAUDE.md` with them. The release notes now owe six things, per the handoff's list: the schema moved to
+5, older installs are unaffected because the receiver still accepts 4, room points are no longer flat,
+room points changed meaning so old and new standings are not comparable, that the mod now reads chat
+events **and that the strings behind them are sourced from other mods rather than observed**, and — if
+`runloss-001` lands first — that runs ended by quitting from inside a floor used to be discarded.

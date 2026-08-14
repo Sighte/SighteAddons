@@ -50,6 +50,18 @@ object SecretTracker {
     /** No click seen yet this run. Compared, never subtracted from — see [isOwn]. */
     private const val NO_INTERACTION = Int.MIN_VALUE
 
+    /**
+     * Ticks a chat attribution stays attached to the next counter rise.
+     *
+     * Half [OWN_WINDOW], and the asymmetry is the point. [OWN_WINDOW] is wide because it spans a
+     * *click* and the server's later report of what the click did — two different events with real
+     * lag between them. A chat line and the action bar update are two renderings of one server-side
+     * event, so one second is already generous, and every tick of it is a tick in which an unrelated
+     * chest could rise the counter first and steal the attribution. Narrow is the safe direction: a
+     * chat fact that expires costs one secret falling back to the inference that was there before.
+     */
+    private const val CHAT_WINDOW = 20
+
     /** Skull profile ids Hypixel uses for secret skulls, as identified by Odin and NoammAddons. */
     private val SECRET_SKULLS = setOf(
         "2865274b-3097-394e-8149-ec629c72d850", // wither essence
@@ -57,6 +69,16 @@ object SecretTracker {
     )
 
     private var lastOwnInteraction = NO_INTERACTION
+
+    /**
+     * The most recent secret Hypixel named a finder for, and whether that finder was us.
+     *
+     * Only wither-essence secrets ever set this — see [ChatEvents.Event.SecretFound] for why that is
+     * the only one there is. Held rather than applied on arrival, because the room's counter is what
+     * decides a secret *happened*; this only decides whose it was.
+     */
+    private var chatSecretMine = false
+    private var chatSecretAt = NO_INTERACTION
 
     /** Only suppresses duplicate log lines; unlike [lastOwnInteraction] it survives a credit. */
     private var lastLoggedPos: BlockPos? = null
@@ -87,6 +109,33 @@ object SecretTracker {
         lastOwnInteraction = NO_INTERACTION
         lastLoggedPos = null
         lastLoggedTick = NO_INTERACTION
+        chatSecretMine = false
+        chatSecretAt = NO_INTERACTION
+    }
+
+    /**
+     * Hypixel named the finder of a wither-essence secret, at run tick [at]. [mine] is that name
+     * resolved against the local player — the resolution happens at the call site, which is the only
+     * place that knows what the local player is called.
+     *
+     * Takes [at] rather than reading the clock, for the reason [ContributionTracker.onDeath] does.
+     */
+    fun onChatSecret(mine: Boolean, at: Int) {
+        chatSecretMine = mine
+        chatSecretAt = at
+        // Logged on arrival and not only where it is used, so a real floor shows both ticks and
+        // settles the one thing this repository cannot: whether the chat line reaches the client
+        // before the action bar update it is meant to attribute. If it does not, every one of these
+        // will be followed by a `secret` carrying `attributedBy: click`.
+        //
+        // And the window is NOT the fix for that, however much it looks like one. [chatAttribution]
+        // reads forward from a line that has already landed, so a line that arrives late leaves
+        // nothing to widen toward — the credit would have to be deferred until the chat for that tick
+        // has been seen, which is a different change to a different place. Worse, a late line is not
+        // inert while it sits there: it stays valid for [CHAT_WINDOW] ticks and can be spent on the
+        // *next* secret taken inside that window, so the failure mis-attributes rather than merely
+        // missing. Read `attributedBy` on a real floor before believing either half of this.
+        DebugLog.event("chat_secret", "mine" to mine, "at" to at)
     }
 
     private fun isRepeat(pos: BlockPos) = pos == lastLoggedPos &&
@@ -116,19 +165,37 @@ object SecretTracker {
         val delta = bar.found - previous
         room.secretsFound = bar.found
 
-        val mine = isOwn(DungeonSession.runTicks, lastOwnInteraction)
-        // When the secret is yours, the click is the moment it was taken — the bar can lag up to
-        // [OWN_WINDOW] ticks behind it, and timing a run off the lag would measure the server, not
-        // the player. Read before the credit below resets the timestamp.
-        val at = if (mine) lastOwnInteraction else DungeonSession.runTicks
-        if (mine) {
-            room.ownSecrets++
-            lastOwnInteraction = NO_INTERACTION // one click credits one secret, not a whole burst
-        }
+        // Two answers to "was that one yours", and the fact beats the coincidence. `chat` is Hypixel
+        // naming the finder; `clicked` is the 40-tick window this mod has always used. Where chat has
+        // spoken the inference is not consulted at all — that is `chat-001`'s one real replacement,
+        // and it is narrow on purpose: it covers wither-essence secrets and nothing else, because
+        // they are the only secrets Hypixel names anybody for.
+        //
+        // What it buys is the false positive, not the false negative. A teammate taking the essence
+        // while your own click on a chest is still inside its window used to credit you; now the line
+        // that names them overrules it.
+        val chat = chatAttribution(DungeonSession.runTicks, chatSecretAt, chatSecretMine)
+        val clicked = isOwn(DungeonSession.runTicks, lastOwnInteraction)
+        val mine = chat ?: clicked
+        // When the secret is yours *and it was your click that said so*, the click is the moment it
+        // was taken — the bar can lag up to [OWN_WINDOW] ticks behind it, and timing a run off the
+        // lag would measure the server, not the player. A chat-attributed secret with no click behind
+        // it has no earlier timestamp to offer, and [NO_INTERACTION] must never be read as one. Read
+        // before the credit below resets it.
+        val at = if (mine && clicked) lastOwnInteraction else DungeonSession.runTicks
+        if (mine) room.ownSecrets++
+        // One click credits one secret, not a whole burst — and only when the click is what credited
+        // it. A click the chat line has just overruled belongs to a secret still to come.
+        if (mine && clicked) lastOwnInteraction = NO_INTERACTION
+        // Likewise one line credits one secret.
+        if (chat != null) chatSecretAt = NO_INTERACTION
         DebugLog.event(
             "secret",
             "room" to room.label(), "found" to bar.found, "max" to bar.max, "delta" to delta,
             "mine" to mine, "ownTotal" to room.ownSecrets,
+            // Which of the two answered, so the data says how often the fact was available at all
+            // rather than leaving it to be assumed. `chat` here is also the proof the ordering works.
+            "attributedBy" to if (chat != null) "chat" else "click",
         )
         trackRun(room, previous, bar, at)
     }
@@ -189,6 +256,19 @@ object SecretTracker {
      */
     internal fun isOwn(runTicks: Int, lastInteraction: Int) =
         lastInteraction != NO_INTERACTION && runTicks - lastInteraction <= OWN_WINDOW
+
+    /**
+     * Whether a chat line has already answered who this secret belonged to. **Null means chat said
+     * nothing**, which is the ordinary case and the one that must fall back to [isOwn] rather than to
+     * `false` — a missing fact is not a denial, and reading it as one would un-credit every chest.
+     *
+     * `in 0..CHAT_WINDOW` rather than `<=`: [chatAt] is [NO_INTERACTION] until a line has ever landed,
+     * and `runTicks - Int.MIN_VALUE` overflows into a large negative that passes a `<=` check. That
+     * is not hypothetical — it is the exact defect [isOwn]'s KDoc records, found in a real M7 log,
+     * and the range check is what makes it unrepresentable here instead of merely absent.
+     */
+    internal fun chatAttribution(runTicks: Int, chatAt: Int, chatMine: Boolean): Boolean? =
+        if (chatAt != NO_INTERACTION && runTicks - chatAt in 0..CHAT_WINDOW) chatMine else null
 
     /** Null when the block is not a secret. Mirrors the block set Odin and NoammAddons use. */
     private fun secretTypeAt(level: Level, pos: BlockPos): String? = when (level.getBlockState(pos).block) {

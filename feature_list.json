@@ -336,17 +336,63 @@
       "priority": 5,
       "area": "events",
       "title": "Read the events Hypixel puts in chat",
-      "user_visible_behavior": "Secret clicks, wither doors, puzzle solvers and deaths are attributed as they happen rather than inferred.",
-      "status": "not_started",
+      "user_visible_behavior": "A death is charged at the tick Hypixel announces it rather than when a once-a-second tab poll notices the row has changed, and a wither-essence secret is credited to the player Hypixel names rather than to whoever clicked something in the last two seconds. Wither doors, the blood door, and puzzle solves and failures are attributed per player -- in the debug log only, because putting them in the run report is a receiver change first (chatfields-001).",
+      "status": "passing",
       "depends_on": [],
-      "verification_command": "./gradlew test --tests 'sighteaddons.ChatEventsTest'",
+      "verification_command": "./gradlew test --tests 'sighteaddons.ChatEventsTest' --tests 'sighteaddons.SecretTrackerTest' --tests 'sighteaddons.ContributionTrackerTest'",
       "verification_manual": [
-        "Capture a debug session from a real run.",
-        "Verify a death appears at the tick chat announced it, not when the tab list caught up."
+        "NOT PERFORMABLE IN THIS REPOSITORY, and this list now says so rather than reading as a step somebody skipped. Loom's dev client has no valid Hypixel session (CLAUDE.md), so the steps below need a human to play a floor with a debug build and hand over the session file -- the same condition that keeps ingame-001 blocked. The feature is still `passing`: its verification_command covers the layer this repository can reach, exhaustively, and the layer it cannot is named here and in the notes instead of being implied to have been checked.",
+        "Play a real floor with the mod installed, telemetry on, and at least one death in the party.",
+        "In the session jsonl: every `death` should carry `source: CHAT`. A `source: TAB` means the chat line for that death did not arrive or did not match, and a `death_duplicate` next to it means both arrived and the dedup held. Zero `death` events in a run that had a death means the wiring does not fire at all.",
+        "In the same file: `chat_unparsed` lines are patterns that are wrong, quoted (redacted) so they can be corrected. Oruo's flavour prose is expected there and is not a defect.",
+        "For the secret path the open question is ORDERING: a `chat_secret` must arrive BEFORE the `secret` it attributes. Read `attributedBy` on each `secret` -- `chat` proves the ordering works. A `click` sitting next to a preceding `chat_secret` proves it does not, and **CHAT_WINDOW is NOT the fix for that**: `chatAttribution` runs a forward-only window from a line that has already landed, so there is nothing to widen toward. A late line needs the credit DEFERRED until the chat for that tick has been seen, which is a different change. Note also that a late `chat_secret` does not merely fail benignly - it can MIS-ATTRIBUTE the NEXT secret taken within CHAT_WINDOW ticks."
       ],
       "blocked_reason": "",
-      "evidence": [],
-      "notes": "README 'Not implemented yet'. Today a dead player is only detected via the tab list, which is late and lossy. The test class does not exist yet — creating it is part of the feature."
+      "evidence": [
+        {
+          "date": "2026-08-14",
+          "command": "./gradlew test --tests 'sighteaddons.ChatEventsTest' --tests 'sighteaddons.SecretTrackerTest' --tests 'sighteaddons.ContributionTrackerTest'",
+          "result": "PASS. ChatEventsTest 11 tests / 0 failures / 0 errors / 0 skipped (the class did not exist before this feature; creating it was part of it), SecretTrackerTest 8 (was 5), ContributionTrackerTest 48 (was 42). The parser is driven with the raw section-coded strings and stripped in the test with the same ChatFormatting.stripFormatting the listener uses, so a case cannot pass against a parser that could only ever match a tidied line.",
+          "commit": "382c2c2",
+          "artifact": "src/test/kotlin/sighteaddons/ChatEventsTest.kt"
+        },
+        {
+          "date": "2026-08-14",
+          "command": "./gradlew test --rerun-tasks",
+          "result": "classes 14, tests 160, skipped 0, failures 0, errors 0. Was 13 classes / 140 tests on main at a6dc629, so +1 class and +20 tests and no previously passing test moved. REGRESSION CHECK for this feature.",
+          "commit": "382c2c2",
+          "artifact": "build/test-results/test/"
+        },
+        {
+          "date": "2026-08-14",
+          "command": "./gradlew assemble check   (never `build`)  +  md5sum dist/sighteaddons-0.9.0.jar either side  +  git status --short dist/ gradle.properties",
+          "result": "BUILD SUCCESSFUL. Jar md5 b2ebc35ccfeb9cc96134eb3b18f0306f before and after, `git status --short dist/ gradle.properties` empty, RunReport.SCHEMA still 5, and `git diff a6dc629 -- src/main/kotlin/sighteaddons/RunReport.kt` empty. No version bump, so the release gate is not engaged.",
+          "commit": "382c2c2",
+          "artifact": "dist/sighteaddons-0.9.0.jar"
+        },
+        {
+          "date": "2026-08-14",
+          "command": "python: extract every addProperty key from RunReport.build() and RunReport.room(), diff against RUN_KEYS/RUN_OPTIONAL and ROOM_KEYS/ROOM_OPTIONAL parsed out of SighteAddonServerside/ingest.py",
+          "result": "THE PAIRED-FEATURE CHECK CLAUDE.md DEMANDS, DONE MECHANICALLY RATHER THAN BY READING. Four empty sets: mod run keys the receiver would reject NONE, mod room keys it would reject NONE, receiver-required run keys the mod omits NONE, receiver-required room keys the mod omits NONE. chat-001 as built writes no new field, so IT IS NOT PAIRED and the receiver does not have to move for it. The fields it could have added are chatfields-001, which is blocked on the receiver for exactly this reason. SighteAddonServerside was READ ONLY and not written.",
+          "commit": "382c2c2",
+          "artifact": "SighteAddonServerside/ingest.py:137-159"
+        },
+        {
+          "date": "2026-08-14",
+          "command": "Mutation probe 1: delete the `^` from ChatEvents.LEAD AND change parse() from matchEntire to find, then ./gradlew test --tests 'sighteaddons.ChatEventsTest'. Restored with git checkout, never by rewriting the file from Python (see the handoff's line-ending quirk).",
+          "result": "2 of 11 FAILED -- `a party member typing a death message does not kill anybody` and `reads the blood door, which names nobody`. The anchoring guard is live. It also measured something worth keeping: EITHER mechanism alone holds the line (removing the `^` alone fails nothing, switching to `find` alone fails nothing), so the two are genuine redundancy rather than one guard sitting on a dead one. Recorded in the comment on parse() rather than only here.",
+          "commit": "382c2c2",
+          "artifact": "src/main/kotlin/sighteaddons/ChatEvents.kt"
+        },
+        {
+          "date": "2026-08-14",
+          "command": "Mutation probe 2: make SecretTracker.chatAttribution return `false` instead of `null` when no chat line landed, then ./gradlew test --tests 'sighteaddons.SecretTrackerTest'. Restored with git checkout.",
+          "result": "3 of 8 FAILED. This is the defect that would look most like a working feature: reading a missing fact as a denial un-credits every chest, lever and item secret in the dungeon -- ownSecrets goes to zero on every run, no exception and no log line, and only wither essences would ever be credited again.",
+          "commit": "382c2c2",
+          "artifact": "src/main/kotlin/sighteaddons/SecretTracker.kt"
+        }
+      ],
+      "notes": "THIS ENTRY'S user_visible_behavior WAS FACTUALLY WRONG AND IS CORRECTED IN PLACE, the way clear-001's and schema-001's were. It promised that 'secret clicks, wither doors, puzzle solvers and deaths are attributed as they happen rather than inferred'. Checked against the code before any was written:\n- DEATHS WERE NEVER INFERRED. The event is read: PartyTracker.kt watches the tab row flip to DEAD and is the sole caller of ContributionTracker.onDeath. What was wrong was the TIMING and the ROOM -- PartyTracker.update runs once per second, so the stamp was quantised to 20 ticks on top of the tab row's own lag, and the room is lastCell, which is where the decoration last put them rather than where they died. THE ROOM IS STILL INFERRED AND THIS FEATURE DID NOT FIX IT; only the tick moved.\n- WITHER DOORS AND PUZZLE SOLVERS DID NOT EXIST AT ALL. `grep -inE \"wither|door|solver\"` over src/main returned one hit, the wither-essence skull id in SecretTracker. Net new, not replaced.\n- SECRET CLICKS WERE THE ONE REAL INFERENCE, and it is replaced only in part -- see the next paragraph, because that part is smaller than it sounds and this entry must not overstate it again.\n\nWHAT CHAT CAN AND CANNOT SOURCE FOR SECRETS. Hypixel names a finder for exactly one kind of secret: the wither essence ('<name> found a Wither Essence! Everyone gains an extra essence!', and a second-person form for the local player). Chests, levers, item pickups and the redstone key are announced NOWHERE -- the action bar's per-room counter is the only signal and it says 'somebody', never who. The evidence for that negative is SkyHanni's DungeonChatFilter, a catalogue of dungeon chat, which carries both essence forms and no other 'found a' shape. So SecretTracker.isOwn's 40-tick coincidence STAYS, and chat narrows it rather than replacing it: where a line names somebody the inference is not consulted, everywhere else nothing changed. What that buys is the FALSE POSITIVE -- a teammate taking the essence while your own click on a chest is still inside its window used to credit you.\n\nNOT PAIRED, AND THAT WAS A DESIGN CONSTRAINT RATHER THAN A DISCOVERY. Deaths feed the existing `deaths` and per-room `deaths`; essence attribution feeds the existing `ownSecrets`. Both are already in the receiver's RUN_KEYS/ROOM_KEYS, so no field moved and SCHEMA stays 5. Doors and puzzles WOULD have needed new fields, so they stop at the debug log -- /ingest validates only the filename and never the body (ingest.py SESSION at :77, the write at :544), and nothing server-side reads event types at all, so a new debug event costs nothing. The report side is chatfields-001 and the receiver goes first.\n\nUNVERIFIED, AND NOT SMALL. (1) THAT THE STRINGS ARE HYPIXEL'S. Every shape is cited to a published mod that runs against the live server -- SkyHanni, Cowlection's DungeonsListener, UnclaimedBloom6/IllegalMap, inglettronald/DulkirMod, odtheking/OdinLegacy -- which is the standard SECRET_SKULLS is already held to, and it is not the same as having seen one. A wrong pattern fails silently and benignly: it matches nothing and the mod goes on inferring exactly as before. (2) THE WIRING -- that Fabric hands SighteAddons.onDungeonEvent a given line, with `overlay` false, on the tick it was sent. Unobservable here, the same way PartyTracker.positions and ContributionTracker.tick are. (3) THE ORDERING between a chat_secret and the action-bar update it attributes; if chat arrives second the attribution is always too late and CHAT_WINDOW cannot fix it. All three are measurable from one real floor and the debug log is instrumented for exactly that -- see verification_manual, which is now a procedure rather than two lines.\n\nChatEvents.nearMiss is that instrumentation and it is deliberately narrow. It reports only lines opening with one of five markers a player cannot type, because Hypixel prefixes anything a player says with 'Name: ' or 'Party > '. Wither doors, essence secrets and the blood door start with a name or with ordinary words, so THEY GET NO NEAR-MISS REPORTING -- a diagnostic that logged strangers' conversation to find a regex bug would be a worse defect than the bug. What it does report goes through Pseudonym.row first.\n\nLEFT ALONE ON PURPOSE: SighteAddons.RUN_END still has no test of any kind. It is private, in a companion of a class that needs Fabric to construct, and it is the sole trigger of the permanent run report -- moving it to make it testable is a change to the most dangerous path in the mod (see runloss-001) and belongs to its own feature, not to this one. onChat now strips once and shares the string, which is the only thing this feature changed on that path."
     },
     {
       "id": "records-001",
@@ -522,6 +568,24 @@
       "blocked_reason": "BLOCKED ON THE RECEIVER, WHICH GOES FIRST. There is no endpoint to call: the receiver's do_GET answers /health and 404s everything else, so /srv/sighte/roomstats.json is not reachable over HTTP at all. Serving it is a feature on Sighte/skyblock-server's own feature_list.json and is NOT recorded there by this session - CLAUDE.md forbids a mod session from touching that repository, so it was reported to the orchestrator to place instead. Nothing in this repository is in the way; layer 2 and layer 3 of RoomStats already exist and this is layer 1.",
       "evidence": [],
       "notes": "LAYER 1 OF RoomStats, AND THE SEAM IS ALREADY THERE. clearpoints-002 built the resolution as three layers and implemented the bottom two: a cached file at configDir/sighteaddons/roomstats.json, then the seed values. This feature adds the top one - fetch the receiver's roomstats.json, write it to RoomStats.cachePath(), call RoomStats.use(...) with the parsed result. RoomScores.parse is already total (absent, truncated, not-JSON and one-broken-entry all fall back rather than throw) and already reads the receiver's document verbatim, so no format work is owed.\n\nWHY THIS IS THE DESIGN RATHER THAN A JAR SNAPSHOT. The first plan for clearpoints-002 was to bundle a snapshot of roomstats.json in the jar, regenerated at release time. The user pushed back and was right: the whole point of clearpoints-002 is that the values improve THEMSELVES, and if improving them requires cutting a jar release then they improve when somebody does release work rather than on their own. The counter-argument for a pinned snapshot - that points are compared BETWEEN party members, so two clients that fetched at different times could score one room differently - is real but small, because the n/(n+10) shrinkage means a room with many samples barely moves: two clients days apart differ in a decimal, not in a ranking.\n\nWHAT THIS FEATURE HAS TO GET RIGHT, all of which is failure handling rather than fetching. The fetch may never cost the run: no blocking call on the render or tick thread, a hard timeout, and any failure at all falls through to the existing cache and then to the seeds. It must not fetch mid-run - RoomStats resolves once per session deliberately, so a weight cannot change while a run is being scored and two party members' standings cannot disagree about a room they both watched. The cached write has to be atomic (write beside it, then rename) or a half-written cache becomes the next launch's malformed file. And RoomScores.generatedTs is already recorded on the `award` and `room_scores` debug events and on every history.jsonl line, which is what makes a past run's numbers explainable once the scores start moving on their own - that plumbing is done and this feature is what makes it matter.\n\nPRIORITY 10 IS ITS POSITION IN A BLOCKED QUEUE, NOT ITS IMPORTANCE. The moment the receiver serves the file this is the highest-value unfinished feature in this repository, because it is what turns clearpoints-002's seeds into measurements."
+    },
+    {
+      "id": "chatfields-001",
+      "priority": 13,
+      "area": "telemetry",
+      "title": "Ship the chat-sourced events in the run report",
+      "user_visible_behavior": "The analyst can see who opened which wither door, who solved and who failed each puzzle, and which secrets were whose -- from the permanent run report rather than only from a debug session that the player can switch off and that is capped at 20 000 events.",
+      "status": "blocked",
+      "depends_on": [
+        "chat-001"
+      ],
+      "verification_command": "./gradlew test --tests 'sighteaddons.RunReportTest'",
+      "verification_manual": [
+        "After the receiver is deployed, play a floor and confirm the report is accepted rather than landing in rejected/."
+      ],
+      "blocked_reason": "THE RECEIVER GOES FIRST, and its feature does not exist yet. chat-001 already reads these events (wither_door, blood_door, puzzle_solved, puzzle_failed, and a named finder per essence secret) and writes them to the debug log only. Putting any of them in the run report adds a key to RunReport.build or RunReport.room, and a key the validator has not learned is a 400 that TelemetryUpload moves to rejected/ and never retries -- so the run is lost, permanently and silently. Unblocking needs, IN THIS ORDER: (1) a feature in Sighte/skyblock-server adding the chosen keys to RUN_KEYS/ROOM_KEYS or their optional sets with validators, reaching `passing`; (2) that change DEPLOYED to master, which is the user's decision and not a session's; (3) only then this, with a SCHEMA bump if any existing key changes meaning. Note the receiver's own ceilings while choosing the shape (MAX_SECRETS 64, MAX_DEATHS 500) and that a per-player secret breakdown puts TEAMMATE NAMES in a permanent server-side record, which RunReport's header refuses on purpose -- so it would have to be per-slot or per-class, not per-name. That question is why this is a feature and not a follow-up commit.",
+      "evidence": [],
+      "notes": "Raised by chat-001, 2026-08-14, rather than built inside it. The unpaired shape was available and was taken: deaths and essence attribution improve numbers the receiver already accepts (`deaths`, room `deaths`, `ownSecrets`), so chat-001 moved no field and needed no receiver change. This entry is only the part that cannot be done that way. Do not start it by editing RunReport.kt -- the first move is a feature in the receiver, which is a different repository and a different session."
     }
   ]
 }

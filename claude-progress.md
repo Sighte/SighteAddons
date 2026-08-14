@@ -15,21 +15,29 @@ new session reads.
   said `build` until session 006; `init.sh` was corrected at `c4c0c56` and prints `assemble check`,
   and session 004 below records that repair. `build` belongs to the release gate in `CLAUDE.md`, where
   refreshing that jar is the whole point.
-- Baseline status (last `./init.sh` run): **PASSING** — 140 tests in 13 classes, 0 failures,
-  0 skipped, 2026-08-14, on branch `artifacts-001` (off `main` at `9f71b96`, which is
-  `clearpoints-002` merged), `mod_version=0.9.0`. **Not pushed and not merged.** For how many commits
-  the branch carries, run `git rev-list --count 9f71b96..HEAD` — three consecutive reviews found a
-  hand-written number here wrong (one, then four, then four again, against three, six and seven), so
-  the number is deliberately not written down any more. `git log --oneline 9f71b96..HEAD` says what
-  each is for. The test count is **unchanged from `main`**, which is the expected reading for a
-  comment-and-artifact-only branch and is itself part of that branch's evidence.
-- Last feature completed: `artifacts-001` — **the real dungeon run is in the repository, and the
-  statements that outlived their subject are retired.** No runtime behaviour changed; every `src/`
-  edit is comment text and the diff proves it mechanically. New artifact:
+- Baseline status (last `./init.sh` run): **PASSING** — 160 tests in 14 classes, 0 failures,
+  0 skipped, 2026-08-14, on branch `chat-001` (off `main` at `a6dc629`, which is `artifacts-001`
+  merged), `mod_version=0.9.0`. **Not pushed and not merged.** For how many commits the branch
+  carries, run `git rev-list --count a6dc629..HEAD` — three consecutive reviews found a hand-written
+  number here wrong (one, then four, then four again, against three, six and seven), so the number is
+  deliberately not written down any more. `git log --oneline a6dc629..HEAD` says what each is for.
+  The count moved from `main`'s 140 in 13 classes by exactly the tests `chat-001` added: +11 in the
+  new `ChatEventsTest`, +3 in `SecretTrackerTest`, +6 in `ContributionTrackerTest`.
+- Last feature completed: `chat-001` — **the mod reads the dungeon events Hypixel states in chat**,
+  through a pure `String -> Event?` parser. A death is charged on the tick it is announced instead of
+  by a once-a-second tab poll; a wither-essence secret is credited to the player Hypixel names
+  instead of to whoever clicked recently; wither doors, the blood door and puzzle solves and failures
+  are attributed per player for the first time. **No schema change and no receiver change** —
+  everything it improves lands in fields the receiver already accepts, checked mechanically. The
+  entry's `user_visible_behavior` was factually wrong and was corrected in place. New feature
+  recorded rather than built: `chatfields-001`.
+- Feature completed before that: `artifacts-001` — **the real dungeon run is in the repository, and
+  the statements that outlived their subject are retired.** No runtime behaviour changed; every
+  `src/` edit is comment text and the diff proves it mechanically. New artifact:
   `docs/evidence/session-1786719912927/`, which is self-checking — `readout.sh` asserts all 35
   figures its README quotes and fails if one drifts. New feature recorded rather than built:
   `runloss-001`.
-- Feature completed before that: `clearpoints-002` — **a room is now worth what it measures, not what kind
+- And before that: `clearpoints-002` — **a room is now worth what it measures, not what kind
   it is.** `PUZZLE_BONUS`, `TRAP_BONUS`, `MINIBOSS_BONUS`, `BLOOD_BONUS` and `SEGMENT_POINTS` are
   deleted; size and kind are emergent. `weight = base + 0.25 per database secret`, where
   `base = seed + n/(n+10) * (measured - seed)` and
@@ -48,9 +56,19 @@ new session reads.
   file at `configDir/sighteaddons/roomstats.json`, the receiver's own document verbatim; (3) the
   seeds. **Absent is the ordinary first case, not an error, and yields exactly the seeds.** Nothing
   writes the cache today, so every install is on layer 3 and every room is its seed.
-- Current highest-priority unfinished feature: `chat-001` — read the events Hypixel puts in chat.
-  Its test class `ChatEventsTest` does not exist yet; creating it is part of the feature.
-- Current blocker: none for `chat-001`. `records-001` is deferred by the user (a product decision,
+- Current highest-priority unfinished feature: by number it is `party-001` (7) — `records-001` (6)
+  is deferred by the user. By value it is **`runloss-001`**, unchanged from session 009's reading:
+  priority 10 is queue position, and it is the only entry known to have destroyed real data.
+- **What `chat-001` reads and what it deliberately does not.** Chat carries a named finder for
+  **wither-essence secrets only** — chests, levers, item pickups and the redstone key are announced
+  nowhere, so `SecretTracker.isOwn`'s 40-tick coincidence is still how almost every secret is
+  attributed. Hypixel announces **puzzle failures and solves** but there is no per-secret line and no
+  "who opened the blood door". Every pattern is cited to a published mod that runs against the live
+  server; **none has been seen arriving here**, because Loom's dev client cannot reach Hypixel. A
+  wrong pattern fails silently and benignly — it matches nothing and the mod infers exactly as
+  before — and `ChatEvents.nearMiss` writes the offending line (redacted) to the debug log so one
+  real floor says which ones are wrong.
+- Current blocker: none for the next feature. `records-001` is deferred by the user (a product decision,
   not a technical blocker), and `scores-fetch-001` is blocked on the receiver serving
   `roomstats.json` at all — which no command here can produce. **`ingame-001`'s blocker changed in
   session 009 and was narrowed rather than cleared:** the "needs a human to play a floor and hand
@@ -96,6 +114,76 @@ new session reads.
 
 Rules: insert the newest session at the TOP of this section. Never edit or delete past session
 entries — they are the audit trail. Copy the template below for each new session.
+
+### Session 010 — `chat-001`: read what Hypixel says, keep the inference where it says nothing
+
+- Date: 2026-08-14
+- Branch `chat-001`, off `main` at `a6dc629`. **Not pushed and not merged.** Run
+  `git rev-list --count a6dc629..HEAD` for the commit count rather than reading one here.
+- Baseline at start: `bash init.sh` → **PASSING**, the state `artifacts-001` left.
+
+**The brief was wrong and correcting it was half the work.** `chat-001`'s
+`user_visible_behavior` promised that "secret clicks, wither doors, puzzle solvers and deaths are
+attributed as they happen rather than inferred". Checked against the code before writing any:
+
+- **Deaths were never inferred.** `PartyTracker` watches the tab row flip to `DEAD` and is the sole
+  caller of `ContributionTracker.onDeath`. What was wrong was the *timing* — `PartyTracker.update`
+  runs once per second, so the stamp was quantised to 20 ticks on top of the row's own lag — and the
+  *room*, which is `lastCell`. **The room is still inferred and this session did not fix it.**
+- **Wither doors and puzzle solvers did not exist at all.** `grep -inE "wither|door|solver"` over
+  `src/main/` returned one hit: the wither-essence skull id in `SecretTracker`. Net new.
+- **Secret clicks were the one real inference**, and it is replaced only in part.
+
+So the honest scope, and what the entry now says: one inference narrowed, one timing improved, two
+capabilities added.
+
+**What chat can actually source, which is less than it sounds.** Hypixel names a finder for exactly
+one kind of secret — the wither essence, in a third-person and a second-person form. Chests, levers,
+item pickups and the redstone key are announced **nowhere**. The evidence for that negative is
+`SkyHanni`'s `DungeonChatFilter`, a catalogue of dungeon chat, which carries both essence forms and
+no other `found a` shape. So `isOwn` stays and chat overrules it only where a line names somebody.
+What that buys is the **false positive**: a teammate taking the essence while your own click on a
+chest is still inside its 40-tick window used to credit you.
+
+**Deaths: two sources, one charge.** The tab path is kept rather than replaced — a death message this
+client never received still shows up in tab, and losing a death is worse than recording it late — so
+`onDeath` became idempotent instead, keyed per player with a 60-tick window. The window is a *guard*,
+not the mechanism: `onRevive` clears the entry, so a genuine second death counts however fast it
+follows, which no window alone could do without also letting a duplicate through. `onDeath` and
+`onChatSecret` take the tick as a parameter, the seam `onPresence` and `onSecret` already use — the
+run clock is `private set` and a function that read it could only ever be tested at tick zero.
+
+**Doors and puzzles stop at the debug log, on purpose.** Every field the run report writes is one the
+receiver's `RUN_KEYS`/`ROOM_KEYS` already knows; a key it has not learned is a `400` that
+`TelemetryUpload` files under `rejected/` and never retries. Debug events cost nothing — `/ingest`
+validates the filename and never the body, and nothing server-side reads event types at all. The
+report side is recorded as **`chatfields-001`**, blocked, receiver first, and it carries the design
+question that makes it a feature rather than a commit: a per-player secret breakdown would put
+teammate names in a permanent server-side record, which `RunReport`'s header refuses on purpose.
+
+**Not paired, and that was checked mechanically rather than by reading.** Every `addProperty` key in
+`RunReport.build()` and `RunReport.room()`, diffed against `RUN_KEYS`/`ROOM_KEYS` and their optional
+sets parsed straight out of the receiver's `ingest.py`: four empty sets, both directions.
+`RunReport.kt` is untouched, `SCHEMA` stays 5, the jar md5 is unchanged.
+**`SighteAddonServerside` was read and never written.**
+
+**Two mutation probes, both caught, both restored with `git checkout`.**
+Deleting the `^` from `ChatEvents.LEAD` *and* switching `parse` from `matchEntire` to `find` fails 2
+of 11 — the forged-death case among them. Notably **either mechanism alone holds the line**, which
+the probe measured and which is now recorded in the comment on `parse` rather than assumed. Making
+`chatAttribution` return `false` instead of `null` when no line landed fails 3 of 8: that is the
+defect that would most look like a working feature, since reading a missing fact as a denial
+un-credits every chest, lever and item secret in the game.
+
+**What this session could not verify, and said so in the entry rather than around it.** That the
+strings are Hypixel's; that Fabric delivers them to the listener at all, with `overlay` false, on the
+right tick; and whether a `chat_secret` arrives *before* the action-bar update it attributes — if it
+arrives second the attribution is always too late and no window fixes it. All three are measurable
+from one real floor, so `verification_manual` was rewritten from two lines into a procedure that says
+which log line answers which question, and it now declares outright that it cannot be performed here.
+
+**Left alone deliberately:** `SighteAddons.RUN_END` still has no test. It is the sole trigger of the
+permanent run report, and making it testable is a change to the path `runloss-001` is about.
 
 ### Session 009 — `artifacts-001`: the run happened, and now the repository knows
 

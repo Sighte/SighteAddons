@@ -144,7 +144,15 @@ class SighteAddons : ClientModInitializer {
         // Stripped like the sidebar and the action bar are: Hypixel puts legacy § codes inside the
         // text, and this anchored match is the only thing that triggers the permanent run report —
         // one added colour code would stop it being written, silently.
-        if (summaryPrinted || !RUN_END.matches(ChatFormatting.stripFormatting(message).orEmpty())) return
+        //
+        // Stripped once and shared since `chat-001`, because two consumers now read the same line and
+        // a second `stripFormatting` call would be a second chance for them to disagree about what
+        // the line said. The event pass runs first and unconditionally: the headline path below
+        // returns early on every ordinary line, and putting the events after that return is how they
+        // would silently stop arriving the moment somebody reorders this function.
+        val text = ChatFormatting.stripFormatting(message).orEmpty()
+        onDungeonEvent(text)
+        if (summaryPrinted || !RUN_END.matches(text)) return
         summaryPrinted = true
         DebugLog.event(
             "run_end",
@@ -159,6 +167,65 @@ class SighteAddons : ClientModInitializer {
         // call site that may claim it.
         RunReport.write(complete = true)
     }
+
+    /**
+     * The dungeon facts Hypixel states outright, routed to whoever can use them. [text] is already
+     * stripped.
+     *
+     * **This is the wiring, and it is the half of `chat-001` that nothing in this repository can
+     * verify.** [ChatEvents.parse] is pure and exhaustively tested; that Fabric delivers a given line
+     * here, with `overlay` false, on the tick Hypixel sent it, is not observable without a real
+     * session — and neither is whether the strings [ChatEvents] matches are the strings that arrive.
+     * A `chat_unparsed` line in a debug session is what turns that into a measurement.
+     *
+     * Gated on [DungeonSession.calibrated], the same gate [SecretTracker.onActionBar] uses: every
+     * consumer below writes into run-scoped state that does not exist before a run is calibrated, and
+     * a death charged into it would be charged to nothing. It costs the announcements between
+     * entering the floor and the map becoming readable, which is a few seconds of the entrance.
+     */
+    private fun onDungeonEvent(text: String) {
+        if (!DungeonSession.calibrated) return
+        val self = Minecraft.getInstance().player?.name?.string ?: return
+        val at = DungeonSession.runTicks
+        // `resolve`: Hypixel writes "You" in the lines it addresses to this client, and every
+        // consumer downstream keys on a real Minecraft name.
+        fun resolve(player: String) = if (player == ChatEvents.SELF) self else player
+
+        when (val event = ChatEvents.parse(text)) {
+            // The line looked like ours and did not parse. Redacted through the same function an
+            // unparsed tab row goes through — this is the case that exists precisely because the
+            // format is not what we thought, so nothing here can be assumed about where the name is.
+            null -> ChatEvents.nearMiss(text)?.let { DebugLog.event("chat_unparsed", "line" to Pseudonym.row(it)) }
+            is ChatEvents.Event.Death ->
+                ContributionTracker.onDeath(resolve(event.player), at, ContributionTracker.DeathSource.CHAT)
+            is ChatEvents.Event.Revived -> ContributionTracker.onRevive(resolve(event.player))
+            // Only whether it was ours crosses this boundary. SecretTracker counts one number about
+            // the local player (`ownSecrets`); a per-player secret breakdown is a report field and
+            // therefore a receiver change first — recorded as `chatfields-001`, not built here.
+            is ChatEvents.Event.SecretFound -> SecretTracker.onChatSecret(resolve(event.player) == self, at)
+            // Doors and puzzles reach the debug log and stop there, on purpose. Every field the run
+            // report writes is one the receiver's RUN_KEYS/ROOM_KEYS already knows, and a report
+            // carrying a key it has not learned is a 400 that TelemetryUpload files under rejected/
+            // and never retries. The receiver moves first; until it has, these are diagnostics.
+            is ChatEvents.Event.WitherDoor -> attributed("wither_door", resolve(event.player))
+            // The one event with no name in it — Hypixel does not say who opened the blood door.
+            ChatEvents.Event.BloodDoor -> DebugLog.event("blood_door")
+            is ChatEvents.Event.PuzzleSolved -> attributed("puzzle_solved", resolve(event.player))
+            is ChatEvents.Event.PuzzleFailed -> attributed("puzzle_failed", resolve(event.player))
+        }
+    }
+
+    /**
+     * Logs an event against the player it names and the room they were last seen in.
+     *
+     * The room is the same inference [ContributionTracker.onDeath] charges against and carries the
+     * same weakness — it is where the decoration last put them, not where they are. For a door that
+     * is close to exact, since opening one is what puts you at it; for a puzzle it is the room the
+     * puzzle is in, which is the answer that was wanted anyway.
+     */
+    private fun attributed(type: String, player: String) = DebugLog.event(
+        type, "player" to Pseudonym.of(player), "room" to ContributionTracker.lastRoomOf(player)?.label(),
+    )
 
     private fun renderHud(graphics: GuiGraphicsExtractor) {
         if (!DungeonSession.calibrated) return
