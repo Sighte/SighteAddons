@@ -130,48 +130,117 @@ object PartyTracker {
     fun roster(): List<DungeonPlayer> = players.filterNotNull()
 
     /**
+     * The outcome of [assign]: which roster slot each decoration belongs to, plus the two counts the
+     * decision was made from, so the caller can log them without recomputing them.
+     */
+    internal data class Assignment(
+        /** One entry per decoration, in map order. `null` where the decoration was left unassigned. */
+        val slots: List<Int?>,
+        /** Whether the marker count matched the living-teammate count. See [assign]. */
+        val trustOrder: Boolean,
+        val markers: Int,
+        val aliveTeammates: Int,
+    )
+
+    /**
+     * Decoration → roster slot, and the whole of the attribution heuristic.
+     *
+     * Pure on purpose, and that is a design decision rather than a tidy-up: [positions] takes a
+     * `MapItemSavedData` and reads `DungeonSession` statics, so it could not be tested at all, while
+     * being both the least verifiable part of the mod *and* the loop room discovery runs through —
+     * `ContributionTracker.tick` only ever creates a room some decoration resolved into, so a change
+     * here changes which rooms exist, get named, get cleared and get scored. Same extraction seam as
+     * `SecretTracker.parseSecrets`, [TAB], `Pseudonym.row` and `ContributionTracker`'s `TrackedRoom`.
+     *
+     * [isFrame] is one boolean per decoration, in map order. The local player's marker is identified
+     * by its decoration *type* and is therefore always correct; everybody else is matched by position
+     * in the list, which is the assumption below.
+     *
+     * ponytail: assumes decoration order matches tab order — same as Skyblocker and Odin.
+     *
+     * **There is no known way to do better client-side, and the upgrade path this comment used to
+     * name was wrong.** It claimed NoammAddons reads the decoration's map key, whose last character
+     * is a digit identifying the player slot, and that an accessor mixin over the private
+     * `MapItemSavedData.decorations` map would therefore remove the counting. Measured against the
+     * `26.1.2` classes this module compiles against, both halves are false:
+     *
+     * - `ClientboundMapItemDataPacket` carries `Optional<List<MapDecoration>>` — an **unkeyed list**.
+     *   No key is ever transmitted. `MapItemSavedData.addClientSideDecorations` clears the private
+     *   map and re-keys every entry `"icon-" + i` from its own loop index (that class's string-concat
+     *   bootstrap constants are literally `icon-` and `frame-`). The map is a
+     *   `LinkedHashMap`, so an accessor would hand back this client's own list order, spelled as a
+     *   string — and past nine decorations the "last character" is not even the whole index.
+     * - NoammAddons does not do what the comment said either. Its `DungeonUtils.kt` reads
+     *   `val index = key[key.lastIndex].digitToInt()` and uses it as an index into `livingTeammates`:
+     *   the identical order heuristic, with an extra defect this one does not have — the digit counts
+     *   the local player's own marker while the list it indexes does not contain them.
+     *
+     * The one channel that could still carry identity is `MapDecoration.name()`
+     * (`Optional<Component>`), which does survive the wire. Whether Hypixel populates it on a dungeon
+     * map is unknown and unknowable from here — tracked as `deconame-001`.
+     */
+    internal fun assign(roster: List<DungeonPlayer?>, localSlot: Int, isFrame: List<Boolean>): Assignment {
+        val teammates = roster.indices
+            .filter { it != localSlot }
+            .filter { roster[it]?.alive == true }
+
+        // The map drops a dead player's marker 10-20 ticks *before* their tab row flips to DEAD, so
+        // for about a second the two sources disagree about who is alive. Since teammates are matched
+        // by position in the list, one missing marker shifts every teammate after it onto somebody
+        // else's marker — a different *room*, so a different cell, which is the damaging failure and
+        // the one worth guarding. (Two teammates standing in one room produce two decorations a few
+        // pixels apart that both resolve to that room's cell, so mixing those two up changes
+        // nothing.) ContributionTracker.onDeath charges a death at exactly the moment the counts
+        // disagree, off the last room the victim was seen in. So when they disagree the order is not
+        // trustworthy and teammates are skipped entirely for those ticks: no position at all beats a
+        // wrong one, and the last good position is what the death then gets charged to. The local
+        // player's own marker is identified by its type, not by counting, and stays valid throughout.
+        val markers = isFrame.count { !it }
+        val trustOrder = markers == teammates.size
+
+        var next = 0
+        val slots = isFrame.map { frame ->
+            if (frame) {
+                localSlot.takeIf { roster.getOrNull(it)?.alive == true }
+            } else {
+                if (trustOrder) teammates.getOrNull(next++) else null
+            }
+        }
+        return Assignment(slots, trustOrder, markers, teammates.size)
+    }
+
+    /**
      * Every party member's current room, read from the map decorations. Works for members whose
      * chunks are not loaded on this client, which is what makes client-side attribution possible.
+     *
+     * Everything decidable is decided in [assign]; what is left here is the Minecraft plumbing, the
+     * grid math and the logging — none of which is testable without a client.
      */
     fun positions(map: MapItemSavedData): List<Pair<String, Pos>> {
         val mapEntrance = DungeonSession.mapEntrance ?: return emptyList()
         val physicalEntrance = DungeonSession.physicalEntrance ?: return emptyList()
         val roomSize = DungeonSession.mapRoomSize
-        // ponytail: assumes decoration order matches tab order — same as Skyblocker and Odin.
-        // Upgrade path if this ever mismatches: NoammAddons reads the decoration's map key instead,
-        // whose last character is a digit identifying the player slot (needs a MapItemSavedData
-        // accessor mixin, since getDecorations() drops the keys). That would also make the guard
-        // below unnecessary, since the assignment would no longer depend on counting at all.
-        val teammates = players.indices
-            .filter { it != localSlot }
-            .mapNotNull { players[it] }
-            .filter { it.alive }
-
-        // The map drops a dead player's marker 10-20 ticks *before* their tab row flips to DEAD, so
-        // for about a second the two sources disagree about who is alive. Since teammates are matched
-        // by position in the list, one missing marker shifts every teammate after it onto somebody
-        // else's room — and ContributionTracker.onDeath charges a death at exactly that moment, off
-        // the last room the victim was seen in. When the counts disagree the order is not
-        // trustworthy, so teammates are skipped entirely for those ticks: no position at all beats a
-        // wrong one, and the last good position is what the death then gets charged to. The local
-        // player's own marker is identified by its type, not by counting, and stays valid throughout.
-        val markers = map.decorations.count { it.type().value() != MapDecorationTypes.FRAME.value() }
-        val trustOrder = markers == teammates.size
-        if (trustOrder == skewed) {
-            skewed = !trustOrder
-            DebugLog.event("roster_skew", "skewed" to skewed, "markers" to markers, "alive" to teammates.size)
+        // Snapshotted once: getDecorations() is a live view of the underlying LinkedHashMap, and the
+        // counts and the assignment have to be made against one and the same list.
+        val decorations = map.decorations.toList()
+        val assignment = assign(
+            players.toList(),
+            localSlot,
+            decorations.map { it.type().value() == MapDecorationTypes.FRAME.value() },
+        )
+        if (assignment.trustOrder == skewed) {
+            skewed = !assignment.trustOrder
+            DebugLog.event(
+                "roster_skew",
+                "skewed" to skewed,
+                "markers" to assignment.markers,
+                "alive" to assignment.aliveTeammates,
+            )
         }
 
         val result = mutableListOf<Pair<String, Pos>>()
-        var next = 0
-        for ((index, decoration) in map.decorations.withIndex()) {
-            val player: DungeonPlayer? = if (decoration.type().value() == MapDecorationTypes.FRAME.value()) {
-                players[localSlot]
-            } else {
-                if (!trustOrder) continue
-                teammates.getOrNull(next++)
-            }
-            if (player == null || !player.alive) continue
+        for ((index, decoration) in decorations.withIndex()) {
+            val player = assignment.slots[index]?.let { players[it] } ?: continue
             val (x, z) = DungeonGrid.mapToPhysical(
                 mapEntrance,
                 roomSize,
