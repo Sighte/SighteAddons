@@ -34,6 +34,10 @@ run/
 .fabric/
 # written by the loader when the tests boot it
 logs/
+# DebugLog writes here when a test drives ContributionTracker.award: under the test runtime
+# FabricLoader's gameDir is the project root, and DebugLog.enabled is true because
+# isDevelopmentEnvironment is. One session-<millis>.jsonl per JVM run, and none of it is source.
+config/
 
 # python — the receiver in vps/ and its tests
 

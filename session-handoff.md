@@ -132,6 +132,14 @@ historical record lives in `claude-progress.md`.
   rather than assumed: it resolves `Config` and `FabricLoader` without throwing and reports
   `enabled=true` under the test runtime. That is what makes driving `award()` from a test possible at
   all — `RoomHistory.onRoomCleared` is *not* on that seam, which is why `onCleared` stops short of it.
+- **A consequence of the above: `./gradlew test` now writes `config/sighteaddons/debug/session-<millis>.jsonl`
+  into the working tree**, one per JVM run, because `FabricLoader`'s gameDir under the test runtime is
+  the project root and `isDevelopmentEnvironment` is true. Nothing did this before, since no test
+  reached `DebugLog.event`. `config/` is now in `.gitignore` — seven of those files were swept into
+  commit `13c9fb5` by a `git add -A` before this was noticed, and the branch's last commit ("Stop
+  tracking the debug sessions the test suite now writes") untracks them. `13c9fb5` was deliberately
+  *not* amended: it is the hash `clearpoints-001`'s evidence was verified against, and tidying it
+  would have made the record unreproducible to buy nothing.
 - `ContributionTracker` is an `object` with run-long state, so any test that writes to it must
   `reset()` first. `ContributionTrackerTest` does it in `@BeforeEach`; the suite runs sequentially
   (`test { useJUnitPlatform() }`, no parallel configuration).
