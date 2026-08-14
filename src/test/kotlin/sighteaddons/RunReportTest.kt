@@ -402,4 +402,151 @@ class RunReportTest {
         assertEquals(0, RunReport.restamp(dir.resolve("never-created"), "Sighte"))
         assertEquals(0, RunReport.restamp(dir, "Sighte")) // exists but empty
     }
+
+    // --- runloss-001: a run quit straight from the dungeon still reaches the queue ---
+    //
+    // What this half of the class pins is the three things that had to become true before
+    // `ClientPlayConnectionEvents.DISCONNECT` could be a call site for `write`, none of which the
+    // wiring itself can demonstrate here (no dev client can reach Hypixel, and the event cannot be
+    // raised in a unit test):
+    //
+    //   1. the report can be built without asking the client who the player is,
+    //   2. it lands as a whole file or not at all, because the writer may be a process on its way
+    //      out through `System.exit(0)`,
+    //   3. it lands exactly once, across two call sites that can both fire for one run.
+    //
+    // The wiring is measured instead of tested — see the disassembly cited on [RunReport.uploader]
+    // — and named as unverified in `feature_list.json`.
+
+    @org.junit.jupiter.api.BeforeEach
+    fun clearTheReportedFlag() {
+        // The guard is process-wide state on an `object`, and the suite runs sequentially.
+        RunReport.reset()
+    }
+
+    /**
+     * The identity question the `ponytail:` note at the old `SighteAddons.kt:53-57` said made this
+     * "not a one-liner": the DISCONNECT handler races `Minecraft.player` being nulled, on a thread
+     * that is not the one nulling it. The answer is to stop asking the client — the name captured
+     * during the run wins, and it is also the name every room's tick map is keyed by.
+     */
+    @Test
+    fun `the report is keyed by the name captured during the run, not by the client`() {
+        assertEquals("Sighte", RunReport.uploader(live = "Sighte", captured = "Sighte"))
+        // The case the feature exists for: the client has already let go of its player.
+        assertEquals("Sighte", RunReport.uploader(live = null, captured = "Sighte"))
+        // Captured wins outright rather than merely filling in. A live player who is not the one the
+        // run was tracked under would key the report to rows that are not in it.
+        assertEquals("Sighte", RunReport.uploader(live = "Somebody", captured = "Sighte"))
+        // Nothing was ever captured: a report before PartyTracker has run at all.
+        assertEquals("Sighte", RunReport.uploader(live = "Sighte", captured = null))
+    }
+
+    /** Neither source: there is no report to write, and `write` returns before building one. */
+    @Test
+    fun `with no name from either source there is nobody to report`() {
+        assertEquals(null, RunReport.uploader(live = null, captured = null))
+    }
+
+    /**
+     * The expensive failure this path can produce is not a missing report, it is half of one. The
+     * DISCONNECT write runs a few statements before `System.exit(0)`; a truncated `run-*.json` still
+     * matches [TelemetryUpload.RUN], is posted at the next launch, fails the receiver's `check_run`
+     * with a 400 and is filed under `rejected/` permanently. So the file appears whole or not at all.
+     */
+    @Test
+    fun `a report appears whole or not at all`(@TempDir dir: Path) {
+        val name = "run-1786530000000-$installId.json"
+        assertTrue(RunReport.queue(dir, name, report().toString()))
+
+        val file = dir.resolve(name)
+        assertEquals(report().toString(), Files.readString(file))
+        // The temporary file is gone, and while it existed its name was outside the uploader's
+        // pattern — that is what keeps a torn write off the wire rather than off the disk.
+        val names = Files.list(dir).use { it.toList() }.map { it.fileName.toString() }
+        assertTrue(names.none { it.endsWith(".part") }, "left a .part file behind: $names")
+        assertTrue(TelemetryUpload.RUN.matches(name))
+        assertFalse(TelemetryUpload.RUN.matches("$name.part"))
+    }
+
+    /** The queue directory does not exist yet on a first run, and creating it is part of the write. */
+    @Test
+    fun `the queue directory is created on the way`(@TempDir dir: Path) {
+        val runs = dir.resolve("sighteaddons/runs")
+        val name = "run-1786530000000-$installId.json"
+
+        assertTrue(RunReport.queue(runs, name, report().toString()))
+        assertEquals(report().toString(), Files.readString(runs.resolve(name)))
+    }
+
+    /**
+     * The pair `summaryPrinted` never covered, and the reason the guard moved into [RunReport].
+     * Dropping to the title screen from inside a floor disconnects — the report is written there —
+     * and joining any server afterwards logs in again, reaching the JOIN site with nothing having
+     * reset in between. Both calls carry the same run; only one file may exist.
+     */
+    @Test
+    fun `a run reported on the way out is not reported again on the way back in`(@TempDir dir: Path) {
+        val onDisconnect = "run-1786530000000-$installId.json"
+        val onJoin = "run-1786530009999-$installId.json"
+
+        assertTrue(RunReport.queue(dir, onDisconnect, report(complete = false).toString()))
+        assertFalse(RunReport.queue(dir, onJoin, report(complete = false).toString()))
+
+        val names = Files.list(dir).use { it.toList() }.map { it.fileName.toString() }
+        assertEquals(listOf(onDisconnect), names)
+    }
+
+    /** The guard is per run, not per process: the next dungeon is reported normally. */
+    @Test
+    fun `the next run may be reported again`(@TempDir dir: Path) {
+        val first = "run-1786530000000-$installId.json"
+        val second = "run-1786540000000-$installId.json"
+
+        assertTrue(RunReport.queue(dir, first, report().toString()))
+        assertFalse(RunReport.queue(dir, second, report().toString()))
+        // What DungeonSession.reset() does at the end of every run.
+        RunReport.reset()
+        assertTrue(RunReport.queue(dir, second, report().toString()))
+        assertEquals(2, Files.list(dir).use { it.toList() }.size)
+    }
+
+    /**
+     * A write that failed is not a run that was reported. The claim goes back, so the later call
+     * site still gets its turn — losing the run twice over would be the one outcome worse than the
+     * defect this feature fixes.
+     */
+    @Test
+    fun `a failed write leaves the next call site its chance`(@TempDir dir: Path) {
+        // A regular file where the queue directory should be: createDirectories fails, so nothing is
+        // written and nothing is claimed.
+        val blocked = dir.resolve("runs")
+        Files.writeString(blocked, "not a directory")
+        val name = "run-1786530000000-$installId.json"
+
+        assertFalse(RunReport.queue(blocked, name, report().toString()))
+        // Same run, a directory that works this time.
+        val runs = dir.resolve("elsewhere")
+        assertTrue(RunReport.queue(runs, name, report().toString()))
+        assertEquals(report().toString(), Files.readString(runs.resolve(name)))
+    }
+
+    /**
+     * The queue is where [restamp] and [TelemetryUpload] meet what was just written, so what
+     * [publish] produces has to be a report by both of their definitions — one pattern, one contract.
+     */
+    @Test
+    fun `what the disconnect path writes is a report the queue recognises`(@TempDir dir: Path) {
+        val name = "run-1786530000000-$installId.json"
+        assertTrue(RunReport.queue(dir, name, report(complete = false).toString()))
+
+        // restamp walks the same directory with the same pattern and must find it.
+        assertEquals(1, RunReport.restamp(dir, "Sighte"))
+        val stored = read(dir.resolve(name))
+        assertEquals("Sighte", stored["player"].asString)
+        // Abandoned, and still saying so after being restamped: this is the field that stops the
+        // receiver reading a quit run as a whole one.
+        assertFalse(stored["complete"].asBoolean)
+        assertEquals(1, stored["rooms"].asJsonArray.size())
+    }
 }
