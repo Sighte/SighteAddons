@@ -109,6 +109,16 @@ class TrackedRoom(val type: RoomType, val mapSegments: Set<Pos>, val cells: Set<
      * how we find out the stay was real; the room's clock still started when that person walked in,
      * and anchoring at `start + MIN_TICKS` would shorten every clear in the data by a flat second.
      *
+     * **`Stay.ticks` counts sightings, not elapsed ticks.** The two coincide only while the
+     * decoration stream reports every tick, which is the normal case and not a guarantee: a member
+     * sighted once every 20 ticks accumulates a qualifying stay whose start is far older than
+     * [ContributionTracker.MIN_TICKS], because each individual gap is inside tolerance while the
+     * count crawls to the threshold over a much longer wall clock. So this bounds how much of the
+     * stay we *saw*, never how long it was. Measured on the one real floor there is
+     * (`docs/evidence/session-1786719912927/`): nine of ten rooms anchored exactly 19 ticks after
+     * their stay began — the 20th sighting at `MIN_TICKS` 20 — and the tenth at 24, five sightings
+     * having gone missing without splitting the stay. Both halves of this paragraph, in one run.
+     *
      * A gap of more than [ContributionTracker.MIN_TICKS] between sightings begins a new stay, so
      * somebody who passes through and returns much later is anchored on the return rather than on the
      * pass-through — the whole point of the change. Shorter gaps are tolerated on purpose:
@@ -141,11 +151,17 @@ class TrackedRoom(val type: RoomType, val mapSegments: Set<Pos>, val cells: Set<
      * earliest stay begun within the last [ContributionTracker.MIN_TICKS] instead. Returns whether it
      * stamped one.
      *
-     * Without this the rooms that clear the instant somebody steps into them — the empty 1x1s, three
-     * of them in one M7 by the count in [ContributionTracker.award] — would report no anchor at all,
-     * and the server's average would be built from every room *except* the fastest ones. That is not
-     * sparsity, it is a bias, and a silent one: the mean would come out high and nothing in the data
-     * would say why.
+     * Without this the rooms that clear the instant somebody steps into them would report no anchor
+     * at all, and the server's average would be built from every room *except* the fastest ones. That
+     * is not sparsity, it is a bias, and a silent one: the mean would come out high and nothing in
+     * the data would say why.
+     *
+     * **How often it actually fires: once in ten rooms**, measured on the one real floor there is
+     * (`docs/evidence/session-1786719912927/`, `readout.sh`). `Duncan` — a 1x1 entered at tick 2990
+     * and cleared at 2996 — is the only `anchoredOnClear` of that M7's ten clears; the other nine had
+     * a genuine qualifying stay. This paragraph used to estimate "three of them in one M7"; the
+     * measured rate is lower, which is the benign direction — the anchor is mostly real and this is
+     * the exception it was designed to be, rather than the path most rooms take.
      *
      * The window is what makes it safe. Every anchor this can produce is at most
      * [ContributionTracker.MIN_TICKS] before the clear, so the fallback cannot reach back to an old
@@ -283,9 +299,19 @@ object ContributionTracker {
      * How steeply a room's base follows its clear time, as an exponent on the ratio to the median:
      * **0.5, so four times the time is twice the base.**
      *
-     * Not linear, and the reason is measured rather than aesthetic. The only real clear averages
-     * that exist run from 0.75 s to 36.5 s — a spread of about 49x — while the user's own seed
-     * estimates span 0.75 to 2.0, a spread of 2.7x. A linear map calibrated on the median would put
+     * Not linear, and the reason is measured rather than aesthetic — **but measured on a proxy, and
+     * this paragraph has to say which.** The 0.75 s to 36.5 s spread below, about 49x, is the box's
+     * **`clear`** averages, not `clearStay`, because `clearStay` has `n = 0` for every room on the
+     * box and therefore no spread at all. [RoomScores] argues at length that `clear` is the
+     * walk-through-inflated upper bound `clearStay` exists to replace, and that inflation is not
+     * uniform across rooms — so the true `clearStay` spread is plausibly *narrower* than 49x, which
+     * would weaken rather than strengthen the case against a linear map. The exponent is still
+     * argued from data; it is argued from the wrong one of the four averages because it is the only
+     * one that has any. Revisit once `clearStay` has real samples.
+     *
+     * The only real clear averages that exist run from 0.75 s to 36.5 s — a spread of about 49x —
+     * while the user's own seed estimates span 0.75 to 2.0, a spread of 2.7x. A linear map
+     * calibrated on the median would put
      * the slowest room at ten times the ordinary base and the clamp below would then be deciding
      * almost every room, which is a constant wearing a measurement's clothes. The square root maps
      * that 49x spread of time onto a 7x spread of base, which is the order of magnitude the
@@ -460,7 +486,10 @@ object ContributionTracker {
      *
      * **Old scores are not comparable with new ones and nothing converts between them.** On the one
      * real M7 there is, the old formula scored rooms from 1.00 (`Hall`) to 4.50 (`Cathedral`), and
-     * `Pipes` — a 1x4 holding seven secrets — was `1.0 + 7x0.25 + 3x0.5 = 4.25`. Under this model
+     * `Pipes` — a 1x4 holding seven secrets — was `1.0 + 7x0.25 + 3x0.5 = 4.25`. Those are not
+     * remembered numbers: the run is committed at `docs/evidence/session-1786719912927/`, the nine
+     * `award` events are in `session-excerpt.jsonl` and sum to 26.25, and `readout.sh` asserts each
+     * one so a hand-copy that drifts from them fails rather than merely disagrees. Under this model
      * `Pipes` seeds at `0.75 + 7x0.25 = 2.50` before any measured adjustment, because its size stops
      * being paid for directly. Every room came down, and rooms came down by different amounts, so a
      * standing from an older build cannot be held next to one from this build. `the seed weight of

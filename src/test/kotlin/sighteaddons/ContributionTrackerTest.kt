@@ -200,10 +200,12 @@ class ContributionTrackerTest {
     // --- the fallback, and its ceiling ---
 
     /**
-     * Empty 1x1s clear the moment somebody steps in — three of them in one M7, by the count in
-     * `ContributionTracker.award`. Dropping every room that clears inside a second would not make the
-     * server's average sparse, it would make it high: the fastest rooms, and only those, would be
-     * missing from it.
+     * Empty 1x1s clear the moment somebody steps in — one of the ten rooms cleared on the one real
+     * M7 there is (`Duncan`, entered at tick 2990 and cleared at 2996; see
+     * `docs/evidence/session-1786719912927/`). Dropping every room that clears inside a second would
+     * not make the server's average sparse, it would make it high: the fastest rooms, and only
+     * those, would be missing from it. Earlier revisions of this KDoc estimated three per M7 from a
+     * comment in `ContributionTracker.award`; the measured rate is one in ten.
      */
     @Test
     fun `a room cleared before anyone qualifies is still anchored`() {
@@ -894,7 +896,10 @@ class ContributionTrackerTest {
      * The brief visitor is not the empty room. Somebody seen for less than [ContributionTracker
      * .MIN_TICKS] misses the ordinary split, and `award` falls back to raw presence rather than
      * dropping the room — so the room *is* attributed and must not be counted. Solo runs live on
-     * this path: the empty 1x1s that clear the moment you step in, three of them in one M7.
+     * this path, and the one real M7 there is proves it end to end: `Duncan` emitted an
+     * `unattributed` event and the raw-presence fallback then credited its whole 1.25 to the single
+     * player anyway, so that run has one `unattributed` event and zero unattributed rooms
+     * (`docs/evidence/session-1786719912927/`).
      */
     @Test
     fun `a room somebody only passed through is still attributed`() {

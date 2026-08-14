@@ -54,6 +54,12 @@ class RoomScores private constructor(
      * numbers on the box today run from 0.75 s to 36.5 s, and one long room drags a mean far more
      * than it moves a median. The normaliser has to be robust before the clamp is, or the clamp
      * ends up doing the work.
+     *
+     * That 0.75–36.5 s range is the box's **`clear`** averages, not [METRIC] — `clearStay` has
+     * `n = 0` for every room there, which is the whole reason this class has a null case. So the
+     * argument for a median is calibrated on the very metric the class KDoc above says must never be
+     * confused with the one it reads. It is the only spread that exists; naming it is the honest
+     * version. See `TIME_EXPONENT` in [ContributionTracker], which rests on the same proxy.
      */
     val medianTicks: Double? = median(byName.values.map { it.avgTicks })
 
