@@ -30,6 +30,37 @@ new session reads.
 Rules: insert the newest session at the TOP of this section. Never edit or delete past session
 entries — they are the audit trail. Copy the template below for each new session.
 
+### Session 004 — a harness change, at the user's explicit request
+
+- Date: 2026-08-14
+- **This is a harness change and `CLAUDE.md` requires it be recorded here.** The user asked for it
+  directly; no session may touch `init.sh` otherwise. No feature was worked on and no source file was
+  changed. Branch `harness/init-verify-command`, off `main` at `cf3ff3c`.
+- **What was wrong.** `init.sh` line 15 declared `VERIFY_CMD=(./gradlew build)` and printed it as "the
+  full verification command" — the one every session is told to run. `build` is `finalizedBy
+  copyToDist`, and `copyToDist dependsOn cleanDist`, which **deletes `dist/sighteaddons-*.jar`** and
+  writes the current tree's build in its place. Run with an unreleased fix on a branch, it silently
+  swaps the released artifact for a different build wearing the same version number. `session-handoff.md`
+  has warned about this since the `residue-001` session; `init.sh` said the opposite, and `init.sh` is
+  what step 5 of the operating loop tells you to run.
+- **Why it was not simply a mistake.** `build` is deliberate in the *release gate* at the top of
+  `CLAUDE.md`, where refreshing `dist/` is the entire point: if the jar changes there, the committed
+  one was stale. The same command is right in one place and wrong in the other, which is why it
+  survived three sessions and two evaluations. The fix keeps both readings and says so.
+- **What changed.** `VERIFY_CMD=(./gradlew assemble check)`, with the reasoning as a comment at the
+  declaration, and the printed note rewritten from "build also refreshes dist/ — if it changes, the
+  jar was stale" to naming which context is which: at the release gate a change means stale, here it
+  means you lost it.
+- Verification: `bash -n init.sh` clean; `bash init.sh` → `BASELINE: PASSING`, printing
+  `./gradlew assemble check`. Then the recommendation was actually executed — `./gradlew assemble
+  check` → `BUILD SUCCESSFUL`, and `dist/sighteaddons-0.9.0.jar` kept md5 `b2ebc35c…` with
+  `git status --short dist/` empty, before and after. The old text was never tested this way; that is
+  how it stayed wrong.
+- Provenance: found by the `clear-001` evaluator, which also noted that it had to **carry three
+  `residue-001` findings forward by hand** because overwriting `evaluator-rubric.md` would have erased
+  them. That is the larger defect and it is not fixed here: evaluator findings never reach
+  `feature_list.json` and vanish at the next review. Recorded for whoever opens that file next.
+
 ### Session 003
 
 - Date: 2026-08-14
