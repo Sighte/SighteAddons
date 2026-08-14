@@ -255,8 +255,12 @@ object RoomHistory {
                 )
             }
 
-        val unattributed = ContributionTracker.roomsCleared - points.values.sum()
-        if (unattributed > 0.01) {
+        // Was `> 0.01` against an inline subtraction — the same guard against the same split residue
+        // that the run report clamps, written twice and agreeing by coincidence. The one figure now
+        // comes back already rounded to the two decimals this line prints, so "worth printing" is
+        // exactly "not zero once rounded" and the chat can no longer show a 0.00 row.
+        val unattributed = ContributionTracker.unattributed()
+        if (unattributed > 0.0) {
             announce(
                 Component.literal("  %.2f rooms unattributed".format(Locale.ROOT, unattributed))
                     .withStyle(ChatFormatting.DARK_GRAY),

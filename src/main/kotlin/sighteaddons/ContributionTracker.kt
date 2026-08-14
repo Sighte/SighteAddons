@@ -211,6 +211,42 @@ object ContributionTracker {
 
     fun pointsByPlayer(): Map<String, Double> = credited
 
+    /**
+     * The cleared rooms nobody was credited for: [roomsCleared] minus everything [pointsByPlayer]
+     * handed out, [settle]d.
+     *
+     * One expression in one place. The run report and the end-of-run summary both report this
+     * number and both used to compute it inline, which is how they came to disagree about what
+     * counts as zero.
+     */
+    fun unattributed(): Double = settle(roomsCleared - credited.values.sum())
+
+    /**
+     * Rounds an unattributed-points figure to the two decimals every path that displays it already
+     * truncates to, and never returns a negative.
+     *
+     * [POINTS_PER_ROOM] is split across a room's players by tick count, so a room shared three ways
+     * credits 0.333… three times and those three do not add back up to the point they came from.
+     * Over the ~30 rooms of a floor the credited total ends up a few ULPs off, and
+     * `roomsCleared - total` is then a residue of ±1e-15 rather than the 0 it means. A real report
+     * reached the server carrying `"unattributed": 3.552713678800501e-15`; `profiles/` is
+     * append-only, so that line can never be corrected.
+     *
+     * Rounding rather than a threshold-to-zero, because the residue turns up with either sign and
+     * rounding removes both — the clamp this replaces only ever caught the negative half. It also
+     * makes the number the server stores forever the same number the player was shown. Two decimals
+     * costs nothing: this counts rooms, and no display has ever offered a third.
+     *
+     * A genuinely non-zero value survives untouched. A room that cleared with nobody ever seen in it
+     * really is an unattributed point, and the gap between this and `roomsCleared` is the built-in
+     * diagnostic for a broken decoration→player mapping — blanket-zeroing the field would delete the
+     * signal along with the noise.
+     *
+     * [Math.round] rather than `roundToLong`, which throws on NaN. Nothing here can produce one, but
+     * the cost of being total is a character and the cost of being wrong is permanent.
+     */
+    fun settle(points: Double): Double = (Math.round(points * 100.0) / 100.0).coerceAtLeast(0.0)
+
     fun roomAt(cell: Pos): TrackedRoom? = rooms[cell]
 
     fun visitedRooms(): List<TrackedRoom> = rooms.values.distinct()
