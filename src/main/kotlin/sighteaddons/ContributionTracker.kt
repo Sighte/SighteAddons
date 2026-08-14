@@ -390,6 +390,12 @@ object ContributionTracker {
     /** Where each member was last seen, so a death in the tab list can be charged to a room. */
     private val lastCell = HashMap<String, Pos>()
 
+    /**
+     * Run tick each member's current death was charged at, so the two sources cannot both charge it.
+     * Cleared for one player by [onRevive] and for everybody by [reset].
+     */
+    private val deathAt = HashMap<String, Int>()
+
     var roomsCleared = 0
         private set
 
@@ -412,20 +418,101 @@ object ContributionTracker {
         // Cleared on server transfer, so chunks buffered for the previous world are never hashed.
         pendingChunks.clear()
         lastCell.clear()
+        deathAt.clear()
         roomsCleared = 0
         deaths = 0
     }
 
     /**
-     * A party member's tab class flipped to DEAD. Charged to the room they were last seen in — the
-     * map decoration is already gone by the time the tab list catches up.
+     * How the same death reached us. Both are real sources and neither is redundant.
+     *
+     * [CHAT] is Hypixel stating it: ` ☠ <name> ... and became a ghost.`, delivered on the tick it
+     * happens, naming the victim outright. [TAB] is the tab row flipping to `DEAD`, which is what
+     * this mod used before chat was read at all — later, and quantised on top: [PartyTracker.update]
+     * runs once per second, so a tab-sourced death is stamped up to 20 ticks after the row changed,
+     * and the row itself trails the event.
+     *
+     * The tab path is **not** replaced by the chat path, for one reason: a player whose death message
+     * this client never received — out of render distance is not the issue, but a chat filter, a
+     * missed packet or a shape of line [ChatEvents] does not know is — still flips to `DEAD` in tab.
+     * Losing the death entirely is worse than recording it a second late. So both run and [onDeath]
+     * makes them idempotent instead.
      */
-    fun onDeath(player: String) {
+    enum class DeathSource { CHAT, TAB }
+
+    /**
+     * A party member died, at run tick [at], according to [source]. Returns whether **this** call is
+     * the one that charged it, so the caller can log the fact rather than the attempt.
+     *
+     * Charged to the room they were last seen in. The room is still an inference and this feature did
+     * not change that: the map decoration is dropped 10-20 ticks before either source reports the
+     * death, so [lastCell] is the last cell we saw them in rather than the cell they died in. What
+     * chat improves is *when* — [at] is the tick Hypixel announced it, not the tick a once-a-second
+     * tab poll noticed — and therefore which room `lastCell` still holds when the charge lands.
+     *
+     * **Both sources fire for the same death**, so the second one within [DEATH_DEDUP_TICKS] is
+     * dropped. That window is a guard, not the mechanism: [onRevive] clears the entry outright, so a
+     * player who dies, is revived and dies again is charged twice however fast that happens. The
+     * window only has to cover the lag between the two *reports of one death*, and the revive is what
+     * makes it impossible for it to swallow a real second one — a dead player cannot die again
+     * without being revived first.
+     *
+     * Takes [at] rather than reading [DungeonSession.runTicks], the same seam [TrackedRoom.onPresence]
+     * and [TrackedRoom.onSecret] use: the clock is `private set` and no test in this repository can
+     * move it, so a function that reads it is a function that can only ever be tested at tick zero.
+     */
+    fun onDeath(player: String, at: Int, source: DeathSource): Boolean {
+        val room = lastRoomOf(player)
+        if (isDuplicateDeath(deathAt[player], at)) {
+            DebugLog.event(
+                "death_duplicate",
+                "player" to Pseudonym.of(player), "source" to source.name,
+                "at" to at, "charged" to deathAt[player],
+            )
+            return false
+        }
+        deathAt[player] = at
         deaths++
-        val room = lastCell[player]?.let { rooms[it] }
         room?.let { it.deaths++ }
-        DebugLog.event("death", "player" to Pseudonym.of(player), "room" to room?.label())
+        DebugLog.event(
+            "death",
+            "player" to Pseudonym.of(player), "room" to room?.label(),
+            "source" to source.name, "at" to at,
+        )
+        return true
     }
+
+    /**
+     * Three seconds. Long enough to cover a tab poll that lands a full second late on top of the tab
+     * row's own lag behind the event, short enough that it is nowhere near a revive-and-die-again.
+     *
+     * `at - previous in 0..window` rather than `<=`: a negative difference means the two sources
+     * disagree about the order, which the fixed 20-tick poll makes possible in principle, and a
+     * negative that passed a `<=` check would drop a *later* death in favour of an earlier one.
+     */
+    internal const val DEATH_DEDUP_TICKS = 60
+
+    internal fun isDuplicateDeath(previous: Int?, at: Int) =
+        previous != null && at - previous in 0..DEATH_DEDUP_TICKS
+
+    /**
+     * ` ❣ <name> was revived...`. Nothing is un-counted — the death happened and stays counted — but
+     * the player is now alive, so the next death of theirs is a different death and must not be read
+     * as a second report of this one. This is what keeps [DEATH_DEDUP_TICKS] a guard rather than a
+     * bet on how fast a party can revive somebody.
+     */
+    fun onRevive(player: String) {
+        val had = deathAt.remove(player) != null
+        DebugLog.event("revive", "player" to Pseudonym.of(player), "hadDeath" to had)
+    }
+
+    /**
+     * The room a member was last seen in, or null. The single reader of [lastCell] outside [tick],
+     * which is what makes "charged to where they were last seen" one rule rather than three copies
+     * of one — a death, a door and a puzzle all attribute the same way, and all inherit the same
+     * documented weakness.
+     */
+    internal fun lastRoomOf(player: String): TrackedRoom? = lastCell[player]?.let { rooms[it] }
 
     /**
      * Queues a loaded chunk for room identification. Called for every chunk, including before we

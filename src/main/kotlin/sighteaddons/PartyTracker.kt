@@ -80,10 +80,16 @@ object PartyTracker {
             val parsed = match
                 ?.let { DungeonPlayer(it.groupValues[1], it.groupValues[2], it.groupValues[3]) }
                 ?.let { carryLiving(previous, it) }
-            // The class flipping to DEAD is the only death signal the client gets without parsing
-            // chat, and it is the strongest difficulty signal a room has.
+            // The class flipping to DEAD is the death signal that needs no chat line, and it is the
+            // strongest difficulty signal a room has. Since `chat-001` it is the *second* source
+            // rather than the only one: ChatEvents reads the same death off Hypixel's announcement,
+            // on the tick it happens, and whichever arrives first charges it — see
+            // ContributionTracker.DeathSource for why this path is kept rather than replaced.
+            // This update runs once a second, so `at` here is already up to 20 ticks late.
             if (previous?.alive == true && parsed?.alive == false) {
-                ContributionTracker.onDeath(previous.name)
+                ContributionTracker.onDeath(
+                    previous.name, DungeonSession.runTicks, ContributionTracker.DeathSource.TAB,
+                )
             }
             // Compares the whole entry, not just the name: a class flipping to DEAD excludes that
             // player from attribution, so it has to be visible in the log.
