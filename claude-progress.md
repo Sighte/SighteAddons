@@ -8,7 +8,13 @@ new session reads.
 - Repository root: the directory holding `build.gradle` and `gradlew` (clone of `Sighte/SighteAddons`)
 - Standard startup path: `./gradlew runClient` — Loom's dev client, which has no valid session and
   cannot reach Hypixel
-- Standard verification path: `./init.sh` → `./gradlew test`; full is `./gradlew build`
+- Standard verification path: `./init.sh` → `./gradlew test`; full is **`./gradlew assemble check`**.
+  **Not `./gradlew build`** while fixes sit unreleased: `build` is `finalizedBy copyToDist` and
+  `copyToDist dependsOn cleanDist`, so it deletes and rewrites `dist/sighteaddons-0.9.0.jar` — the
+  released artifact — with a jar built from the current tree under the same version number. This line
+  said `build` until session 006; `init.sh` was corrected at `c4c0c56` and prints `assemble check`,
+  and session 004 below records that repair. `build` belongs to the release gate in `CLAUDE.md`, where
+  refreshing that jar is the whole point.
 - Baseline status (last `./init.sh` run): **PASSING** — 116 tests in 12 classes, 0 failures,
   0 skipped, 2026-08-14, at `13c9fb5` on branch `clearpoints-001` (off `main` at `1e27b42`),
   `mod_version=0.9.0`

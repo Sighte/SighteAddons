@@ -398,6 +398,16 @@ object ContributionTracker {
      * has no points field; the per-player breakdown never leaves the client). It would be a constant
      * with no reader. Revisit if points ever become something the server stores.
      *
+     * **That one exclusion is an argument and not a guard, deliberately, and here is why no test
+     * closes it.** The other two are pinned — `a rare room is not paid for being rare` and `the live
+     * secret counter is not what a room is worth`. The floor cannot be: it is not an input to this
+     * function, and `DungeonSession.floor` is `private set` behind `inDungeon(Minecraft)`, which no
+     * test in this repository can build. A floor factor added here would read null and fall through
+     * in every test, so a test claiming to catch it would be a guard in name only. What *is* pinned
+     * is the shape of it — `a room is worth the same however far the run has got` fails on any factor
+     * drawn from run progress rather than from the room. If the floor ever needs a real guard, it
+     * needs a seam on `DungeonSession` first, and that is a feature rather than a test.
+     *
      * An unnamed room — the chunk never streamed, so [TrackedRoom.info] is null — falls back to the
      * map colour for its kind and pays no secret bonus. It is worth less than it should be, never
      * nothing: a room we could not identify is still a room somebody cleared.

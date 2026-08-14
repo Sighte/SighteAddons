@@ -326,6 +326,85 @@ class ContributionTrackerTest {
     }
 
     /**
+     * Secrets are paid for out of the room database and never out of [TrackedRoom.secretsFound].
+     * That counter is the party's live progress through the room, and it is not what is being
+     * weighted — the room is. Pinned in both directions because both edits are plausible and neither
+     * is caught by the fixtures on its own: *adding* the live counter to the weight, and
+     * *substituting* it for the database's count.
+     */
+    @Test
+    fun `the live secret counter is not what a room is worth`() {
+        val collected = roomOf(info = info("NORMAL", secrets = 0))
+        collected.secretsFound = 8
+        assertEquals(
+            ContributionTracker.weightOf(plain()),
+            ContributionTracker.weightOf(collected),
+            "eight secrets found in a room the database says holds none may not add anything",
+        )
+
+        val stocked = roomOf(info = info("NORMAL", secrets = 8))
+        assertTrue(
+            ContributionTracker.weightOf(stocked) > ContributionTracker.weightOf(collected),
+            "and the database's count has to be the one that pays, with nothing found yet",
+        )
+    }
+
+    /**
+     * Why that exclusion is load-bearing rather than a preference. [ContributionTracker.onCleared]
+     * fires when the checkmark appears, and the party is usually still collecting the room's secrets
+     * at that moment — two of five, here. So the live counter at award time is a race against when
+     * the last mob happened to drop, and reading it would make the same room worth a different
+     * amount on every run. The credit that lands is the whole room, as the database describes it.
+     */
+    @Test
+    fun `the credit is the whole room even though the checkmark lands mid-collection`() {
+        val room = roomOf(info = info("NORMAL", secrets = 5))
+        room.secretsFound = 2
+        room.ticks["Fighter"] = 400
+        ContributionTracker.onCleared(room)
+
+        val whole = ContributionTracker.weightOf(roomOf(info = info("NORMAL", secrets = 5)))
+        assertEquals(
+            whole,
+            ContributionTracker.pointsByPlayer()["Fighter"] ?: 0.0,
+            1e-9,
+            "the room was credited at what it was part-way through, not at what it is",
+        )
+    }
+
+    /**
+     * A room is worth the same however far the run has got. That is the shape of the floor exclusion
+     * argued in [ContributionTracker.weightOf]'s KDoc: a factor that is constant across a run scales
+     * every player's total by the same number and therefore separates nobody, and the weighting is a
+     * property of the room rather than of the run it appeared in.
+     *
+     * **What this does not pin, stated so nobody reads more into it than is here.** It covers the
+     * run state a test in this repository can actually move — rooms already cleared and credited,
+     * and the room's own progress through its clear. It does *not* cover `DungeonSession.floorNumber`,
+     * which is unreachable from a test: `floor` is `private set` and only written by
+     * `inDungeon(Minecraft)`, so a floor factor would read null here and fall through whatever it
+     * did in a real run. The floor exclusion rests on the KDoc argument, and no test can currently
+     * change that.
+     */
+    @Test
+    fun `a room is worth the same however far the run has got`() {
+        val room = roomOf(segments = 2, info = info("PUZZLE", secrets = 3))
+        val fresh = ContributionTracker.weightOf(room)
+
+        repeat(4) {
+            val other = roomOf(info = info("NORMAL", secrets = 2))
+            other.ticks["Fighter"] = 300
+            ContributionTracker.onCleared(other)
+        }
+        room.ticks["Fighter"] = 200
+        room.secretsFound = 3
+        room.deaths = 2
+        room.clearedAtTick = 900
+
+        assertEquals(fresh, ContributionTracker.weightOf(room), "the run moved; the room did not")
+    }
+
+    /**
      * No room becomes worthless, so a run's points can never come out below the flat count they
      * replace. That includes the rooms nothing is known about: an unidentified room is still a room
      * somebody cleared, and paying it nothing would quietly hand its clear to no one.
