@@ -12,7 +12,13 @@ cd "$ROOT_DIR"
 
 REQUIRED_JAVA_MAJOR=25
 SMOKE_CMD=(./gradlew test)
-VERIFY_CMD=(./gradlew build)
+# Deliberately not `build`. `build` is `finalizedBy copyToDist`, and `copyToDist dependsOn cleanDist`,
+# which deletes dist/sighteaddons-*.jar and writes the current tree's build in its place. That is
+# exactly what the release gate in CLAUDE.md wants — it is how a stale committed jar is detected — and
+# exactly wrong as the command every session is told to run: with an unreleased fix on a branch, it
+# swaps the released artifact for a different build wearing the same version number, and nothing says
+# so. `assemble check` compiles and tests the same code and leaves dist/ alone.
+VERIFY_CMD=(./gradlew assemble check)
 START_CMD=(./gradlew runClient)
 
 echo "==> Working directory: $PWD"
@@ -57,8 +63,10 @@ echo "==> Full verification command"
 printf '   '
 printf ' %q' "${VERIFY_CMD[@]}"
 printf '\n'
-echo "    build also refreshes dist/sighteaddons-<version>.jar. If that file changes, the committed"
-echo "    jar was stale — see the release gate in CLAUDE.md."
+echo "    assemble check, not build: build would delete and rewrite dist/sighteaddons-<version>.jar,"
+echo "    replacing the released artifact with the current tree under the same version number."
+echo "    ./gradlew build belongs to the release gate in CLAUDE.md, where refreshing that jar is the"
+echo "    point — there a change means the committed jar was stale. Here it means you lost it."
 
 echo "==> BASELINE: $BASELINE_STATUS"
 if [ "$BASELINE_STATUS" = "FAILING" ]; then
