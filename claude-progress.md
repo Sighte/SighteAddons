@@ -16,12 +16,20 @@ new session reads.
   and session 004 below records that repair. `build` belongs to the release gate in `CLAUDE.md`, where
   refreshing that jar is the whole point.
 - Baseline status (last `./init.sh` run): **PASSING** — 140 tests in 13 classes, 0 failures,
-  0 skipped, 2026-08-14, on branch `clearpoints-002` (off `main` at `fa075bd`),
-  `mod_version=0.9.0`. **Not pushed and not merged.** For how many commits the branch carries, run
-  `git rev-list --count fa075bd..HEAD` — three consecutive reviews found a hand-written number here
-  wrong (one, then four, then four again, against three, six and seven), so the number is
-  deliberately not written down any more. `git log --oneline fa075bd..HEAD` says what each is for.
-- Last feature completed: `clearpoints-002` — **a room is now worth what it measures, not what kind
+  0 skipped, 2026-08-14, on branch `artifacts-001` (off `main` at `9f71b96`, which is
+  `clearpoints-002` merged), `mod_version=0.9.0`. **Not pushed and not merged.** For how many commits
+  the branch carries, run `git rev-list --count 9f71b96..HEAD` — three consecutive reviews found a
+  hand-written number here wrong (one, then four, then four again, against three, six and seven), so
+  the number is deliberately not written down any more. `git log --oneline 9f71b96..HEAD` says what
+  each is for. The test count is **unchanged from `main`**, which is the expected reading for a
+  comment-and-artifact-only branch and is itself part of that branch's evidence.
+- Last feature completed: `artifacts-001` — **the real dungeon run is in the repository, and the
+  statements that outlived their subject are retired.** No runtime behaviour changed; every `src/`
+  edit is comment text and the diff proves it mechanically. New artifact:
+  `docs/evidence/session-1786719912927/`, which is self-checking — `readout.sh` asserts all 35
+  figures its README quotes and fails if one drifts. New feature recorded rather than built:
+  `runloss-001`.
+- Feature completed before that: `clearpoints-002` — **a room is now worth what it measures, not what kind
   it is.** `PUZZLE_BONUS`, `TRAP_BONUS`, `MINIBOSS_BONUS`, `BLOOD_BONUS` and `SEGMENT_POINTS` are
   deleted; size and kind are emergent. `weight = base + 0.25 per database secret`, where
   `base = seed + n/(n+10) * (measured - seed)` and
@@ -43,14 +51,41 @@ new session reads.
 - Current highest-priority unfinished feature: `chat-001` — read the events Hypixel puts in chat.
   Its test class `ChatEventsTest` does not exist yet; creating it is part of the feature.
 - Current blocker: none for `chat-001`. `records-001` is deferred by the user (a product decision,
-  not a technical blocker), `ingame-001` is blocked on a human playing a real floor, and the new
-  `scores-fetch-001` is blocked on the receiver serving `roomstats.json` at all — none of which any
-  command here can produce.
+  not a technical blocker), and `scores-fetch-001` is blocked on the receiver serving
+  `roomstats.json` at all — which no command here can produce. **`ingame-001`'s blocker changed in
+  session 009 and was narrowed rather than cleared:** the "needs a human to play a floor and hand
+  over the session file" half is *done*, and what remains is a **party** floor (for the
+  decoration→player mapping and the RED checkmark) plus a human opening the `/sa` screen. Read its
+  `blocked_reason`; do not read the old summary of it.
+- **`runloss-001` is new, unblocked, and arguably the highest-value work on the list** even though
+  its priority number is 10 — that number is queue position, appended so no existing entry had to be
+  renumbered by a recording pass. It is the only entry known to have destroyed real data, it needs no
+  receiver change, and every `clearStay` sample the box is waiting for has to survive that code path
+  to arrive at all.
 - **Old and new ClearPoints standings are not comparable.** Under `clearpoints-001` the one real M7
   scored rooms from 1.00 (`Hall`) to 4.50 (`Cathedral`) and `Pipes` was
   `1.0 + 7*0.25 + 3*0.5 = 4.25`; under `clearpoints-002` `Pipes` seeds at `0.75 + 7*0.25 = 2.50`.
   Every room came down, by different amounts. Pinned as an assertion by
   `the seed weight of Pipes is the user's model, not the old one`.
+  **Those M7 figures are now committed evidence rather than relayed prose**, as of session 009:
+  `docs/evidence/session-1786719912927/`, whose nine `award` events sum to 26.25 and whose
+  `readout.sh` asserts `Hall` 1.0, `Cathedral` 4.5 and `Pipes` 4.25. Until that commit this bullet,
+  `ContributionTracker.kt` and a `RoomDatabaseTest` KDoc all cited them as measurement with **no
+  provenance anywhere in the repository** — their only source was an `evaluator-rubric.md` that has
+  since been overwritten. The run was played on a debug build of `72e0825`, i.e. under the **old**
+  formula, so it corroborates the left-hand numbers and says nothing about the right-hand ones.
+- **A real dungeon run is finally in the repository, and it does not cover everything.** M7, solo,
+  2026-08-14. It settles `clear-001`'s sightings-vs-elapsed-ticks note (nine of ten anchors at
+  exactly 19 ticks) and `anchorOnClear`'s frequency (one in ten, not the three the KDocs estimated),
+  and gives `ingame-001` its first evidence for calibration, room naming, core hashing and checkmark
+  reading. It does **not** touch `party-001` — the run was solo, `roster_skew` fired zero times — and
+  it does **not** settle `clear-001`'s gap tolerance, whose failure mode needs a party and a death.
+- **A documented gap fired for real and a run was permanently lost.** That M7 wrote no `run_end` and
+  no run report: `RunReport.write` is reachable only from the end-of-run headline and from
+  `ClientPlayConnectionEvents.JOIN`, and quitting to desktop from inside a floor produces neither —
+  the `ponytail:` note at `SighteAddons.kt:53-57`. Ten cleared rooms never reached the box. Recorded
+  as `runloss-001`, not fixed. The local `history.jsonl` kept its 14 lines, so only the report is
+  gone.
 - **The report schema is now 5 in source and 4 in every install.** `dist/sighteaddons-0.9.0.jar` is
   deliberately **not** rebuilt — it is still the released 0.9.0 artifact — so `residue-001` and
   `clear-001` both exist in source only. Neither reaches a player until somebody bumps the version
@@ -61,6 +96,119 @@ new session reads.
 
 Rules: insert the newest session at the TOP of this section. Never edit or delete past session
 entries — they are the audit trail. Copy the template below for each new session.
+
+### Session 009 — `artifacts-001`: the run happened, and now the repository knows
+
+- Date: 2026-08-14
+- Branch `artifacts-001`, off `main` at `9f71b96`. **Not pushed and not merged.** Run
+  `git rev-list --count 9f71b96..HEAD` for the commit count rather than reading one here.
+- **An artifact pass with a hard constraint: change no runtime behaviour.** Honoured, and proven
+  rather than asserted — `git diff -- src/ | grep -E '^[+-][^+-]' | grep -vE '^[+-]\s*(\*|//|/\*)'`
+  is empty, so every added and removed line in `src/` is comment text. `@Test` lines touched: 0.
+  Suite unchanged at 140 in 13 classes, which is the number `main` carries.
+
+**What arrived.** The user played a real M7 on 2026-08-14 with a debug build of `72e0825` — the
+`clearpoints-001` formula, before `clearpoints-002` changed the weights — and quit the game straight
+from the dungeon. 220 lines of debug session. Every claim below was read out of the file rather than
+taken from the brief that pointed at it.
+
+**The artifact.** `docs/evidence/session-1786719912927/`: 143 of the 220 lines verbatim (everything
+but the `player_room` position stream, of which three are kept as a sample, since its only claim is
+the negative one that the run was solo and a census proves that without copying positions), a README
+that says what the run settles and at equal length what it does not, and `readout.sh`, which
+**asserts** all 35 figures the README quotes and exits non-zero if one moves. Names were already
+pseudonymised at source by `Pseudonym`. The file corroborates its own provenance: no `award` event
+carries `scoresTs` and there is no `room_scores` event, both `clearpoints-002` additions.
+
+**Why assertions rather than a description.** This repository's recurring failure is a number copied
+by hand into a second document and then drifting — three consecutive reviews caught it on the commit
+count alone. Two mutation probes prove the mechanism bites: rewriting `Cathedral`'s award from 4.5 to
+4.0 fails two assertions (directly, and through the sum), and deleting the single `anchoredOnClear`
+line fails seven. A committed evidence file has a failure mode source does not — no compiler and no
+test reads it — and this closes it.
+
+**What the run measures.**
+
+- **`MIN_TICKS`.** Nine of ten `room_anchored` events are stamped **exactly 19 ticks** after their
+  stay began — the 20th sighting at `MIN_TICKS` 20, since the anchor is the stay's *start* — and
+  `New Trap` at 24, five sightings absorbed by the gap tolerance without splitting the stay. Both
+  halves of `clear-001` note (1) in one run. `TrackedRoom.onPresence`'s KDoc now says ticks are
+  sightings; that wording fix had been outstanding since session 006.
+- **`anchorOnClear` fires once in ten rooms** — `Duncan`, entered at tick 2990, cleared at 2996.
+  `clear-001` note (3) closed. `ContributionTracker.anchorOnClear`'s KDoc and two
+  `ContributionTrackerTest` KDocs estimated "three of them in one M7"; all three now carry the
+  measurement. Benign direction: the anchor is mostly genuine.
+- **`Duncan` is also the room missing from `history.jsonl`**, because `RoomHistory.kt:144` only
+  records a clear when the local player's own presence reached `MIN_TICKS` and Duncan's was 7 — so
+  the run wrote 9 local clear lines for 10 cleared rooms. Existing deliberate behaviour, but the
+  fallback-anchored room is precisely the one local history drops, and nobody had written that down.
+- **Calibration, room naming and core hashing hit.** One `calibrated` event on M7, `roomCores` 272,
+  36 `room_identified` with real Odin names. First evidence `ingame-001` has ever had.
+- **Checkmark reading is evidenced in both directions**, which the brief did not expect. Of ten
+  clears exactly two read `GREEN` (30, all secrets found) — `Default` and `Hall` — and those are
+  exactly the two cleared rooms the database gives 0 secrets. The other eight read `WHITE` (34) and
+  their `all_secrets` events land later. Ten for ten. The `RED` path never occurred.
+- **The party heuristic was NOT exercised**, and `party-001` now says so in its own notes. Solo run,
+  one player in tab, `decoIndex` 0 throughout, `roster_skew` fired **zero** times. Recorded loudly
+  because "a real run happened" will otherwise be read as covering it.
+- **`clear-001` note (2), the zero-margin gap tolerance, stays open** — re-checked rather than
+  assumed closed because a session file finally existed. Its failure mode is the roster-skew blackout
+  around a **death in a party**; this run was solo and deathless, so the case was never in the
+  building.
+
+**The measured data loss.** No `run_end`, no run report, and `runs/uploaded/`'s newest file predates
+the run by a day. The cause is already in source — the `ponytail:` note at `SighteAddons.kt:53-57`:
+`RunReport.write` is reachable only from the end-of-run chat headline and from
+`ClientPlayConnectionEvents.JOIN`, and quitting to desktop from inside a floor produces neither. Ten
+cleared rooms gone from the box permanently. **Recorded as `runloss-001`, not fixed** — the brief was
+an artifact pass, and `CLAUDE.md` says discovered work becomes an entry rather than an inline fix.
+`history.jsonl` kept its 14 lines, so the loss is the report and the receiver's copy, not the local
+records.
+
+**The four stale statements, closed.**
+
+1. `clearpoints-001`'s note described its own deleted formula in the **present tense** on a `passing`
+   entry with no supersession marker. It now opens with one, and "WHAT THE WEIGHTING IS" became
+   "WHAT THE WEIGHTING WAS". The paragraph is **kept** — it is the record of what was built, and its
+   load-bearing half (`unattributed` counts rooms and must never be re-derived by subtraction) is
+   still live.
+2. `ingame-001` cross-referenced "`clearpoints-001`'s weight constants", deleted at `0d81667`. The
+   pointer now names where the concern moved: `clearpoints-002`'s seed table and `TIME_EXPONENT`.
+3. The M7 figures were cited as measurement in `claude-progress.md`, `ContributionTracker.kt` and a
+   `RoomDatabaseTest` KDoc with **no provenance in the repository at all** — their only source was an
+   `evaluator-rubric.md` since overwritten. All three now cite the committed run, whose `readout.sh`
+   asserts the numbers they quote.
+4. `TIME_EXPONENT`'s 49x calibration is drawn from the box's **`clear`** averages because `clearStay`
+   is `n=0` everywhere. Neither the `ContributionTracker` KDoc arguing it nor the `RoomStats` KDoc
+   repeating it said so, in a file that elsewhere insists the two must never be confused. Both now
+   name the proxy **and its consequence**: the true `clearStay` spread is plausibly narrower, which
+   weakens rather than strengthens the case against a linear map.
+
+**Two more found while reading, both recorded rather than quietly swapped.**
+
+5. **`ingame-001`'s `verification_command` could never have passed.** It was
+   `grep -c '"roomName"' run/config/sighteaddons/debug/session-*.jsonl`. `roomName` is not a
+   `DebugLog` key anywhere in `src/main` — it is a local in `RoomHistory.kt`; the event key is
+   `name` — and `run/` is gitignored. It would return 0 against a perfect session file. Replaced with
+   the readout, and the replacement is written out in that feature's evidence.
+6. One assertion label in `readout.sh` overclaimed on first draft ("the only two rooms the db gives 0
+   secrets" — several *uncleared* rooms also hold 0). Corrected before commit to say "cleared", with
+   the distinction written into the script as a comment. Caught by re-reading rather than by a check.
+
+**`ingame-001` stayed `blocked`, deliberately.** Its original blocker is resolved but work on it
+genuinely cannot continue here: it needs a *party* floor and a human looking at the `/sa` screen. The
+`blocked_reason` was narrowed to name exactly those three gaps rather than the entry being moved to
+`in_progress`, which would claim somebody is working it.
+
+**Harness change, recorded per `CLAUDE.md`.** `.gitattributes` gained `*.jsonl text eol=lf`. Evidence
+whose bytes depend on whose machine checked it out is worse evidence. No tracked file is affected —
+every other `.jsonl` in the tree is under the gitignored `config/`.
+
+**Not done, on purpose.** No status moved to `passing` on the strength of one real run except
+`artifacts-001` itself. `records-001` untouched. No version bump, `SCHEMA` 5, `dist/` untouched, jar
+md5 `b2ebc35ccfeb9cc96134eb3b18f0306f` measured either side of `assemble check` and identical,
+nothing pushed. The sibling receiver repository was not read or written this session — nothing here
+goes near the wire.
 
 ### Session 008 — `clearpoints-002`: the seed is a prior, not a constant
 
