@@ -25,7 +25,7 @@ scores above B.
 | Domain | Grade | Verification | Agent Legibility | Test Stability | Key Gaps | Last Updated |
 |--------|-------|-------------|-----------------|---------------|----------|-------------|
 | telemetry (`RunReport`, `TelemetryUpload`, `DebugLog`) | B | `RunReportTest`, `TelemetryUploadTest`, `DebugLogTest` | High — the ceilings carry `ponytail:` notes | Stable | Retry schedule is "next game start", no backoff, no queue (`TelemetryUpload.kt:211`); nothing uploads during a run; quitting straight from a dungeon has no JOIN and loses the session (`SighteAddons.kt:54`) | 2026-08-14 |
-| scoring (`ContributionTracker`) | C | `ContributionTrackerTest` (16 cases, new) covers the clear anchor end to end at the `TrackedRoom` seam; `settle` is pinned through `RunReportTest` | High — the anchor's two ways of being stamped are stated where they are made, with the reason for each bound | Stable, and mutation-checked: reverting the anchor to first-sighting fails 9 of the 16 | Every room is still worth 1 point — exactly the flat weighting the metric replaces (`clearpoints-001`), and that is what holds this at C; `ContributionTracker.tick`'s wiring to the anchor is untestable here, since it needs a `Minecraft` and a `MapItemSavedData`; `unattributed()`'s own composition is untestable for the same family of reason, `roomsCleared` and `credited` being private and filled only by a real run | 2026-08-14 |
+| scoring (`ContributionTracker`) | B | `ContributionTrackerTest` (33 cases) covers the clear anchor at the `TrackedRoom` seam and the weighting and unattributed accounting at the new `onCleared` seam; `RoomDatabaseTest` checks the weighting against the bundled `rooms.json` rather than a fixture; `settle` is pinned through `RunReportTest` | High — the weighting states what each term is for, and the three exclusions (rarity, live secret counts, floor multiplier) are argued where they are made rather than merely absent. **All three are now pinned by tests as well**, the floor since session 007 by `a room is worth the same on every floor`, which reaches `DungeonSession.floor` — `private set` behind `inDungeon(Minecraft)` — through the `object`'s backing field and asserts the write took before asserting the invariant. Earlier revisions of this row and of `weightOf`'s KDoc said that guard was impossible; it is not, and the claim is retracted where it was made | Stable, and mutation-checked seven times: restoring the old `unattributed` subtraction fails 2, flattening every weight to 0.0 fails 7, adding `secretsFound` to the weight fails 3, substituting it for the database count fails 6, a run-progress factor fails 1, a `floorNumber` multiplier fails 1, and a master-mode bonus read off the floor string fails 1 | Nothing here has run against real Hypixel data, which is the ceiling on this domain and the reason it is not A; `ContributionTracker.tick`'s wiring is still untestable, since it needs a `Minecraft` and a `MapItemSavedData` — so *that* `onCleared` and `onPresence` are called once per clear and once per member per tick is read, not asserted; the weight constants are judgement, not measurement, and no real run has yet shown whether they separate players usefully; the floor guard depends on reflection, so a rename of `DungeonSession.floor` breaks it at runtime rather than at compile time | 2026-08-14 |
 | history and records (`RoomHistory`, `RecordTable`) | B | `RoomHistoryTest`, `RecordTableTest` | High | Stable | Floors are collapsed into one record per room and kind (`records-001`); whole history in memory, ~40 bytes per line (`RoomHistory.kt:59`) | 2026-08-13 |
 | party (`PartyTracker`) | C | `PartyTrackerTest` | High — the assumption is stated where it is made | Stable, but it pins the heuristic rather than the truth | Decoration order is assumed to match tab order (`PartyTracker.kt:134`); two players on one decoration are not told apart (`party-001`) | 2026-08-13 |
 | room naming (`RoomDatabase`, `DungeonMapReader`, `DungeonGrid`) | C | `RoomDatabaseTest`, `DungeonGridTest` | High | Stable | Version-coupled: core hashes come from `Block.toString()` in a fixed order, so a Hypixel or Mojang change breaks names silently; a room needs a streamed chunk to be named at all | 2026-08-13 |
@@ -45,6 +45,85 @@ scores above B.
 ## Change History
 
 Newest entry first.
+
+### 2026-08-14 (session 007)
+
+- Changes: closed the second `clearpoints-001` evaluation's Revise (12/14), whose whole deduction was
+  one thing — the session before it had declared the floor exclusion *impossible* to test, and the
+  evaluator disproved that by writing the test. One case added,
+  `a room is worth the same on every floor`, and the impossibility claim retracted in the five
+  artifacts that carried it. No behaviour changed and none could: the only `src/main` edit is
+  `weightOf`'s KDoc.
+- Domains promoted: none. **Scoring stays B**, and the ceiling is unchanged — nothing here has run
+  against real Hypixel data. What moved is that the third of three exclusions is now guarded instead
+  of asserted-to-be-unguardable.
+- New gaps identified: one, and it is the cost of the fix. The floor guard reaches a `private set`
+  field by reflection, so renaming `DungeonSession.floor` breaks it at runtime rather than at compile
+  time. Mitigated inside the test — it asserts `floorNumber` reads the value back before it asserts
+  anything about weights, so the failure is loud and names itself. Recorded rather than hidden: this
+  is the only reflection in the suite, and a production seam on `DungeonSession` would still be the
+  cleaner answer if the mod ever needs one for its own reasons.
+- Gaps closed: **the floor exclusion, which was guarded by nothing at all.** Measured, not argued: a
+  floor multiplier added to `weightOf` passed all 119 existing tests, including the run-progress case
+  that `feature_list.json` had described as the closest a test could get to it. Both edit forms now
+  fail the new case and nothing else. The second gap closed is the claim itself — a declared
+  impossibility outlives the session that wrote it and stops the next one from trying, which is a
+  worse defect than the missing test was.
+
+### 2026-08-14 (session 006)
+
+- Changes: closed the `clearpoints-001` evaluation's Revise (12/14) — the two items it docked, and
+  nothing else. Three test cases where there were none: the live secret counter is not what a room is
+  worth (pinning both the additive and the substituting edit), the credit is the whole room even
+  though the checkmark lands mid-collection (pinning the *reason* — `award()` fires while the party
+  is still collecting, so the live counter at that instant is a race), and a room is worth the same
+  however far the run has got. `claude-progress.md`'s "Current Verified State" no longer names
+  `./gradlew build` as the full verification path, which was the released jar's rewrite instruction
+  sitting in the first section every session reads.
+- Domains promoted: none, and deliberately not. **Scoring stays B.** The two exclusions that were
+  argued-but-unguarded are now guarded, which is what the evaluation asked for, but it removes a
+  documentation defect rather than adding capability — and the ceiling is unchanged: nothing here has
+  run against real Hypixel data.
+- Domains demoted: none.
+- New gaps identified: none new. What changed is where the *old* ones live. Four findings that had
+  survived two evaluations only because each reviewer hand-copied them into a file that is
+  overwritten wholesale every pass are now notes on the features they belong to in
+  `feature_list.json` — `settle`'s KDoc arguing against the wrong alternative (`residue-001`), and on
+  `clear-001`: `stay.ticks` counting sightings rather than elapsed ticks, the gap tolerance
+  calibrated against a documented worst case with zero margin, and `anchorOnClear`'s unknown
+  real-floor frequency. The last of those, plus the weight constants, are cross-referenced from
+  `ingame-001` as what to read out of the first real session file.
+- Gaps closed: the coverage overclaim itself. The exact edit the `SECRET_POINTS` KDoc argues against
+  passed all 116 tests at `13c9fb5`; it now fails 3. A run-progress factor was caught by nothing and
+  is now caught by one case. The floor exclusion is recorded as argument-only, in the KDoc and in
+  `feature_list.json`, rather than given a test that would have passed whether or not the factor was
+  there.
+
+### 2026-08-14 (session 005)
+
+- Changes: `clearpoints-001`. `ContributionTracker.weightOf` pays a room for what it took — kind,
+  secrets from the room database, segments from the map — instead of one flat point, and the split
+  over the members in it is unchanged. The load-bearing half is `unattributed`: it was
+  `roomsCleared - pointsByPlayer().values.sum()`, correct only while a count and a score were
+  numerically interchangeable at 1.0 a room, and weighted it would have clamped to `0.0` on every run
+  forever with nothing anywhere saying so. It is now counted, in `award()`, and stays in **rooms**,
+  which is the unit the receiver reads it in. No schema bump is owed: the values are unchanged,
+  because under flat weighting every award credited either the full point or nothing.
+- Domains promoted: **scoring C → B.** The single reason it was held at C — every room worth exactly
+  1 point, the flat weighting the metric exists to replace — is gone, and the domain is
+  mutation-checked in both directions. B and not A for the standing reason: nothing here has run
+  against real Hypixel data.
+- Domains demoted: none.
+- New gaps identified: the weight constants are judgement rather than measurement — no real run has
+  shown whether 1.5 for a puzzle and 0.25 a secret separate players usefully, and the first debug
+  session from a real floor is what would say. `runend-001` was found and recorded: the receiver's
+  `agent/AGENT-PROMPT.md:62` tells its analyst to read `unattributed` against `roomsCleared` in the
+  `run_end` event, and `run_end` has never carried `unattributed`.
+- Gaps closed: the flat weighting itself. Also the gap session 002 recorded — `unattributed()`'s
+  composition had no test, because `roomsCleared` and `credited` are private and only a real run
+  filled them; the new `internal onCleared(room)` seam needs a cleared room and nothing else, and six
+  cases now drive it. `README.md` no longer describes `rooms unattributed` as "the gap between rooms
+  cleared and points handed out", which this change would have made false.
 
 ### 2026-08-14 (session 003)
 

@@ -197,8 +197,43 @@ is a whole run. Three cases produce no record at all rather than a fast one:
 
 A missing record costs nothing; a wrong one is permanent, which is why every uncertain case drops.
 
-`rooms unattributed` is the gap between rooms cleared and points handed out. A large gap means the
-decoration → player mapping is losing members, so it doubles as a diagnostic.
+## ClearPoints
+
+Hypixel's own score counts rooms, so clearing a puzzle and stepping into an empty 1x1 are worth the
+same to it. ClearPoints is the replacement: a room is worth what it took, and that amount is split
+over the members who were in it in proportion to their time there.
+
+A room starts at **1 point** — no room is worthless, so a run can never score below the flat count it
+replaces — and then earns:
+
+| Add | For | Why |
+|---|---|---|
+| +1.5 | puzzle | a gate the party has to open, on top of the mobs every room has |
+| +1.0 | trap, miniboss, blood | same: a specific piece of work, not more of the usual one |
+| +0.25 | per secret the room holds | out of `rooms.json`, which is why it carries the counts |
+| +0.5 | per segment beyond the first | a 2x2 is four times the walking at the same clear time |
+
+Three deliberate exclusions:
+
+- **Rare rooms get nothing for being rare.** A rare room is unusual to draw, not harder to clear;
+  whatever makes it worth entering is its secret count, which is already paid for.
+- **Secrets are counted from the database, not from what the party found.** The points are handed out
+  when the room's checkmark appears, and its secrets are usually still being collected at that
+  moment — reading the live counter would weight most rooms at whatever they happened to be part-way
+  through. What was actually found is reported per room instead (`secretsFound`, `ownSecrets`).
+- **The floor is not a multiplier.** It is the same for every room of a run, so it would scale
+  everyone's total equally and separate nobody. Points are only ever compared inside one run: they
+  are shown on the HUD and in the run summary, and they are not part of the run report at all.
+
+An unnamed room — one whose chunk never streamed, so it has no database entry — keeps its kind from
+the map colour and pays no secret bonus. Worth less than it should be, never nothing.
+
+`rooms unattributed` counts the **rooms** that were cleared with nobody ever seen in them. It is a
+count and not a score: a heavy room nobody was in is one unattributed room, not five points of one.
+That is what makes it readable against `rooms cleared` — a large gap means the decoration → player
+mapping is losing members, so it doubles as a diagnostic. Before weighting the two happened to be the
+same arithmetic, and `rooms cleared` minus points handed out gave the same answer; weighted it would
+not, and would report a permanent, silent zero.
 
 ## Secrets
 
@@ -458,9 +493,6 @@ no `mappings` line in `build.gradle` on purpose. Class names are Mojmap: `MapIte
 
 ## Not implemented yet
 
-- **ClearPoints proper.** Every room is still worth 1 point, which reproduces exactly the flat
-  weighting the metric is meant to replace. `rooms.json` already carries the secret and crypt counts
-  needed to weight rooms, and `DungeonSession.floorNumber` is available for floor multipliers.
 - **Chat events.** Secret clicks, wither doors, puzzle solvers, deaths/ghosts. Currently a dead
   player is only detected via the tab list.
 - **Per-floor records.** `/sa` collapses floors into one record per room and kind. The history lines
