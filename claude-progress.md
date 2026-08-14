@@ -15,20 +15,26 @@ new session reads.
   said `build` until session 006; `init.sh` was corrected at `c4c0c56` and prints `assemble check`,
   and session 004 below records that repair. `build` belongs to the release gate in `CLAUDE.md`, where
   refreshing that jar is the whole point.
-- Baseline status (last `./init.sh` run): **PASSING** — 119 tests in 12 classes, 0 failures,
-  0 skipped, 2026-08-14, at `390399b` on branch `clearpoints-001` (off `main` at `1e27b42`),
-  `mod_version=0.9.0`. The branch carries **four** commits (`13c9fb5`, `0b6373f`, `ddfddc0`,
-  `390399b`) and is **not pushed and not merged** — earlier entries saying "one commit" were wrong.
+- Baseline status (last `./init.sh` run): **PASSING** — 120 tests in 12 classes, 0 failures,
+  0 skipped, 2026-08-14, on branch `clearpoints-001` (off `main` at `1e27b42`),
+  `mod_version=0.9.0`. **Not pushed and not merged.** For how many commits the branch carries, run
+  `git rev-list --count 1e27b42..HEAD` — three consecutive reviews found a hand-written number here
+  wrong (one, then four, then four again, against three, six and seven), so the number is
+  deliberately not written down any more. `git log --oneline 1e27b42..HEAD` says what each is for.
 - Last feature completed: `clearpoints-001` — rooms are weighted rather than counted
   (`ContributionTracker.weightOf`), and `unattributed` is now a **count of rooms** rather than
   `roomsCleared` minus the points handed out. No schema change and no receiver change: `RUN_KEYS`
   carries no points field, and the field's values are unchanged. Evaluated at 12/14 (**Revise**) and
   the two docked items are closed in session 006; it wants a fresh evaluator pass, not more work.
-- **Exclusion coverage in `weightOf`, because an artifact got this wrong once already:** rarity and
-  "secrets from the database, not `secretsFound`" are pinned by tests. **The floor is argued only**
-  and cannot be pinned here — `weightOf` takes no floor, and `DungeonSession.floor` is `private set`
-  behind `inDungeon(Minecraft)`, so a floor factor reads null under test. Do not add a test that
-  claims to catch it; it would pass either way.
+- **Exclusion coverage in `weightOf`: all three are now pinned by tests** — rarity, "secrets from the
+  database, not `secretsFound`", and, as of session 007, the floor
+  (`a room is worth the same on every floor`). The floor case sets `DungeonSession.floor` by
+  reflection on the `object`'s backing field, because `floor` is `private set` behind
+  `inDungeon(Minecraft)`; `floorNumber` then reads the real digit, and the test asserts that the
+  write took before it asserts the invariant, so it cannot degrade into passing either way. **Two
+  earlier entries here said a floor guard was impossible. They were wrong** — measured, a floor
+  multiplier fails that one case and nothing else in the suite, and until session 007 the exclusion
+  was guarded by nothing at all.
 - Current highest-priority unfinished feature: `chat-001` — read the events Hypixel puts in chat.
   Its test class `ChatEventsTest` does not exist yet; creating it is part of the feature.
 - Current blocker: none for `chat-001`. `records-001` is deferred by the user (a product decision,
@@ -44,6 +50,82 @@ new session reads.
 
 Rules: insert the newest session at the TOP of this section. Never edit or delete past session
 entries — they are the audit trail. Copy the template below for each new session.
+
+### Session 007 — `clearpoints-001`: the floor guard that two sessions said could not exist
+
+- Date: 2026-08-14
+- Branch `clearpoints-001`, continued at `76fad14`. One code commit, `0795236`, plus this artifact
+  commit. **Not pushed and not merged.** Baseline before starting: `bash init.sh` → **PASSING**, so
+  no repair was owed.
+- Scope: closing an evaluation, again, and a narrower one. The second `evaluator-rubric.md` pass
+  scored `clearpoints-001` **12/14 — Revise** with a single cause: Verification 1, because session
+  006 declined to write a floor test and justified the decline with a claim that is false.
+  Maintainability was also 1, for that same claim plus a wrong commit count. Both are closed here.
+  The feature stays `passing` and no behaviour moved.
+- **A hard constraint this session worked under:** a debug build from `72e0825` of this branch is
+  installed in the user's game and was playing a real dungeon floor while this ran. Nothing here may
+  change runtime behaviour, so that the session file they bring back still describes this code. It
+  does not — the only `src/main` edit is a KDoc.
+- **The claim, and why it mattered.** Sessions 005 and 006 recorded, in `weightOf`'s KDoc and in five
+  artifacts, that no honest floor test is possible here: `weightOf` takes no floor,
+  `DungeonSession.floor` is `private set` behind `inDungeon(Minecraft)` which no test can call, so a
+  floor factor would read null under test and a test claiming to catch it "would pass either way".
+  The evaluator disproved it by writing the test in about twenty lines.
+  `DungeonSession::class.java.getDeclaredField("floor")` with `isAccessible = true` reaches the
+  `object`'s backing field, and `floorNumber` then reads the real digit.
+- **What was actually unguarded, measured rather than argued.** Under a live floor multiplier
+  **all 119 tests at `72e0825` passed** — including `a room is worth the same however far the run has
+  got`, which `feature_list.json` described as "the closest any test in this repository can get to the
+  floor exclusion". On the actual exclusion it gets no distance at all. So the exclusion was pinned by
+  nothing while three artifacts explained why it could not be pinned. A declared impossibility is
+  worse than a declared gap: it outlives the session and stops the next one from trying.
+- **The guard: `a room is worth the same on every floor`.** Three floors, because two different edits
+  read different things. `F1` against `F7` catches a factor drawn from `floorNumber`. `F7` against
+  `M7` catches one drawn from the floor *string* — a master-mode bonus — which `floorNumber` cannot
+  see, since it reads `7` for both. `Entrance` is the null reading every other test in the file runs
+  under, asserted last so the case says out loud that null is one of the values checked and not the
+  only one. Both the weight and the credited points are asserted, since a floor factor could land in
+  `weightOf` or between it and the split in `award`.
+- **It asserts the setup took before it asserts the invariant**, which is the entire difference
+  between this and the guard-in-name-only session 006 feared. Probed: neutering `setFloor` makes the
+  case fail with `the floor was not actually set — this test would pass either way`. `DungeonSession`
+  is deliberately *not* reset (`DungeonSession.reset()` resets half the mod); the floor is put back to
+  null in a `finally`, because the suite runs sequentially in one JVM.
+- **The recorded decision on reflection, since it has no precedent in this suite.** Taken
+  deliberately, with its cost: renaming `DungeonSession.floor` breaks this test at runtime rather than
+  at compile time. Mitigated by the `floorNumber` assertions above, which make that failure loud and
+  self-naming. Chosen over the alternative the earlier sessions proposed — a production seam on
+  `DungeonSession` — because that is a shape `src/main` does not otherwise need, added purely for a
+  test, and a larger change than the exclusion is worth. If the mod ever needs such a seam for its own
+  reasons, this test should move onto it.
+- Verification, all at `0795236`:
+  - `./gradlew test --tests 'sighteaddons.ContributionTrackerTest' --tests 'sighteaddons.RoomDatabaseTest' --rerun-tasks`
+    → `BUILD SUCCESSFUL in 6s`; `ContributionTrackerTest tests=33 skipped=0 failures=0 errors=0`
+    (up from 32), `RoomDatabaseTest tests=6 failures=0`
+  - `./gradlew test --rerun-tasks` → classes 12, tests **120**, skipped 0, failures 0, errors 0.
+    Strictly additive.
+  - `./gradlew assemble check` → `BUILD SUCCESSFUL`; jar md5 `b2ebc35ccfeb9cc96134eb3b18f0306f`
+    measured before *and* after and identical; `git status --short dist/ gradle.properties` empty;
+    `SCHEMA = 5`; `mod_version=0.9.0`. The release gate did not fire.
+  - `bash init.sh` → `BASELINE: PASSING`
+  - Three mutation probes, each reverted from a copy taken before the edit with `git status --short`
+    checked afterwards: a `floorNumber` multiplier fails 1 (the new case, `expected: <3.85> but was:
+    <4.45>`), a master-mode bonus off the floor string fails 1 (`expected: <3.75> but was: <4.75>`),
+    and the neutered `setFloor` fails 1 (`expected: <1> but was: <null>`).
+- **`claude-progress.md`'s hand-written commit count is gone rather than corrected.** Three reviews
+  found it wrong — one against three, four against six, four against seven. "Current Verified State"
+  now names `git rev-list --count 1e27b42..HEAD` instead of a number.
+- **What was deliberately not edited:** session 006's entry below still contains the false floor
+  paragraph. Session entries are the audit trail and this file forbids editing them, so it is
+  superseded here rather than rewritten — a reader who reaches it is one scroll from this. Every
+  *living* artifact (`weightOf`'s KDoc, the test KDocs, `feature_list.json`, `quality-document.md`,
+  `session-handoff.md`, and "Current Verified State" above) now says the true thing.
+- Still unverified, unchanged: the weight constants are judgement rather than measurement;
+  `ContributionTracker.tick`'s wiring to `onCleared`/`onPresence` needs a `Minecraft` and a
+  `MapItemSavedData` and is read rather than asserted — and that one *is* a genuine limit, unlike the
+  floor claim, because the missing objects are constructor arguments and not private fields.
+  `SighteAddonServerside` was neither read nor written; nothing on this branch reaches the wire.
+- Regressions: none.
 
 ### Session 006 — `clearpoints-001`: guard the two exclusions that were only argued
 

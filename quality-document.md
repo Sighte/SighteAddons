@@ -25,7 +25,7 @@ scores above B.
 | Domain | Grade | Verification | Agent Legibility | Test Stability | Key Gaps | Last Updated |
 |--------|-------|-------------|-----------------|---------------|----------|-------------|
 | telemetry (`RunReport`, `TelemetryUpload`, `DebugLog`) | B | `RunReportTest`, `TelemetryUploadTest`, `DebugLogTest` | High — the ceilings carry `ponytail:` notes | Stable | Retry schedule is "next game start", no backoff, no queue (`TelemetryUpload.kt:211`); nothing uploads during a run; quitting straight from a dungeon has no JOIN and loses the session (`SighteAddons.kt:54`) | 2026-08-14 |
-| scoring (`ContributionTracker`) | B | `ContributionTrackerTest` (32 cases) covers the clear anchor at the `TrackedRoom` seam and the weighting and unattributed accounting at the new `onCleared` seam; `RoomDatabaseTest` checks the weighting against the bundled `rooms.json` rather than a fixture; `settle` is pinned through `RunReportTest` | High — the weighting states what each term is for, and the three exclusions (rarity, live secret counts, floor multiplier) are argued where they are made rather than merely absent. **Two of the three are now also pinned by tests; the floor is argued only, and the KDoc says so and says why** — `weightOf` takes no floor and `DungeonSession.floor` is `private set` behind `inDungeon(Minecraft)`, so no test here can reach it | Stable, and mutation-checked five times: restoring the old `unattributed` subtraction fails 2, flattening every weight to 0.0 fails 7, adding `secretsFound` to the weight fails 3, substituting it for the database count fails 6, and a run-progress factor fails 1 | Nothing here has run against real Hypixel data, which is the ceiling on this domain and the reason it is not A; `ContributionTracker.tick`'s wiring is still untestable, since it needs a `Minecraft` and a `MapItemSavedData` — so *that* `onCleared` and `onPresence` are called once per clear and once per member per tick is read, not asserted; the weight constants are judgement, not measurement, and no real run has yet shown whether they separate players usefully; the floor exclusion has no guard and cannot have one without a seam on `DungeonSession` | 2026-08-14 |
+| scoring (`ContributionTracker`) | B | `ContributionTrackerTest` (33 cases) covers the clear anchor at the `TrackedRoom` seam and the weighting and unattributed accounting at the new `onCleared` seam; `RoomDatabaseTest` checks the weighting against the bundled `rooms.json` rather than a fixture; `settle` is pinned through `RunReportTest` | High — the weighting states what each term is for, and the three exclusions (rarity, live secret counts, floor multiplier) are argued where they are made rather than merely absent. **All three are now pinned by tests as well**, the floor since session 007 by `a room is worth the same on every floor`, which reaches `DungeonSession.floor` — `private set` behind `inDungeon(Minecraft)` — through the `object`'s backing field and asserts the write took before asserting the invariant. Earlier revisions of this row and of `weightOf`'s KDoc said that guard was impossible; it is not, and the claim is retracted where it was made | Stable, and mutation-checked seven times: restoring the old `unattributed` subtraction fails 2, flattening every weight to 0.0 fails 7, adding `secretsFound` to the weight fails 3, substituting it for the database count fails 6, a run-progress factor fails 1, a `floorNumber` multiplier fails 1, and a master-mode bonus read off the floor string fails 1 | Nothing here has run against real Hypixel data, which is the ceiling on this domain and the reason it is not A; `ContributionTracker.tick`'s wiring is still untestable, since it needs a `Minecraft` and a `MapItemSavedData` — so *that* `onCleared` and `onPresence` are called once per clear and once per member per tick is read, not asserted; the weight constants are judgement, not measurement, and no real run has yet shown whether they separate players usefully; the floor guard depends on reflection, so a rename of `DungeonSession.floor` breaks it at runtime rather than at compile time | 2026-08-14 |
 | history and records (`RoomHistory`, `RecordTable`) | B | `RoomHistoryTest`, `RecordTableTest` | High | Stable | Floors are collapsed into one record per room and kind (`records-001`); whole history in memory, ~40 bytes per line (`RoomHistory.kt:59`) | 2026-08-13 |
 | party (`PartyTracker`) | C | `PartyTrackerTest` | High — the assumption is stated where it is made | Stable, but it pins the heuristic rather than the truth | Decoration order is assumed to match tab order (`PartyTracker.kt:134`); two players on one decoration are not told apart (`party-001`) | 2026-08-13 |
 | room naming (`RoomDatabase`, `DungeonMapReader`, `DungeonGrid`) | C | `RoomDatabaseTest`, `DungeonGridTest` | High | Stable | Version-coupled: core hashes come from `Block.toString()` in a fixed order, so a Hypixel or Mojang change breaks names silently; a room needs a streamed chunk to be named at all | 2026-08-13 |
@@ -45,6 +45,30 @@ scores above B.
 ## Change History
 
 Newest entry first.
+
+### 2026-08-14 (session 007)
+
+- Changes: closed the second `clearpoints-001` evaluation's Revise (12/14), whose whole deduction was
+  one thing — the session before it had declared the floor exclusion *impossible* to test, and the
+  evaluator disproved that by writing the test. One case added,
+  `a room is worth the same on every floor`, and the impossibility claim retracted in the five
+  artifacts that carried it. No behaviour changed and none could: the only `src/main` edit is
+  `weightOf`'s KDoc.
+- Domains promoted: none. **Scoring stays B**, and the ceiling is unchanged — nothing here has run
+  against real Hypixel data. What moved is that the third of three exclusions is now guarded instead
+  of asserted-to-be-unguardable.
+- New gaps identified: one, and it is the cost of the fix. The floor guard reaches a `private set`
+  field by reflection, so renaming `DungeonSession.floor` breaks it at runtime rather than at compile
+  time. Mitigated inside the test — it asserts `floorNumber` reads the value back before it asserts
+  anything about weights, so the failure is loud and names itself. Recorded rather than hidden: this
+  is the only reflection in the suite, and a production seam on `DungeonSession` would still be the
+  cleaner answer if the mod ever needs one for its own reasons.
+- Gaps closed: **the floor exclusion, which was guarded by nothing at all.** Measured, not argued: a
+  floor multiplier added to `weightOf` passed all 119 existing tests, including the run-progress case
+  that `feature_list.json` had described as the closest a test could get to it. Both edit forms now
+  fail the new case and nothing else. The second gap closed is the claim itself — a declared
+  impossibility outlives the session that wrote it and stops the next one from trying, which is a
+  worse defect than the missing test was.
 
 ### 2026-08-14 (session 006)
 
