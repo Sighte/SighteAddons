@@ -160,16 +160,32 @@ class RoomHistoryTest {
     }
 
     /**
-     * The other direction, and the reason "most ticks" is required as well as "from the start". A
-     * player who was there first and then stood back while somebody else did the room contributed
-     * the arrival and not the clear.
+     * The other direction, and the reason "most ticks" is required as well as "from the start".
+     *
+     * The fixture is built so that **only** the top-player half can refuse it: both members arrive
+     * on the same tick and both are still in the room when the checkmark lands, so
+     * `presentFromStart` says yes to each of them — the local player simply did less of the room.
+     * That is not a contrived shape: presence comes from map decorations, so stepping into a doorway
+     * for half a second stops the sightings without ending the stay, and the ticks diverge while the
+     * arrival does not.
+     *
+     * A fixture where the local player had also left would pass this test with the top-player check
+     * deleted, which is exactly what the first version of it did — measured, not feared. See probe H.
      */
     @Test
-    fun `being there first is not enough if somebody else did the room`() {
+    fun `being there from the start is not enough if somebody else did the room`() {
         val room = room()
-        room.stay("Me", from = 1000, count = min * 2)
-        room.stay("Mate", from = 1000, count = min * 6)
-        room.clearedAtTick = 1000 + min * 6
+        room.stay("Mate", from = 1000, count = min * 4) // 80 ticks, every one of them
+        room.stay("Me", from = 1000, count = min) // arrives with them
+        // Out of sight for half a second — inside the gap tolerance, so it is the same stay — then
+        // back until the clear.
+        room.stay("Me", from = 1000 + min + min / 2, count = min * 2 + min / 2)
+        room.clearedAtTick = 1000 + min * 4
+
+        val clearedAt = room.clearedAtTick!!
+        assertTrue(room.presentFromStart("Me", clearedAt), "the other half of the gate says yes")
+        assertTrue(room.presentFromStart("Mate", clearedAt))
+        assertTrue((room.ticks["Me"] ?: 0) < (room.ticks["Mate"] ?: 0), "and this is the only difference")
 
         assertFalse(RoomHistory.ownClear(room, self = "Me", topPlayer = "Mate"))
         assertTrue(RoomHistory.ownClear(room, self = "Mate", topPlayer = "Mate"))
