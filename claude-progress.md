@@ -15,14 +15,25 @@ new session reads.
   said `build` until session 006; `init.sh` was corrected at `c4c0c56` and prints `assemble check`,
   and session 004 below records that repair. `build` belongs to the release gate in `CLAUDE.md`, where
   refreshing that jar is the whole point.
-- Baseline status (last `./init.sh` run): **PASSING** — 160 tests in 14 classes, 0 failures,
-  0 skipped, 2026-08-14, on branch `chat-001` (off `main` at `a6dc629`, which is `artifacts-001`
-  merged), `mod_version=0.9.0`. **Not pushed and not merged.** For how many commits the branch
-  carries, run `git rev-list --count a6dc629..HEAD` — three consecutive reviews found a hand-written
-  number here wrong (one, then four, then four again, against three, six and seven), so the number is
-  deliberately not written down any more. `git log --oneline a6dc629..HEAD` says what each is for.
-  The count moved from `main`'s 140 in 13 classes by exactly the tests `chat-001` added: +11 in the
-  new `ChatEventsTest`, +3 in `SecretTrackerTest`, +6 in `ContributionTrackerTest`.
+- Baseline status (last `./init.sh` run): **PASSING** — `main` at `9cb71ee` (which is `chat-001`
+  merged) carries 160 tests in 14 classes. Branch `party-001`, off `main` at `9cb71ee`, carries
+  **167 in 14**, 0 failures, 0 skipped, 2026-08-14, `mod_version=0.9.0`. **Not pushed and not
+  merged.** For how many commits the branch carries, run `git rev-list --count 9cb71ee..HEAD` —
+  three consecutive reviews found a hand-written number here wrong, so the number is deliberately
+  not written down any more. `git log --oneline 9cb71ee..HEAD` says what each is for. The +7 is
+  entirely `PartyTrackerTest` 7 → 14; no class was added.
+- **Last feature attempted: `party-001`, and it is `blocked` on a finding rather than on a task.**
+  The mechanism the entry existed to build does not exist. The only concrete upgrade path the
+  codebase named — the old comment at `PartyTracker.kt:134-138`, that NoammAddons reads the
+  decoration's map key whose last character identifies the player slot — is false in both halves:
+  `ClientboundMapItemDataPacket` carries an **unkeyed** `List<MapDecoration>`, and
+  `MapItemSavedData.addClientSideDecorations` re-keys it `"icon-" + i` from the client's own loop
+  index, so an accessor mixin would return list order spelled as a string; and NoammAddons's own
+  `DungeonUtils.kt` uses that digit as an index into `livingTeammates`, i.e. the identical order
+  heuristic. What did land is the testability seam: the assignment is now a pure
+  `PartyTracker.assign(roster, localSlot, isFrame)`, behaviour unchanged, with 7 cases and 3
+  mutation probes where there had been none. The single surviving candidate channel is
+  `MapDecoration.name()` — recorded as `deconame-001`, not built.
 - Last feature completed: `chat-001` — **the mod reads the dungeon events Hypixel states in chat**,
   through a pure `String -> Event?` parser. A death is charged on the tick it is announced instead of
   by a once-a-second tab poll; a wither-essence secret is credited to the player Hypixel names
@@ -56,9 +67,16 @@ new session reads.
   file at `configDir/sighteaddons/roomstats.json`, the receiver's own document verbatim; (3) the
   seeds. **Absent is the ordinary first case, not an error, and yields exactly the seeds.** Nothing
   writes the cache today, so every install is on layer 3 and every room is its seed.
-- Current highest-priority unfinished feature: by number it is `party-001` (7) — `records-001` (6)
-  is deferred by the user. By value it is **`runloss-001`**, unchanged from session 009's reading:
-  priority 10 is queue position, and it is the only entry known to have destroyed real data.
+- Current highest-priority unfinished feature: **`runloss-001`**, and now by number as well as by
+  value among the workable ones — `records-001` (6) is deferred by the user, `party-001` (7) went
+  `blocked` in session 011, and `ingame-001` (8) needs a party floor. `runloss-001`'s priority 10 is
+  queue position; it is the only entry known to have destroyed real data.
+- **Two players sharing a decoration is not a defect and never was.** Decorations are one per
+  player. Two players in one *room* produce two decorations a few pixels apart that both resolve to
+  the same `Pos` cell, so swapping them changes nothing — asserted in `PartyTrackerTest`. The
+  damaging failure is the **count mismatch** that shifts assignments across *different* rooms, which
+  `trustOrder` blacks out. `party-001`'s entry and `quality-document.md`'s party row both described
+  the harmless one as the defect until session 011; do not reintroduce that reading.
 - **What `chat-001` reads and what it deliberately does not.** Chat carries a named finder for
   **wither-essence secrets only** — chests, levers, item pickups and the redstone key are announced
   nowhere, so `SecretTracker.isOwn`'s 40-tick coincidence is still how almost every secret is
@@ -114,6 +132,81 @@ new session reads.
 
 Rules: insert the newest session at the TOP of this section. Never edit or delete past session
 entries — they are the audit trail. Copy the template below for each new session.
+
+### Session 011 — `party-001`: the upgrade path did not exist, so the finding is the deliverable
+
+- Date: 2026-08-14
+- Branch `party-001`, off `main` at `9cb71ee` (which is `chat-001` merged). **Not pushed and not
+  merged.** Run `git rev-list --count 9cb71ee..HEAD` for the commit count rather than reading one here.
+- Baseline at start: `bash init.sh` → **PASSING**, the state `chat-001` left after merging.
+
+**The brief was wrong twice over, and establishing that was the work.**
+
+- **The title named a mechanism the design forbids.** `party-001` was "Party sync instead of the
+  decoration-order heuristic". `README.md:9` states the design achieves "full per-player attribution
+  **with no party sync**" and `SighteAddons.kt:24` states "**No packets are sent and nothing is
+  automated**". Party sync means sending something. Corrected in place, the way `clear-001`,
+  `schema-001` and `chat-001` were.
+- **The described failure mode was the harmless one.** "Two players standing on one decoration are
+  told apart" — decorations are one per player and two players never share one. Two players in one
+  *room* produce two decorations at nearly the same pixel and the order mapping may swap them, which
+  changes nothing because both resolve to the same `Pos` cell. The damaging failure is the count
+  mismatch that shifts assignments across *different* rooms. Both readings are now asserted rather
+  than described, and `quality-document.md`'s party row carried the same loose phrasing and is fixed.
+
+**THE FINDING, WHICH IS WORTH MORE THAN THE FEATURE WAS.** The only concrete upgrade path the
+codebase named was the comment at `PartyTracker.kt:134-138`: that NoammAddons reads the decoration's
+map key, whose last character is a digit identifying the player slot, and that a `MapItemSavedData`
+accessor mixin would remove the counting. Both halves are false, measured against the 26.1.2 classes
+this module compiles against and against NoammAddons's actual source:
+
+- `ClientboundMapItemDataPacket` carries `Optional<List<MapDecoration>>` — an **unkeyed list**. No
+  key crosses the wire. `MapItemSavedData.addClientSideDecorations` clears the private map and
+  re-keys every entry `"icon-" + i` from its own loop index (that class's string-concat bootstrap
+  constants are literally `icon-` and `frame-`), and the field is a `LinkedHashMap`, so
+  `getDecorations()` is already in packet order. An accessor mixin would have returned this client's
+  own list order, spelled as a string.
+- NoammAddons does not do what the comment said. `DungeonUtils.kt`:
+  `val index = key[key.lastIndex].digitToInt()`, then `livingTeammates[index]`. The identical order
+  heuristic, plus a defect this mod does not have — the digit counts the local player's own marker
+  while the list it indexes excludes them.
+
+The mixin was therefore **not built**, per the instruction that a finding beats an invented
+substitute. The one channel that survives the wire and could still carry identity is
+`MapDecoration.name()`; whether Hypixel populates it is unknowable here, and is recorded as
+`deconame-001` rather than guessed at.
+
+**What did land: the testability seam.** The assignment moved out of `positions()` into a pure
+`PartyTracker.assign(roster, localSlot, isFrame) -> Assignment`. Behaviour unchanged; `positions()`
+keeps the Minecraft plumbing, the grid math and the logging. This is a design decision and not a
+tidy-up: `positions()` takes a `MapItemSavedData` and reads `DungeonSession` statics, so the
+heuristic had **zero** coverage and could not get any, while `ContributionTracker.tick` iterates
+`PartyTracker.positions(map)` and only ever creates a room some decoration resolved into — so how
+decorations map to players decides which rooms exist, get named, get cleared and get scored. Room
+discovery was treated as first-class in the regression check.
+
+**The `verification_command` was vacuously green and is now not.** It named `PartyTrackerTest`,
+which already existed and already passed with cases covering only the tab regex and the living-class
+carry. The command text is deliberately **unchanged**; what changed is that the class now holds 7
+cases that exercise the assignment, and three mutation probes measure that it can fail — dropping
+the `trustOrder` guard fails 2 of 14, counting the local marker in the teammate index fails 4,
+assuming the local player is slot 0 fails 1. Padding the command with extra class names would have
+hidden the problem rather than fixed it.
+
+**Not paired, no schema bump — verified mechanically.** `build/keydiff.py` (re-created here;
+`chat-001` recorded the description but not the script) reports four empty sets and confirms
+`playerTicks`, `playersInRoom`, `ownTicks`, `enterTick` and `unattributed` are all already known to
+the receiver. `RunReport.kt` is untouched by this branch and `SCHEMA` is still 5.
+`SighteAddonServerside` was **read and never written**.
+
+**A quirk that cost this session an edit and is now in the handoff:** `git checkout <file>` to
+restore a mutation probe reverts *all* uncommitted work in that file. The handoff's existing advice
+to restore with `git checkout` is right and incomplete — commit the feature first, then probe.
+
+- New feature recorded rather than built: `deconame-001`.
+- Grade: party stays **C**. The tests now pin the guard and the failure classification where they
+  pinned nothing, but they still pin the heuristic rather than the truth, which is the stated reason
+  it was C. Saying why a grade did not move is the honest entry here.
 
 ### Session 010 — `chat-001`: read what Hypixel says, keep the inference where it says nothing
 
