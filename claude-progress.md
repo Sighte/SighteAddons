@@ -5,6 +5,33 @@
 This is the only section that gets edited in place. Keep it accurate — it is the first thing every
 new session reads.
 
+**Corrections that supersede everything below them in this section, 2026-08-15.** The two branches
+this section was written from were merged and the numbers it quotes describe neither tree. Corrected
+here rather than rewritten below, so each session's own measurements stay readable as what they were:
+
+- **`main` is at `ec12a27`** — `runloss-001` (#41), `scores-fetch-001` (#43) and the `floorloss-001`
+  diagnosis (#44) all merged. Every "off `d356ff2`, not merged" line below is the branch point
+  speaking and is history now.
+- **`mod_version` is 0.10.0, `dist/` holds `sighteaddons-0.10.0.jar`** (md5
+  `5e0b1cd2d3b97cfaa6cd5e86061cbdbe`), and **0.10.0 is released** — tagged, on GitHub and on
+  Modrinth. Every `0.9.0` filename below is the previous artifact. **So the schema is 5 in source
+  *and* in every install from 0.10.0 on**, which retires the "5 in source, 4 in every install" line
+  at the end of this section.
+- **Baseline: PASSING at 193 tests in 15 classes**, 0 failures, 0 skipped, on branch `floorloss-001`
+  off `main` at `ec12a27` (which was 184 in 14). The new class is `DungeonSessionTest`.
+- **Last feature completed: `floorloss-001` — a report knows which floor it was.** `inDungeon`
+  answered its question by *assigning* the floor, so every tick outside a dungeon overwrote a known
+  floor with `null`; two of the three report paths fire after leaving by definition and could only
+  ever file `?`. Measured on the box: 20 of 22 uploaded reports carry `?`, including all three
+  schema 5 ones. The floor is kept for the life of the run now and forgotten only in
+  `DungeonSession.reset()`, which runs on `JOIN` *after* the JOIN site has written the report for the
+  run being left. **The predicate still answers about the present** — that was the thing to not
+  break, since it gates the whole session state machine. No schema change; `python build/keydiff.py`
+  is clean. **Not merged, not pushed.**
+- **`floorname-001` was opened by that session and not worked**: the receiver validates `floor` with
+  `?|E|[FM][1-7]` and this mod can hold the string `Entrance`. Measured as unreachable today and
+  recorded rather than patched inline.
+
 - Repository root: the directory holding `build.gradle` and `gradlew` (clone of `Sighte/SighteAddons`)
 - Standard startup path: `./gradlew runClient` — Loom's dev client, which has no valid session and
   cannot reach Hypixel
@@ -211,6 +238,79 @@ new session reads.
 
 Rules: insert the newest session at the TOP of this section. Never edit or delete past session
 entries — they are the audit trail. Copy the template below for each new session.
+
+### Session 014 — `floorloss-001`: the check that asks destroyed the answer
+
+- Date: 2026-08-15
+- Branch `floorloss-001`, off `main` at `ec12a27`. **Not pushed and not merged.** For the commit
+  count run `git rev-list --count ec12a27..HEAD` rather than reading one here.
+- Baseline at session start: `bash init.sh` → **BASELINE: PASSING**, 14 classes, 184 tests, 0
+  failures, 0 skipped, `mod_version=0.10.0`, `dist/sighteaddons-0.10.0.jar` md5
+  `5e0b1cd2d3b97cfaa6cd5e86061cbdbe`. Re-run at the end: PASSING, 15 classes, 193 tests.
+- **The diagnosis arrived done and was confirmed rather than re-derived.** `DungeonSession.kt:61`
+  and `RunReport.kt:171` still said exactly what the entry recorded. The whole defect is one line
+  doing two jobs:
+
+  ```kotlin
+  floor = sidebarLines(client).firstNotNullOfOrNull { FLOOR.find(it)?.groupValues?.get(1) }
+  return floor != null
+  ```
+
+  The assignment *was* the in-dungeon check, so every tick outside a dungeon cleared a known floor.
+  `RunReport.write` is reached from three places and two of them — `ClientPlayConnectionEvents.JOIN`
+  and `DISCONNECT` — fire after leaving by definition, so for them the live reading is always the
+  wrong one. On the box: 20 of 22 uploaded reports carry `?`, and the only two that name a floor
+  were written from the run-end headline while the player was still inside.
+- **The fix is a split, not a second field.** `inDungeon(client)` is now
+  `observeSidebar(sidebarLines(client))`; `observeSidebar` returns `seen != null` (about *now*) and
+  writes `floor` only when it actually saw one. Nothing else clears it — `DungeonSession.reset()`
+  does, and that runs on `JOIN` after the JOIN site has written the report for the run being left.
+  One field rather than a live one plus a sticky one, because within a run they cannot disagree:
+  `onTick` returns at `inDungeon` before anything reads `floorNumber`, and entering or leaving a
+  dungeon is a server transfer, so `reset()` lands on both edges of every run.
+- **The thing that had to not break, and did not: `inDungeon` still answers about the present.** A
+  fix that kept the floor by making the predicate answer from it would have been far worse than the
+  `?` — that predicate gates the whole session state machine. It is probe B below, and it is caught.
+- **`floor` is `@Volatile` now.** `DISCONNECT` reads it from a Netty event-loop thread while the
+  client thread writes it — the same reason `RunReport.reported` is an `AtomicBoolean`. `runTicks` is
+  read on the same path and is *not* volatile; that is pre-existing, out of this feature's scope, and
+  noted in the handoff rather than fixed here.
+- **`RunReport.reportedFloor()` names the read all three paths share.** `RunReport.write()` needs a
+  live `Minecraft` and cannot be called from this suite at all — which is how a one-line defect
+  survived five schema versions with 184 tests around it. The seam is what makes the report's half of
+  the claim testable; `observeSidebar` taking the lines instead of a client is the same move on the
+  session's half.
+- **`DungeonSession` had no test of any kind before today.** `DungeonSessionTest` is 7 cases;
+  `RunReportTest` went 30 → 32. Strictly additive: the only pre-existing test line touched is
+  `RunReportTest`'s private `report()` helper, which gained `floor: String = "M5"` with the old value
+  as its default, so every existing case builds the identical report.
+- **Five mutation probes, all caught, all restored with `git checkout` after the feature was
+  committed.** (A) the defect restored verbatim → fails 2. (B) the fix done wrong, predicate reading
+  the remembered floor → fails the same 2. (C) drop `floor = null` from `reset()` → fails 1.
+  (D) `reportedFloor()` → `"?"` → fails 2. (E) drop `@Volatile` → fails 1. `build/floorprobe.py`
+  holds all five; `build/` is gitignored, so re-create it from the pairs in the entry's evidence.
+  **It needs `encoding="utf-8"` as well as `newline=""`** — `DungeonSession.kt` has em dashes and
+  cp1252 cannot read it, which is a correction to what `build/probe.py` does.
+- **Not paired, confirmed mechanically.** `python build/keydiff.py` → `KEYDIFF: CLEAN`, 17/17 both
+  ways, `SCHEMA` 5. `floor` is in `ingest.py`'s `RUN_KEYS` (line 145) and required. This changes the
+  value, not the shape. `SighteAddonServerside` was **read** and never written.
+- **One finding, recorded rather than fixed: `floorname-001`.** The receiver's validator is
+  `FLOOR = re.compile(r"\?|E|[FM][1-7]")` under `fullmatch`, and `DungeonSession.floor` can hold
+  `Entrance` — the receiver plainly expected `E`. A 400 is never retried, so that would lose the run.
+  Measured as unreachable today (a report needs rooms, rooms need calibration inside a floor
+  instance, where the sidebar reads F/M) and **not widened by this fix**, which is why it is an entry
+  and not an inline patch. Worth knowing: `keydiff.py` compares key *sets* and cannot see a
+  value-domain mismatch. That is a gap in the check, not a failure of it.
+- **Unverified and named as such:** all three paths end to end. No real report has been written under
+  this code — the dev client cannot log in. What the suite measures is the whole remember/forget/
+  answer decision on real sidebar strings plus the report's read of it; what it cannot is that
+  `reset()` lands on the `JOIN` edge of every real run, and that `@Volatile` is *needed* (its absence
+  cannot be reliably observed, so the modifier is asserted by reflection instead).
+- Verification, all at `c6142d4`: the `verification_command` → 7 + 32, 0 failures;
+  `./gradlew test --rerun-tasks` → classes 15, tests 193, skipped 0, failures 0, errors 0;
+  `./gradlew assemble check` → BUILD SUCCESSFUL with the jar md5 identical either side and
+  `git status --short dist/ gradle.properties` empty; `python build/keydiff.py` → CLEAN;
+  `bash init.sh` → BASELINE: PASSING.
 
 ### Session 012 — `runloss-001`: the run is reported on the way out, not only on the way back in
 

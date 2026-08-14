@@ -30,12 +30,12 @@ class RunReportTest {
             deaths = 1
         }
 
-    private fun report(named: Boolean = false, complete: Boolean = true) = RunReport.build(
+    private fun report(named: Boolean = false, complete: Boolean = true, floor: String = "M5") = RunReport.build(
         named = named,
         ts = 1786530882102,
         installId = "0f5e4a1c-1111-2222-3333-444455556666",
         player = "Sighte",
-        floor = "M5",
+        floor = floor,
         complete = complete,
         runTicks = 8000,
         roster = listOf(DungeonPlayer("Sighte", "Berserk", "VII"), DungeonPlayer("Stranger", "Mage", "L")),
@@ -568,5 +568,49 @@ class RunReportTest {
         // receiver reading a quit run as a whole one.
         assertFalse(stored["complete"].asBoolean)
         assertEquals(1, stored["rooms"].asJsonArray.size())
+    }
+
+    /**
+     * Writes [DungeonSession.floor] the way `DungeonSessionTest` does and for the same reason: the
+     * setter is private and the only writer needs a live client. Cleared again by the caller — the
+     * field is process-wide state on an `object` and the suite runs sequentially.
+     */
+    private fun setFloor(value: String?) {
+        val field = DungeonSession::class.java.getDeclaredField("floor")
+        field.isAccessible = true
+        field.set(DungeonSession, value)
+    }
+
+    /**
+     * **The read all three write paths share.** [RunReport.write] cannot be called from this suite —
+     * it needs a live `Minecraft` — so this is the closest reachable point to the line that filed 20
+     * of the 22 reports on the box under `?`. What it asserts is that the value on
+     * [DungeonSession] reaches the report unchanged: the headline path had it all along, and since
+     * `floorloss-001` the `JOIN` and `DISCONNECT` paths see the same thing, because the floor is no
+     * longer cleared on the way out.
+     */
+    @Test
+    fun `a report is filed under the floor the session remembers`() {
+        try {
+            setFloor("M7")
+            assertEquals("M7", RunReport.reportedFloor())
+            // And it reaches the file under the key the receiver requires — `floor` is in
+            // ingest.py's RUN_KEYS and has been since schema 1, so this changes the value and not
+            // the shape.
+            assertEquals("M7", report(floor = RunReport.reportedFloor())["floor"].asString)
+        } finally {
+            setFloor(null)
+        }
+    }
+
+    /**
+     * `?` survives, and it now means what it says. A run whose floor was never seen has no honest
+     * answer, and inventing one would put a fabricated floor into an append-only store — so the
+     * fallback stays. What changed is that it is no longer the ordinary outcome.
+     */
+    @Test
+    fun `a floor that was never seen is still a question mark`() {
+        setFloor(null)
+        assertEquals("?", RunReport.reportedFloor())
     }
 }

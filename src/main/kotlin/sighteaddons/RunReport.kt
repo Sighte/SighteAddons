@@ -141,6 +141,23 @@ object RunReport {
     internal fun uploader(live: String?, captured: String?): String? = captured ?: live
 
     /**
+     * The floor the report is filed under, and the single point all three write paths share.
+     *
+     * `?` still exists, because a run whose floor was never seen has no honest answer — but since
+     * `floorloss-001` it means that and only that. It used to mean "this report was not written from
+     * the run-end headline", which is 20 of the 22 reports on the box: [DungeonSession.floor] was
+     * cleared by the in-dungeon check on the way out, and the two paths that write after leaving
+     * therefore never saw one. [DungeonSession] keeps it for the life of the run now, so all three
+     * paths read the same value here — the headline while still inside, `JOIN` after the warp, and
+     * `DISCONNECT` off the client thread.
+     *
+     * Named rather than inlined at the one call site so a test can reach it: [write] needs a live
+     * `Minecraft` and cannot be called from this suite at all, which is how the defect survived
+     * five schema versions.
+     */
+    internal fun reportedFloor(): String = DungeonSession.floor ?: "?"
+
+    /**
      * [complete] is false for a run that was left before the end. Everything below the run level is
      * unaffected — a room that was cleared has its ticks either way — but `runTicks`, `roomsCleared`
      * and `deaths` then describe the part that was played rather than a whole run, and nothing
@@ -168,7 +185,7 @@ object RunReport {
             // Whether it also reaches the file is [named]'s decision alone.
             player = self,
             named = Config.uploadName,
-            floor = DungeonSession.floor ?: "?",
+            floor = reportedFloor(),
             complete = complete,
             runTicks = DungeonSession.runTicks,
             roster = PartyTracker.roster(),
