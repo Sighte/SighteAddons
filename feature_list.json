@@ -69,7 +69,7 @@
       "area": "telemetry",
       "title": "Anchor enterTick on a minimum stay",
       "user_visible_behavior": "A room a party member only passed through no longer reports that pass-through as the room's clear time.",
-      "status": "not_started",
+      "status": "passing",
       "depends_on": [],
       "verification_command": "./gradlew test --tests 'sighteaddons.ContributionTrackerTest' --tests 'sighteaddons.RunReportTest'",
       "verification_manual": [
@@ -78,8 +78,44 @@
         "Verify the reported clear does not start at the pass-through."
       ],
       "blocked_reason": "",
-      "evidence": [],
-      "notes": "PAIRED with the receiver's schema-001, and the receiver goes FIRST: ingest.py:282 — a field the validator has not learned is a 400 and TelemetryUpload never retries it, so shipping this build before the receiver is deployed loses every run of it. Why it matters: the receiver's roomstats.py docstring — clear is an upper bound, not a duration, because enterTick is stamped the first time ANY party member is seen in the room with no minimum stay, so 145 s gets reported for a 1x1. avgSeconds cannot be a difficulty weight until this is anchored. See the ponytail: note on enteredAtTick in ContributionTracker.kt."
+      "evidence": [
+        {
+          "date": "2026-08-14",
+          "command": "./gradlew test --tests 'sighteaddons.ContributionTrackerTest' --tests 'sighteaddons.RunReportTest' --rerun-tasks",
+          "result": "BUILD SUCCESSFUL in 7s, 7 actionable tasks: 7 executed. ContributionTrackerTest tests=16 failures=0 errors=0 (the class did not exist before this feature); RunReportTest tests=21 failures=0 errors=0. The cases that pin the anchor: 'a walk-through does not anchor the room', 'a clear long after a walk-through reports no anchor at all', 'a member who passes through and comes back is anchored on the return', 'two walk-throughs by one member never add up to a stay', 'the anchor is the start of the qualifying stay, not the tick it qualified', 'a gap shorter than the threshold does not split a stay', 'the fallback can never manufacture a clear longer than the threshold', 'nothing anchors a room after it was cleared'.",
+          "commit": "a6d92b6",
+          "artifact": "build/test-results/test/TEST-sighteaddons.ContributionTrackerTest.xml"
+        },
+        {
+          "date": "2026-08-14",
+          "command": "bash init.sh",
+          "result": "BASELINE: PASSING. Regression check over the whole suite: build/test-results/test/*.xml sums to classes 12, tests 101, skipped 0, failures 0, errors 0 — up from 84. No existing test was removed or weakened. Two existing RunReportTest assertions were updated because this feature deliberately changes what they pin: 'run context survives' now expects v=5, and the shared room fixture earns enteredAtTick through onPresence instead of assigning it (the setter is private now), landing on the same 120 the assertions have always expected.",
+          "commit": "a6d92b6",
+          "artifact": "build/test-results/test/"
+        },
+        {
+          "date": "2026-08-14",
+          "command": "./gradlew assemble check",
+          "result": "BUILD SUCCESSFUL in 4s. Deliberately not './gradlew build': build is finalizedBy copyToDist and copyToDist dependsOn cleanDist, so it would delete and replace dist/sighteaddons-0.9.0.jar with a jar that is no longer the released 0.9.0. 'git status --short dist/ gradle.properties' is empty — no version bump, so the release gate at the top of CLAUDE.md did not fire.",
+          "commit": "a6d92b6",
+          "artifact": ""
+        },
+        {
+          "date": "2026-08-14",
+          "command": "sed -i 's/SCHEMA = 5/SCHEMA = 4/' RunReport.kt; ./gradlew test --tests 'sighteaddons.RunReportTest' --rerun-tasks   (mutation check, reverted immediately)",
+          "result": "BUILD FAILED, 21 tests completed, 2 failed: 'the stay anchor only ships under a schema that says so' and 'run context survives'. This is the check that the schema bump is actually guarded rather than merely done — shipping the new anchor as v4 is invisible to the receiver (no 400, no log line), so a test is the only thing that can catch it. Source restored to SCHEMA = 5 and re-verified in the run above.",
+          "commit": "a6d92b6",
+          "artifact": ""
+        },
+        {
+          "date": "2026-08-14",
+          "command": "Dropped the 'stay.ticks < MIN_TICKS' clause from TrackedRoom.onPresence (i.e. reverted to first-sighting anchoring); ./gradlew test --tests 'sighteaddons.ContributionTrackerTest' --tests 'sighteaddons.RunReportTest' --rerun-tasks   (mutation check, reverted immediately)",
+          "result": "BUILD FAILED, 37 tests completed, 9 failed — including 'a walk-through does not anchor the room', 'a clear long after a walk-through reports no anchor at all' and 'a member who passes through and comes back is anchored on the return'. Evidence that the new tests pin the behaviour rather than the shape of the implementation: a silent return to the schema-4 anchor cannot pass this suite. Source restored and re-verified in the run above.",
+          "commit": "a6d92b6",
+          "artifact": ""
+        }
+      ],
+      "notes": "PAIRED with the receiver's schema-001, which was DEPLOYED FIRST and is live on master at f1085a7 — verified before this feature started, so the order CLAUDE.md fixes was respected. CORRECTION TO THIS NOTE'S EARLIER RATIONALE, checked against the receiver's source rather than trusted: this pair has no 400 in it and never did. ingest.py:214 validates `v` as _num(x, 1, 10), so v=5 was already accepted before the receiver moved, and ingest.py:159 has had `enterTick` in ROOM_OPTIONAL since schema 3. No field is added, removed or retyped here — only the meaning of an existing one changes — so nothing would have rejected this build and the 'loses every run of it' claim did not apply. The receiver corrected the mirror image of the same false rationale on its own side. WHAT THE REAL RISK IS, and it is worse than a 400 because it is silent: roomstats.py routes the clear span on the report's `v` alone (STAY_ANCHOR_SCHEMA = 5), below 5 into `clear` and at-or-above into `clearStay`, never mixing them. Shipping the stay anchor with SCHEMA left at 4 would fold every stay-anchored span back into the old sighting-anchored average — no 400, no log line, and profiles/ is append-only so the mean could never be cleaned. Hence SCHEMA 4 -> 5 in RunReport.kt as part of this feature, and a test that fails if the anchor is stay-based while v < 5. WHY IT MATTERS: the receiver's roomstats.py docstring — `clear` was an upper bound, not a duration, because enterTick was stamped the first time ANY party member was seen in the room with no minimum stay, so 145 s got reported for a 1x1. HOW IT IS ANCHORED NOW: TrackedRoom tracks a current stay per member (start, ticks, lastSeen) instead of only the run-long tick total, and enteredAtTick is the start of the first stay to reach MIN_TICKS — its own start, not the tick it qualified at, since the latter would shorten every clear in the data by a flat second. Sighting gaps of up to MIN_TICKS do not split a stay, because PartyTracker.positions deliberately reports no teammate positions at all for the 10-20 ticks around a death. A room that clears before anyone qualifies falls back to the earliest stay begun within the last MIN_TICKS: without that, the empty 1x1s that clear on entry (three in one M7, per the count in ContributionTracker.award) would carry no anchor at all and the server's mean would be built from every room EXCEPT the fastest — a bias rather than sparsity. The fallback's window is what makes it safe, since every span it can produce is under a second by construction and it can never reach back to an old walk-through. Nothing anchors after the clear, so enterTick <= clearTick holds whenever both are set, and a preCleared room now reports a null anchor for its whole life (honest: there is no clear of ours to time, and roomstats.py:102 skips preCleared rooms anyway). enteredAtTick is `private set` so the invariant has exactly one home. NOT SHIPPED: no version bump and no dist/ refresh, so this reaches no install until the next release, which is the user's decision."
     },
     {
       "id": "clearpoints-001",

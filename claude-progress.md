@@ -9,23 +9,74 @@ new session reads.
 - Standard startup path: `./gradlew runClient` — Loom's dev client, which has no valid session and
   cannot reach Hypixel
 - Standard verification path: `./init.sh` → `./gradlew test`; full is `./gradlew build`
-- Baseline status (last `./init.sh` run): **PASSING** — 84 tests in 11 classes, 0 failures,
-  0 skipped, 2026-08-14, at `2f742cd` on branch `residue-001` (off `main` at `43b425f`),
+- Baseline status (last `./init.sh` run): **PASSING** — 101 tests in 12 classes, 0 failures,
+  0 skipped, 2026-08-14, at `a6d92b6` on branch `clear-001` (off `main` at `b588cc4`),
   `mod_version=0.9.0`
-- Last feature completed: `residue-001` — `unattributed` is settled rather than half-clamped. Not a
-  schema change, so nothing is waiting on the receiver for it.
-- Current highest-priority unfinished feature: `clear-001` — anchor `enterTick` on a minimum stay.
-  It is paired with the receiver's `schema-001` and **the receiver ships first**.
-- Current blocker: none for `clear-001`. `ingame-001` is blocked on a human playing a real floor,
-  which no command here can produce.
-- `dist/sighteaddons-0.9.0.jar` is deliberately **not** rebuilt: it is still the released 0.9.0
-  artifact. `residue-001` therefore exists in source only until somebody bumps the version and takes
-  the release gate at the top of `CLAUDE.md`.
+- Last feature completed: `clear-001` — `enterTick` is anchored on a minimum stay instead of on the
+  first sighting, and `RunReport.SCHEMA` is **5**. Its receiver half, `schema-001`, was deployed
+  first and is live on `master` at `f1085a7`.
+- Current highest-priority unfinished feature: `clearpoints-001` — weight rooms instead of counting
+  them. Not paired with the receiver and not a schema change.
+- Current blocker: none for `clearpoints-001`. `ingame-001` is blocked on a human playing a real
+  floor, which no command here can produce.
+- **The report schema is now 5 in source and 4 in every install.** `dist/sighteaddons-0.9.0.jar` is
+  deliberately **not** rebuilt — it is still the released 0.9.0 artifact — so `residue-001` and
+  `clear-001` both exist in source only. Neither reaches a player until somebody bumps the version
+  and takes the release gate at the top of `CLAUDE.md`, which is the user's decision. Nothing breaks
+  in the meantime: the receiver accepts v4 and v5 alike and buckets their clear spans apart.
 
 ## Session Log
 
 Rules: insert the newest session at the TOP of this section. Never edit or delete past session
 entries — they are the audit trail. Copy the template below for each new session.
+
+### Session 003
+
+- Date: 2026-08-14
+- Goal: `clear-001` — anchor `enterTick` on a minimum stay, so the reported clear stops starting at
+  somebody's walk-through.
+- Completed: `TrackedRoom` now tracks a **current stay** per member (`start`, `ticks`, `lastSeen`)
+  alongside the run-long tick total it already kept, and `enteredAtTick` — now `private set` — is the
+  start of the first stay to reach `MIN_TICKS`. Two new pure methods carry it: `onPresence(player,
+  at)` and `anchorOnClear(at)`. The first-sighting assignment in `discover` is gone, and its
+  `ponytail:` note shrank from two ceilings to one (decoration lag, whose upgrade path is party
+  sync). `ContributionTracker.tick` calls both and logs a new `room_anchored` debug event; the
+  `cleared` event now carries `enterTick` and `anchoredOnClear`. **`RunReport.SCHEMA` 4 → 5.** New
+  `ContributionTrackerTest` with 16 cases — the class both `clear-001` and `clearpoints-001` name in
+  their `verification_command` and which did not exist before.
+- Verification run (exact commands):
+  - `./gradlew test --tests 'sighteaddons.ContributionTrackerTest' --tests 'sighteaddons.RunReportTest' --rerun-tasks`
+  - `bash init.sh`
+  - `./gradlew assemble check`
+  - two mutation checks, both reverted immediately (see `feature_list.json` evidence)
+- Evidence captured: `BUILD SUCCESSFUL in 7s`, `7 actionable tasks: 7 executed`;
+  `ContributionTrackerTest tests=16 failures=0`, `RunReportTest tests=21 failures=0`;
+  `BASELINE: PASSING` with the JUnit XML summing to `tests=101 skipped=0 failures=0 errors=0` across
+  12 classes, up from 84. All at `a6d92b6`. The two mutation checks are the load-bearing evidence:
+  reverting `SCHEMA` to 4 fails 2 tests, and reverting the anchor to first-sighting fails 9 of the
+  16 new ones — so neither half can be silently undone.
+- Commits: `a6d92b6` (the anchor, the schema bump and the tests) plus the artifact commit that
+  follows it, both on branch `clear-001` off `main` at `b588cc4`. Not pushed, not merged.
+- Files or artifacts updated: `ContributionTracker.kt`, `RunReport.kt`, `RunReportTest.kt`, new
+  `ContributionTrackerTest.kt`, `feature_list.json`, this file, `quality-document.md`,
+  `session-handoff.md`.
+- Regressions found: none. No test was removed or weakened. Two existing `RunReportTest` assertions
+  were updated because this feature deliberately changes what they pin: `run context survives` now
+  expects `v = 5`, and the shared room fixture earns its anchor through `onPresence` rather than
+  assigning it, landing on the same `120` the assertions have always expected.
+- Correction recorded: `clear-001`'s own `notes` claimed the pair risked a `400` and the permanent
+  loss of every run of the build. That was **false**, and it was checked rather than trusted:
+  `ingest.py:214` validates `v` as `_num(x, 1, 10)` so `v: 5` was accepted before the receiver
+  moved, and `ingest.py:159` has had `enterTick` in `ROOM_OPTIONAL` since schema 3. This feature adds
+  no field; it changes what one means. The note is corrected in place, with the real risk in its
+  stead — which is worse than a `400` precisely because nothing reports it.
+- Known risk or unresolved issue: the anchor is verified only through the `TrackedRoom` seam.
+  `ContributionTracker.tick` needs a `Minecraft` and a `MapItemSavedData`, so the wiring — that
+  `tick` calls `onPresence` once per member per tick with the run clock, and `anchorOnClear` exactly
+  on the clear — has no test and no command here can produce one. The gap tolerance is reasoned from
+  `PartyTracker.positions`' documented 10–20 tick roster-skew window, not measured against a real
+  decoration stream. And the schema is now 5 in source while every install still sends 4: correct and
+  harmless, but it means the receiver's `clearStay` bucket stays empty until a release happens.
 
 ### Session 002
 
