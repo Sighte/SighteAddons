@@ -1,7 +1,7 @@
 {
   "project": "SighteAddons",
   "schema_version": 2,
-  "last_updated": "2026-08-13",
+  "last_updated": "2026-08-14",
   "rules": {
     "single_active_feature": true,
     "passing_requires_evidence": true,
@@ -24,8 +24,48 @@
   },
   "features": [
     {
-      "id": "clear-001",
+      "id": "residue-001",
       "priority": 1,
+      "area": "telemetry",
+      "title": "Settle the unattributed points instead of clamping one side of them",
+      "user_visible_behavior": "A run where every cleared room was attributed reports 0 unattributed rooms, not 3.552713678800501e-15 of one.",
+      "status": "passing",
+      "depends_on": [],
+      "verification_command": "./gradlew test --tests 'sighteaddons.RunReportTest'",
+      "verification_manual": [
+        "Play a run in which every cleared room had somebody in it.",
+        "Open the written report in config/sighteaddons/runs/.",
+        "Verify `unattributed` reads 0.0 and carries no exponent."
+      ],
+      "blocked_reason": "",
+      "evidence": [
+        {
+          "date": "2026-08-14",
+          "command": "./gradlew test --tests 'sighteaddons.RunReportTest' --tests 'sighteaddons.RoomHistoryTest' --tests 'sighteaddons.DungeonGridTest' --rerun-tasks",
+          "result": "BUILD SUCCESSFUL in 10s, 7 actionable tasks: 7 executed. The four new RunReportTest cases pass: 'the split residue is not reported as a fraction of a room', 'the residue this removes is the one the point split actually produces', 'the residue drifts in both directions, which is what the clamp alone missed', 'a negative never reaches the report', plus 'a genuinely unattributed room still counts'.",
+          "commit": "2f742cd",
+          "artifact": "build/test-results/test/TEST-sighteaddons.RunReportTest.xml"
+        },
+        {
+          "date": "2026-08-14",
+          "command": "bash init.sh",
+          "result": "BASELINE: PASSING. Regression check over the whole suite: build/test-results/test/*.xml sums to classes 11, tests 84, skipped 0, failures 0, errors 0 — up from 79, with no existing test changed or removed.",
+          "commit": "2f742cd",
+          "artifact": "build/test-results/test/"
+        },
+        {
+          "date": "2026-08-14",
+          "command": "./gradlew assemble check",
+          "result": "BUILD SUCCESSFUL. Deliberately not './gradlew build': build is finalizedBy copyToDist, and refreshing dist/sighteaddons-0.9.0.jar would leave the committed jar no longer the released 0.9.0 artifact. 'git status --short dist/' is empty.",
+          "commit": "2f742cd",
+          "artifact": ""
+        }
+      ],
+      "notes": "NOT a schema change and NOT paired with the receiver: `unattributed` is already in RUN_KEYS (ingest.py:138) and validated as _real(x, 0, MAX_CLEARED) (ingest.py:226), so nothing has to be deployed first and no field is added, removed or retyped. Diff done before touching RunReport.kt, as CLAUDE.md requires. Origin: POINTS_PER_ROOM is 1.0 and DungeonGrid.splitPoints divides it by tick counts, so a room shared three ways credits 0.333... three times and the sum drifts a few ULPs across a floor; roomsCleared - pointsByPlayer().values.sum() then yields a residue instead of a zero. The existing coerceAtLeast(0.0) in RunReport.build was written for exactly this and was one-sided, so +3.55e-15 went through and reached profiles/, which is append-only and can never be corrected. Fixed by ContributionTracker.settle (round to the two decimals every display path already truncates to, then clamp), applied in build() — the documented pure seam, so `write` and any caller passing `unattributed` directly are both covered. RoomHistory.printSummary computed the same expression inline behind its own `> 0.01`; both sites now call ContributionTracker.unattributed(), so the duplicated expression is gone rather than doubled. Genuinely non-zero values are untouched on purpose: a room cleared with nobody ever seen in it is a real unattributed point, and the gap to roomsCleared is the receiver's own diagnostic for a broken decoration mapping (agent/AGENT-PROMPT.md:62). mod_version stays 0.9.0, so the release gate did not fire — which also means the fix reaches players only at the next bump and release."
+    },
+    {
+      "id": "clear-001",
+      "priority": 2,
       "area": "telemetry",
       "title": "Anchor enterTick on a minimum stay",
       "user_visible_behavior": "A room a party member only passed through no longer reports that pass-through as the room's clear time.",
@@ -43,7 +83,7 @@
     },
     {
       "id": "clearpoints-001",
-      "priority": 2,
+      "priority": 3,
       "area": "scoring",
       "title": "ClearPoints proper — weight rooms instead of counting them",
       "user_visible_behavior": "A cleared puzzle or a secret-heavy room is worth more than an empty 1x1, so the score separates players the flat count cannot.",
@@ -60,7 +100,7 @@
     },
     {
       "id": "chat-001",
-      "priority": 3,
+      "priority": 4,
       "area": "events",
       "title": "Read the events Hypixel puts in chat",
       "user_visible_behavior": "Secret clicks, wither doors, puzzle solvers and deaths are attributed as they happen rather than inferred.",
@@ -77,7 +117,7 @@
     },
     {
       "id": "records-001",
-      "priority": 4,
+      "priority": 5,
       "area": "history",
       "title": "Records per floor, not collapsed across them",
       "user_visible_behavior": "A room that is genuinely harder on F7 than on F5 shows two records instead of one blended number.",
@@ -94,7 +134,7 @@
     },
     {
       "id": "party-001",
-      "priority": 5,
+      "priority": 6,
       "area": "party",
       "title": "Party sync instead of the decoration-order heuristic",
       "user_visible_behavior": "Two players standing on one decoration are told apart, and secrets are attributed per player.",
@@ -111,7 +151,7 @@
     },
     {
       "id": "ingame-001",
-      "priority": 6,
+      "priority": 7,
       "area": "verification",
       "title": "Confirm calibration, decorations, checkmarks and core hashing against real Hypixel data",
       "user_visible_behavior": "Room names, checkmarks and timing are known to be right in a real dungeon, not only in unit tests.",
