@@ -168,6 +168,12 @@ internal object ChatEvents {
         // be read — they are the property this whole object rests on — and this is what keeps them
         // true if one is ever edited away. A trailing newline is rejected rather than tolerated,
         // which is the safe direction for a line that decides a permanent number.
+        //
+        // Measured rather than assumed, by mutation: removing the `^` from [LEAD] alone fails
+        // nothing, and switching this to `find` alone fails nothing — either mechanism holds the
+        // line on its own. Both together fail `a party member typing a death message does not kill
+        // anybody` and `reads the blood door, which names nobody`. So this is genuine redundancy and
+        // not a guard sitting on top of a dead one, which is the thing worth knowing about it.
         DEATH.matchEntire(stripped)?.let { return Event.Death(it.groupValues[1]) }
         REVIVED.matchEntire(stripped)?.let { return Event.Revived(it.groupValues[1]) }
         if (BLOOD_DOOR.matchEntire(stripped) != null) return Event.BloodDoor
