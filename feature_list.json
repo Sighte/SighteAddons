@@ -753,6 +753,24 @@
       "blocked_reason": "",
       "evidence": [],
       "notes": "Recorded rather than built, per CLAUDE.md's rule about work discovered mid-feature. `party-001` established that no key survives the wire (see its evidence) and that `MapDecoration.name()` (`Optional<Component>`) is the ONLY per-decoration identity channel left in the 26.1.2 protocol. Whether Hypixel populates it is unknowable from this machine. This is one field on the existing `player_room` event in `PartyTracker.positions`, next to decoType/decoX/decoY.\n\nTHE DESIGN QUESTION THAT MAKES IT A FEATURE AND NOT A COMMIT: if the name is populated it is most likely the teammate's IGN, and a raw IGN must not reach the debug log - `Pseudonym` exists precisely so the log never carries a stranger's name. So the field has to be redacted on the way in, and a redacted value cannot tell you what the name WAS, which is the thing this feature is trying to find out. `Pseudonym.row`'s existing answer applies: replace anything name-shaped and keep the rest, so the log says whether there was a name and what shape it had without saying whose. Decide that before writing the field, not after.\n\nOnly worth doing if somebody is going to play a party floor. It proves nothing on its own and it cannot be verified here."
+    },
+    {
+      "id": "floorloss-001",
+      "priority": 15,
+      "area": "telemetry",
+      "title": "A report knows which floor it was",
+      "user_visible_behavior": "A run report carries the floor it was played on instead of `?`, so per-floor questions can be asked of the data at all.",
+      "status": "not_started",
+      "depends_on": [],
+      "verification_command": "./gradlew test --tests 'sighteaddons.DungeonSessionTest' --tests 'sighteaddons.RunReportTest'",
+      "verification_manual": [
+        "Play a floor, leave it normally, and confirm the uploaded report carries the floor rather than `?`.",
+        "Play a floor and quit the client from inside it (the runloss-001 path), and confirm the same.",
+        "On the box: jq over profiles/*.jsonl and confirm new reports no longer group under `?`."
+      ],
+      "blocked_reason": "",
+      "evidence": [],
+      "notes": "MEASURED ON THE BOX, 2026-08-15. Of 22 uploaded reports, 20 carry floor `?` and only 2 carry a real floor - and both of those are v4/0.9.0. In roomstats.json, 115 of 125 room entries are grouped under `?`. This is not old data: the three newest reports are v5, one of them from the 0.10.0 release, and all three say `?`.\n\nTHE CAUSE, and it is one line doing two jobs. DungeonSession.kt:61 is\n  floor = sidebarLines(client).firstNotNullOfOrNull { FLOOR.find(it)?.groupValues?.get(1) }\n  return floor != null\nThat assignment IS the in-dungeon check, so every call outside a dungeon overwrites a known floor with null. RunReport.kt:171 then reads `DungeonSession.floor ?: \"?\"`. The report is written on ClientPlayConnectionEvents.JOIN - after leaving - so by then the value is gone. The two reports that DO carry M7 are the ones written from the run-end headline, while the player was still inside and the sidebar still showed it. The check that asks whether you are still in a dungeon destroys the fact the report needs.\n\nWHY IT MATTERS BEYOND TIDINESS: roomstats groups every room entry by floor, so the fold cannot separate a room that is genuinely harder on F7 from the same room on F5 even if somebody wanted it to. records-001 was deferred by the user on the grounds that per-floor judgement is too much work - worth knowing that the data would not currently support it either way. The scoring model does not read floor and is unaffected.\n\nSHAPE OF THE FIX, not prescribed: keep the last known floor for the life of a run rather than letting the detector clear it, and clear it in DungeonSession.reset() where the run actually ends. Check runloss-001's DISCONNECT path too - it writes off-thread and must see the same value.\n\nNOT PAIRED: `floor` is already in RUN_KEYS and the receiver validates it today. This changes the value, not the shape."
     }
   ]
 }
