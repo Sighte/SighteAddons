@@ -9,6 +9,7 @@ import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.io.path.name
 
 /**
@@ -66,17 +67,97 @@ object RunReport {
     private const val SCHEMA = 5
 
     /**
+     * Whether this run has already been handed to the queue.
+     *
+     * **The one guard against reporting a run twice, and it belongs here rather than at a call
+     * site.** Since `runloss-001` there are three ways in — the end-of-run headline,
+     * `ClientPlayConnectionEvents.JOIN` and `ClientPlayConnectionEvents.DISCONNECT` — and two of
+     * them can fire for the same run: quitting to the title screen from inside a floor disconnects
+     * (report written) and then joining any server logs in again (report written a second time,
+     * from state nothing had reset in between). `SighteAddons.summaryPrinted`, which used to be the
+     * guard at the JOIN site, does not cover that pair: it is only ever set by the headline, so it
+     * is still false on both passes.
+     *
+     * Set only when a file actually reached the queue, so a write that failed leaves the later call
+     * site its second chance rather than swallowing the run for good.
+     *
+     * Atomic because the DISCONNECT path does not run on the client thread — see [uploader].
+     * Cleared by [DungeonSession.reset], which is what makes it per-run rather than per-process.
+     */
+    private val reported = AtomicBoolean(false)
+
+    /** Called from [DungeonSession.reset]: a new run may be reported again. */
+    fun reset() {
+        reported.set(false)
+    }
+
+    /**
+     * Hands one report to the queue if this run has not been reported yet. Returns whether it did.
+     *
+     * The claim is taken *before* the write and given back if the write fails, which is the whole
+     * behaviour worth stating: a run that could not be written is not a run that was reported, and
+     * the later call site — a JOIN after a failed DISCONNECT write — is its second chance. Claiming
+     * afterwards instead would leave a window in which both paths write, which is the duplicate this
+     * exists to prevent.
+     */
+    internal fun queue(dir: Path, name: String, body: String): Boolean {
+        if (!reported.compareAndSet(false, true)) return false
+        if (publish(dir, name, body)) return true
+        reported.set(false)
+        return false
+    }
+
+    /**
+     * Who the report is about, and the reason [write] no longer asks the client for it.
+     *
+     * `ClientPlayConnectionEvents.DISCONNECT` is the only event that fires when the game is quit
+     * from inside a dungeon, and it is **not** a safe place to read `Minecraft.getInstance().player`.
+     * Measured against `minecraft-merged-043a8b3edf-26.1.2.jar` and
+     * `fabric-networking-api-v1-6.3.1+554860db4c.jar` rather than reasoned about — the four steps,
+     * each re-checkable with one `javap -p -c`:
+     *
+     * 1. `Minecraft.destroy()` calls `ClientLevel.disconnect(DEFAULT_QUIT_MESSAGE)` and only *then*
+     *    `disconnectWithProgressScreen()`.
+     * 2. `ClientLevel.disconnect` reaches `Connection.disconnect`, which is
+     *    `channel.close().awaitUninterruptibly()`.
+     * 3. Fabric raises DISCONNECT from `ConnectionMixin`, injected at the head of
+     *    `Connection.channelInactive` and at `PacketListener.onDisconnect` inside
+     *    `Connection.handleDisconnection`. The first of those is a Netty event-loop callback, and
+     *    `AbstractNetworkAddon.handleDisconnect` invokes the event straight from it with no hop back
+     *    to the client thread.
+     * 4. Netty completes the close future before it fires `channelInactive`, so
+     *    `awaitUninterruptibly()` can return while the handler is still queued — and the very next
+     *    thing `Minecraft.disconnect(Screen, boolean, boolean)` does is `this.player = null`.
+     *
+     * So the handler races the field it would want to read, on a thread that is not the one nulling
+     * it. [PartyTracker.localName] is the answer: the same string, captured every second of the run
+     * while the client certainly had a player. It also happens to be the *more* correct one — the
+     * room tick maps are keyed by the name that was current during the run, not by whoever the
+     * client has now — which is why it is preferred rather than merely used as a fallback.
+     *
+     * [live] stays as the fallback for the one case the capture cannot cover: a report written
+     * before [PartyTracker.update] has ever run.
+     */
+    internal fun uploader(live: String?, captured: String?): String? = captured ?: live
+
+    /**
      * [complete] is false for a run that was left before the end. Everything below the run level is
      * unaffected — a room that was cleared has its ticks either way — but `runTicks`, `roomsCleared`
      * and `deaths` then describe the part that was played rather than a whole run, and nothing
      * downstream could tell without being told.
+     *
+     * Returns whether a report reached the queue, so a caller can tell "nothing to report" from
+     * "the report was lost". Safe to call more than once per run: only the first success writes.
      */
-    fun write(complete: Boolean) {
+    fun write(complete: Boolean): Boolean {
+        if (reported.get()) return false
         val client = Minecraft.getInstance()
-        val self = client.player ?: return
+        // Not `client.player` — see [uploader] for why that field is unreadable on the path this
+        // whole feature exists for.
+        val self = uploader(client.player?.name?.string, PartyTracker.localName) ?: return false
         val rooms = ContributionTracker.visitedRooms()
         // No rooms is a false headline match or a server hop outside a dungeon, not a run.
-        if (rooms.isEmpty()) return
+        if (rooms.isEmpty()) return false
 
         val ts = System.currentTimeMillis()
         val id = Config.installId
@@ -85,7 +166,7 @@ object RunReport {
             installId = id,
             // Always needed to pick the uploader's own rows out of the roster and the tick maps.
             // Whether it also reaches the file is [named]'s decision alone.
-            player = self.name.string,
+            player = self,
             named = Config.uploadName,
             floor = DungeonSession.floor ?: "?",
             complete = complete,
@@ -100,12 +181,39 @@ object RunReport {
         )
 
         val dir = FabricLoader.getInstance().configDir.resolve("sighteaddons/runs")
-        try {
-            Files.createDirectories(dir)
-            Files.writeString(dir.resolve("run-$ts-$id.json"), report.toString())
-        } catch (e: Exception) {
-            SighteAddons.LOGGER.error("Could not write run report to {}", dir, e)
-        }
+        val name = "run-$ts-$id.json"
+        if (!queue(dir, name, report.toString())) return false
+        // The one line that proves, in a real session file, that a run report was written at all —
+        // and with `complete`, which of the ways out of a floor wrote it. `runloss-001`'s evidence is
+        // a session that carries no such line, because no call site ever fired.
+        DebugLog.event(
+            "run_report", "complete" to complete, "rooms" to rooms.size,
+            "roomsCleared" to ContributionTracker.roomsCleared, "file" to name,
+        )
+        return true
+    }
+
+    /**
+     * Puts one finished report into the queue, or nothing at all.
+     *
+     * **Through a temporary file, because the caller may be a client that is on its way out.** The
+     * DISCONNECT path runs while `Minecraft.destroy()` is a few statements from `System.exit(0)`
+     * (see [uploader]), and a `Files.writeString` interrupted there leaves a truncated `run-*.json`
+     * that matches [TelemetryUpload.RUN], gets posted at the next launch, fails `check_run` with a
+     * `400`, and is filed under `rejected/` for good. The half-written report is the expensive
+     * failure here, not the missing one. `.part` is outside that pattern, so a torn temporary file
+     * is invisible to both the uploader and [restamp] and is overwritten by the next attempt.
+     *
+     * Returns false rather than throwing: telemetry is never a reason for the game to misbehave,
+     * and on this path "the game" is a shutdown sequence.
+     */
+    internal fun publish(dir: Path, name: String, body: String): Boolean = try {
+        Files.createDirectories(dir)
+        replace(dir.resolve(name), body)
+        true
+    } catch (e: Exception) {
+        SighteAddons.LOGGER.error("Could not write run report {} to {}", name, dir, e)
+        false
     }
 
     /**
@@ -179,9 +287,10 @@ object RunReport {
     }
 
     /**
-     * Replaces a queued report in one step. A half-written report is a 400 at the receiver and then a
-     * permanent resident of `rejected/`, which is far more expensive than the temporary file — the
-     * server takes the same precaution on its own side of the wire.
+     * Writes a queued report in one step, whether or not one is already there. A half-written report
+     * is a 400 at the receiver and then a permanent resident of `rejected/`, which is far more
+     * expensive than the temporary file — the server takes the same precaution on its own side of
+     * the wire. [publish] uses it for the first write for the same reason.
      */
     private fun replace(file: Path, body: String) {
         val tmp = file.resolveSibling("${file.name}.part")

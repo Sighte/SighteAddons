@@ -15,117 +15,208 @@ read the recorded evidence.
 
 ---
 
-**Evaluated:** `party-001` — "Identify a decoration's player by something other than list order".
-**Branch:** `party-001` at `64cba74`, code at `80e5f57`, off `main` at `9cb71ee`. Not pushed, not
-merged. For the commit count run `git rev-list --count 9cb71ee..64cba74` — deliberately not
-transcribed, and that discipline has now held across five features.
+**Evaluated:** `runloss-001` — "A run quit straight from the dungeon is not thrown away".
+**Branch:** `runloss-001` at `27b9ea8`, code at `1504ace` and `cd26786`, off `main` at `d356ff2`. Not
+pushed, not merged. For the commit count run `git rev-list --count d356ff2..27b9ea8` — deliberately
+not transcribed, and that discipline has now held across six features.
 **Evaluated on:** 2026-08-14, by a session that implemented none of this work, in a detached worktree
-at `64cba74` (`git worktree add --detach ../party-wt 64cba74`). Worktree removed after the pass. This
-is the **first** grading of `party-001`.
+at `27b9ea8` (`git worktree add --detach ../runloss-wt 27b9ea8`). Worktree removed after the pass.
+This is the **first** grading of `runloss-001`.
 
-**What is being graded is a negative result.** The feature set out to build the accessor-mixin upgrade
-path the codebase had recorded at `PartyTracker.kt:134-138`, concluded that both halves of that claim
-are false, built no mixin, and moved the entry to `blocked`. A fabricated negative closes a door, so
-the negative was re-established from the primary sources rather than read. **It holds, on every
-claim, and on one the session did not make.**
+**What is being graded is the only defect on either repository's list known to have destroyed real
+data** — the user's M7 of 2026-08-14, ten cleared rooms, lost because quitting the client from inside
+a dungeon raises no JOIN and no headline. The fix is a third call site for `RunReport.write`. Its
+write path is fully testable here and was fully tested; its **trigger has never been observed**,
+because the dev client cannot log in to Hypixel. That gap is the whole question this pass exists for
+and it is answered explicitly below rather than left to the scores.
+
+**Every mutation in this pass was applied through an anchor that had to match exactly once, and the
+`git diff --stat` was read after each one.** Two earlier passes reported "survived" for mutations that
+never applied (a heredoc ate a backslash; CRLF broke a patch), and a mutation that failed to apply is
+indistinguishable from a mutation no test catches. Every probe below shows its anchor count and a diff
+stat proportional to the edit — `1 insertion(+), 1 deletion(-)` for the single-line probes, `1
+insertion(+), 3 deletions(-)` for the multi-line one — which is also the proof that CRLF survived,
+since a line-ending conversion would have rewritten the whole file.
 
 ### Commands re-run, and what they actually printed
 
 | Command | Result |
 | --- | --- |
-| `./gradlew test --tests 'sighteaddons.PartyTrackerTest'` (the feature's own `verification_command`, verbatim) | `BUILD SUCCESSFUL`. **`PartyTrackerTest` 14 tests, 0 failures, 0 errors, 0 skipped**, read from `build/test-results/test/TEST-sighteaddons.PartyTrackerTest.xml`. Matches the recorded 14 |
-| `./gradlew test --rerun-tasks`, summing `build/test-results/test/TEST-*.xml`, cold in a fresh worktree | **`classes 14 tests 167 failures 0 errors 0 skipped 0`.** Matches. Per class: ChatEvents 11, ContributionTracker 48, DebugLog 2, DungeonGrid 4, **PartyTracker 14**, Pseudonym 8, RecordTable 9, RoomDatabase 8, RoomHistory 5, RoomStats 9, RunReport 21, SecretRun 6, SecretTracker 8, TelemetryUpload 14 |
-| `./gradlew assemble check`; `md5sum dist/*.jar` before and after | `BUILD SUCCESSFUL`; md5 **`b2ebc35ccfeb9cc96134eb3b18f0306f` identical both sides**; `git status --short dist/ gradle.properties` **empty**; `mod_version=0.9.0`; `RunReport.kt:66 SCHEMA = 5` |
-| `bash init.sh` | `==> BASELINE: PASSING` |
-| `git diff 9cb71ee..64cba74 -- src/main/kotlin/sighteaddons/RunReport.kt \| wc -l` | **`0`.** `RunReport.kt` is absent from the branch entirely, as are `rooms.json`, `dist/` and `gradle.properties`. Files touched: `claude-progress.md`, `feature_list.json`, `quality-document.md`, `session-handoff.md`, `PartyTracker.kt`, `PartyTrackerTest.kt` — **six, and no others** |
-| `bash docs/evidence/session-1786719912927/readout.sh` | `==> READOUT: OK`, exit 0. The party section asserts and passes: **`roster_skew` events 0, distinct players 1, distinct `decoIndex` 1.** The "the one real run was solo" claim is not prose — it is a green assertion over committed evidence |
-| **Recorded probe A** — `if (trustOrder) teammates.getOrNull(next++) else null` → `teammates.getOrNull(next++)` | **2 of 14 FAILED**, and they are the two blackout cases: `one missing marker blacks out every teammate and keeps only the frame`, `an extra marker blacks out the teammates as well`. Matches |
-| **Recorded probe B** — `.also { next++ }` appended to `assign`'s frame branch (NoammAddons' actual defect) | **4 of 14 FAILED**: `dead and empty slots are neither counted nor assigned`, `the frame takes the local slot and the rest follow map order`, `the frame is found by type wherever it sits...`, `the local player being dead drops only the frame`. Matches |
-| **Recorded probe C** — `localSlot` shadowed with `0` inside `assign` | **1 of 14 FAILED**: `the frame is found by type wherever it sits, and the local slot is not assumed to be zero`. Matches, and it is the one case written to catch exactly this |
-| `git status --porcelain src/` after each of the three probes, each restored with `git checkout` | **empty**, all three times |
-| `git diff 9cb71ee..64cba74 -- src/test/ \| grep -cE '^-\s*@Test'` | **`0`**. Added: **7**. Deleted lines in test files of any kind: **none**. Assertion lines removed anywhere under `src/`: **0**. Test classes 14 → 14 |
-| `git show 9cb71ee:src/test/kotlin/sighteaddons/PartyTrackerTest.kt \| grep 'fun \`'` | **The vacuity self-report is true.** The prior 7 are `parses rank prefixes...`, `parses emblems and dead players`, `rejects rows that are not party members`, `dead and empty classes count as not alive`, `a death keeps the class the player had while alive`, `a living row carries its own class`, `a different player in the slot does not inherit a class` — **all tab-regex or living-class carry, not one touching the decoration heuristic** |
-| Feature-status diff `9cb71ee` → `64cba74` | Only `party-001` `not_started` → `blocked`, title and `user_visible_behavior` corrected in place, and `deconame-001` **added** per `CLAUDE.md`'s discovered-work rule. **Nothing downgraded, removed or quietly moved**; `verification_command` text unchanged, confirmed by diffing the field |
-| `python build/keydiff.py` | **Could not be re-run — the script does not exist in a clean checkout** (`build/` is gitignored; the handoff says so). Its conclusion was verified a shorter way instead: `RunReport.kt` is 0 diff lines, so the mod writes no new key and no receiver change can be owed. See follow-up 3 |
+| `bash init.sh` | `==> BASELINE: PASSING`, first attempt, cold worktree, no environment repair |
+| `./gradlew test --tests 'sighteaddons.RunReportTest'` (the feature's own `verification_command`, verbatim) | `BUILD SUCCESSFUL`. **`RunReportTest` 30 tests, 0 failures, 0 errors, 0 skipped**, read from `build/test-results/test/TEST-sighteaddons.RunReportTest.xml`. Matches the recorded 30 |
+| `./gradlew test --rerun-tasks`, summing `build/test-results/test/TEST-*.xml`, cold in a fresh worktree | **`classes 14 tests 176 failures 0 errors 0 skipped 0`.** Matches. Per class: ChatEvents 11, ContributionTracker 48, DebugLog 2, DungeonGrid 4, PartyTracker 14, Pseudonym 8, RecordTable 9, RoomDatabase 8, RoomHistory 5, RoomStats 9, **RunReport 30**, SecretRun 6, SecretTracker 8, TelemetryUpload 14. `main` at `d356ff2` is 167 in the same 14; the delta is exactly RunReport 21 → 30 |
+| `./gradlew assemble check`; `md5sum dist/*.jar` before and after | `BUILD SUCCESSFUL`; md5 **`b2ebc35ccfeb9cc96134eb3b18f0306f` identical both sides**; `git status --short dist/ gradle.properties` **empty**; `mod_version=0.9.0`; `RunReport.kt:67 SCHEMA = 5` |
+| `bash docs/evidence/session-1786719912927/readout.sh` | `==> READOUT: OK`, exit 0 — including the section that is this feature's own headstone, **`run_end events 0`**. The evidence of what the defect cost is intact, as `Do Not Touch` requires |
+| **The key diff, re-derived rather than re-run** — `build/keydiff.py` does not exist in a clean checkout (`build/` is gitignored; third pass in a row, see follow-up 8) | Reproduced independently by parsing `addProperty`/`add` out of `RunReport.build()`/`room()` and `frozenset` bodies out of `SighteAddonServerside/ingest.py`: **run 17 vs 17, room 17 vs 17, all four difference sets empty**. Additionally `git diff d356ff2..27b9ea8 -- RunReport.kt \| grep -E '^[+-].*(addProperty\|\.add\()'` is **empty** — not one key line changed anywhere on the branch |
+| `git -C SighteAddonServerside status --short` and `git log --oneline -3` | **Empty**, head `018cee5`, untouched. Read and never written |
+| **Recorded probe A** — `uploader(live, captured) = live`, the pre-feature behaviour (anchor ×1, `1 insertion(+), 1 deletion(-)`) | **1 of 30 FAILED**: `the report is keyed by the name captured during the run, not by the client`. Matches |
+| **Recorded probe B** — delete `if (!reported.compareAndSet(false, true)) return false` from `queue` (anchor ×1, `1 insertion(+), 1 deletion(-)`) | **2 of 30 FAILED**: `a run reported on the way out is not reported again on the way back in`, `the next run may be reported again`. Matches |
+| **Recorded probe C** — `queue` returns `publish()`'s result without giving the claim back (anchor ×1, `1 insertion(+), 3 deletions(-)`) | **1 of 30 FAILED**: `a failed write leaves the next call site its chance`. Matches, and it is the exact test written to catch a poisoned flag |
+| **Recorded probe D** — `publish` calls `Files.writeString(dir.resolve(name), body)` instead of `replace(...)` (anchor ×1, `1 insertion(+), 1 deletion(-)`) | **Run twice, against both test generations — see below.** Against `1504ace`'s test file: **29 tests, 0 failures.** Against `27b9ea8`'s: **30 tests, 1 failure**, `a torn temporary from an earlier attempt does not survive the next write` |
+| `git status --porcelain src/` after each of the four probes, each restored with `git checkout` | **empty**, all four times; final `RunReportTest` re-run after restoration back to **30/0** |
 
-### The negative, re-established from the primary sources
+### Probe D: the session's own self-criticism, checked, and it is true
 
-Every claim was checked against `javap` over the merged jar this module compiles against
-(`.gradle/loom-cache/.../minecraft-merged-043a8b3edf-26.1.2.jar`) and against the cited mod's source
-fetched with `gh api`. **Nothing was accepted on citation.**
+This is the most honest thing in the report and it deserved checking rather than crediting. The claim
+is that probe D **passed** when it was first run, and proved nothing, because a successful direct
+write and a successful atomic move leave an identical directory — so `cd26786` was written to add the
+observable half.
 
-- **`ClientboundMapItemDataPacket` carries an unkeyed list — TRUE.** `javap -p` gives the record
-  component `private final java.util.Optional<java.util.List<MapDecoration>> decorations;` and the
-  accessor `public java.util.Optional<java.util.List<MapDecoration>> decorations()`. There is no
-  `Map`, no `String`, and no key anywhere in the packet. Nothing to survive the wire.
-- **`addClientSideDecorations` clears the map and re-keys from its own loop index — TRUE, and the
-  bytecode is unambiguous.** `Map.clear()` at offset 4; `istore_2` initialising `i` to 0 at 14; then
-  per iteration `getfield decorations` → `iload_2` → `invokedynamic #5:makeConcatWithConstants:(I)`
-  → `Map.put`. **`BootstrapMethods #5` is `StringConcatFactory` with the recipe constant
-  `icon-`; `#6` is `frame-`.** The constants are exactly as recorded. The field is
-  initialised `Maps.newLinkedHashMap()` (constructor offset 35, `putfield #73`), and
-  `getDecorations()` is a one-line `return decorations.values()`. **So an accessor mixin over the
-  private map returns keys this client invented from the packet list's own order** — the same
-  heuristic, spelled as a string. And past nine entries the last character is `0` of `icon-10`,
-  which is not the index, exactly as the finding says.
-- **NoammAddons does the same thing, with the extra defect — TRUE, verbatim.**
-  `Noamm9/NoammAddons-Legacy`, `DungeonUtils.kt:250-260`:
-  `val livingTeammates = dungeonTeammatesNoSelf.filter { ! it.isDead }`, then
-  `if (type == 1) thePlayer?.mapIcon?.icon = key else if (type == 3) { val index =
-  key[key.lastIndex].digitToInt(); if (index >= 0 && index < livingTeammates.size)
-  livingTeammates[index].mapIcon.icon = key }`. The digit is a position in the key space, which
-  includes the local player's own `type == 1` icon; `dungeonTeammatesNoSelf` excludes them
-  (`:246`). **The defect is real and this mod does not have it.**
-- **And one the session did not check, which I did because a single-repo citation is a single point
-  of failure.** There is a *current* `Noamm9/NoammAddons` alongside the Legacy repo. Its
-  `map/handlers/MapUpdater.kt:55-65` does `val index = key.lastOrNull()?.digitToIntOrNull()` →
-  `livingTeammates[index]`, with the frame separated by `decoration.type.value() ==
-  MapDecorationTypes.FRAME.value()`. **The modern port made the same choice.** The negative is
-  therefore stronger than recorded, not weaker.
-- **`MapDecoration.name()` really is the only survivor — TRUE.** `javap -p` gives the record
-  components `type, x, y, rot, Optional<Component> name` and nothing else. There is no fifth channel
-  the session overlooked.
+`git diff --stat 1504ace..cd26786` is **`src/test/kotlin/sighteaddons/RunReportTest.kt | 20 ++++`, one
+file, test-only**. `RunReport.kt` is byte-identical across the two commits, which is what makes the
+comparison clean: the same mutation, the same production code, two test generations.
 
-**Verdict on the negative: correct. No real feature was skipped, and the door it closes deserved to
-close.**
+- With the test file at `1504ace`: **29 tests, 0 failures.** The suite was **genuinely blind**. A
+  mutation that removes the entire torn-write guarantee sailed through 29 checks.
+- With the test file at `27b9ea8`, mutation unchanged: **30 tests, 1 failure**, and the failure is
+  precisely `a torn temporary from an earlier attempt does not survive the next write` — the test
+  `cd26786` added.
 
-### "Behaviour is unchanged" — checked by reading both sides, not by trusting the suite
+**The self-report is accurate in both directions.** A session that discovers its own probe was vacuous,
+says so in the artifacts, and then commits the test that makes it bite is doing the thing this rubric
+exists to reward. Recorded here because the previous rubric's follow-up 3 shows how fast an
+unrecorded verification detail evaporates.
 
-Room *discovery* runs through this loop (`ContributionTracker.tick` only ever creates a room some
-decoration resolved into), so a silent change here changes which rooms exist, not merely who is
-credited. I compared the old `positions()` against `assign()` + the new `positions()` clause by
-clause: the teammate filter (`indices.filter { it != localSlot }.filter { alive }`) preserves the same
-membership *and the same order*; `markers` is the same count expressed over the boolean projection;
-the frame is still identified by type and still guarded on `alive`; `!trustOrder` still skips without
-advancing `next`; and `next++` still advances even when `getOrNull` returns null. `players` is
-`arrayOfNulls<DungeonPlayer>(5)` and `localSlot` is only ever assigned `0` or a validated `slot >= 0`,
-so the old unguarded `players[localSlot]` and the new `roster.getOrNull(it)` cannot differ. **One
-deliberate difference exists and is annotated at the site** — `map.decorations` was read twice (once
-to count, once to iterate) and is now snapshotted once, because `getDecorations()` is a live view.
-That is strictly safer, not neutral; see follow-up 2.
+### The unresolvable-player claim, re-established from the bytecode
 
-### The two corrected descriptions
+This is the whole design: if the player is resolvable at DISCONNECT, then preferring
+`PartyTracker.localName` over the live player loses its justification and the feature is carrying an
+unnecessary field. **Nothing was accepted on citation.** All four links were disassembled against the
+exact artifacts this module compiles against — `minecraft-merged-043a8b3edf-26.1.2.jar` from
+`.gradle/loom-cache`, `fabric-networking-api-v1-6.3.1+554860db4c.jar` (matching
+`fabric_api_version=0.155.2+26.1.2`), and `netty-transport-4.2.7.Final.jar`.
 
-Both now say the same true thing, and both assert it rather than describing it. `feature_list.json`'s
-notes and `quality-document.md`'s party row agree: two teammates in one room produce two decorations
-that resolve to one cell, so a swap is **harmless**; the damaging failure is the **count mismatch
-across different rooms**, which `trustOrder` blacks out, and which is now pinned in both directions.
-`PartyTrackerTest` carries the assertion in both halves, including `assertNotEquals(bPixel,
-cell(-28, -88))` so the equality is a property of sharing a room rather than of a coarse grid. The
-old row said "two players on one decoration are not told apart", which was never possible —
-decorations are one per player. The correction is right. The two design citations behind the title
-correction are verbatim: `README.md:9` "full per-player attribution with no party sync" and
-`SighteAddons.kt:24` "No packets are sent and nothing is automated".
+1. **`Minecraft.destroy()` disconnects the level before `disconnectWithProgressScreen()` — TRUE, to
+   the offset.** `36: invokevirtual ClientLevel.disconnect:(Component)V` then
+   `40: invokevirtual disconnectWithProgressScreen:()V`. And `81: invokestatic java/lang/System.exit`
+   — "a few statements before `System.exit(0)`" is literally true, which is what makes the torn-write
+   concern real rather than decorative.
+2. **`Connection.disconnect` is `channel.close().awaitUninterruptibly()` — TRUE.**
+   `23: invokeinterface io/netty/channel/Channel.close` →
+   `28: invokeinterface io/netty/channel/ChannelFuture.awaitUninterruptibly`.
+3. **Fabric raises DISCONNECT from a HEAD inject on `Connection.channelInactive`, with no hop to the
+   client thread — TRUE, and this is the load-bearing link.** `ConnectionMixin` carries exactly two
+   `@Inject`s that reach the addon: `method=["channelInactive"] at=@At(value="HEAD")` →
+   `disconnectAddon(ChannelHandlerContext, CallbackInfo)`, and
+   `method=["handleDisconnection"] at=@At(value="INVOKE", target="PacketListener.onDisconnect(DisconnectionDetails)V")`
+   → `disconnectAddon(CallbackInfo)`. Both call `AbstractNetworkAddon.handleDisconnect()`, which is
+   `disconnected.compareAndSet(false, true)` guarding `invokeDisconnectEvent()` + `endSession()` — so
+   the event fires **exactly once per connection**, as recorded. And
+   `ClientPlayNetworkAddon.invokeDisconnectEvent` is `DISCONNECT.invoker().onPlayDisconnect(listener,
+   client)` and nothing else: **no `client.execute`, no `submit`, no queue**. It runs on whichever
+   thread closed the channel, which via the `channelInactive` HEAD inject is the Netty event loop.
+4. **Netty completes the close future before firing `channelInactive` — TRUE.** In
+   `AbstractChannel$AbstractUnsafe.close(...)`, `doClose0` is called at offset 136 —
+   and `doClose0` is `doClose()` → `CloseFuture.setClosed()` → `safeSetSuccess(promise)` — whereas
+   `fireChannelInactiveAndDeregister` is reached at 201/210, after it, partly via `invokeLater`. So
+   `awaitUninterruptibly()` can return while the handler is still queued.
+
+**The chain holds end to end, so the design choice is justified.** The handler runs off the client
+thread while `Minecraft.disconnect(Screen, boolean, boolean)` is nulling `player` — I confirmed the
+null itself at `185: aconst_null / 186: putfield player` — and reading that field across threads
+without synchronisation is a race whatever the interleaving happens to be in practice. The second
+justification the session gives is independent of all four links and also correct: every room's tick
+map is keyed by the name that was current *during* the run, so `localName` is the more correct source
+rather than a fallback. Two precision defects in how this is written down are follow-ups 1 and 2;
+neither touches the conclusion.
+
+### The torn-file guarantee — the pattern really does exclude `.part`
+
+`TelemetryUpload.RUN` is
+`^run-\d+-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.json$`. A temporary is
+`run-<millis>-<uuid>.json.part`, which fails on the `$` anchor after `\.json`; Kotlin's `matches` is a
+full match on top, so it is excluded twice over. **Both consumers filter through that one pattern** —
+`TelemetryUpload.send(...) { RUN.matches(it) }` and `RunReport.restamp`'s
+`Files.list(dir).filter { TelemetryUpload.RUN.matches(it.name) }` — so a torn temporary is invisible
+to the uploader *and* to the restamper, and is overwritten by the next attempt. "Outside the pattern
+by construction" is accurate. The suite pins both halves: `assertFalse(TelemetryUpload.RUN.matches("$name.part"))`
+for the exclusion, and the `cd26786` test for the consumption. The move being atomic is a property of
+the code that no end-state assertion can reach, and the artifacts say exactly that rather than
+implying coverage.
+
+### The double-write guard
+
+`summaryPrinted` was genuinely insufficient and the stated reason is the real one: it is set only at
+`SighteAddons.kt:183-186`, behind `RUN_END.matches(text)`, so on the title-screen-then-rejoin pair it
+is false on both passes. The guard now lives in `RunReport` as an `AtomicBoolean`, claimed by
+`compareAndSet` *before* the write and released on failure, cleared by `DungeonSession.reset()`. Both
+properties are asserted and both bite: probe B (drop the claim) fails 2, probe C (drop the rollback)
+fails 1. The tests say what they need to say — `a run reported on the way out is not reported again on
+the way back in` asserts the second `queue` returns false *and* that the directory holds only the
+first file; `a failed write leaves the next call site its chance` blocks the directory with a regular
+file, asserts the failure did not claim, then writes successfully for the same run. **A run cannot be
+reported twice and a failed write does not poison the flag.** The DISCONNECT site deliberately not
+calling `DungeonSession.reset()` is correct and correctly reasoned — that callback can arrive on a
+Netty thread while `renderHud` is reading `ContributionTracker`, `PartyTracker` and `ClearPopup` every
+frame. One thing the artifacts understate about the *read* side is follow-up 3.
+
+### The corrected `verification_manual` — performable, and the correction is right
+
+The old step 3 asked the operator to "confirm the debug session carries a `run_end` event", which this
+path must **not** produce: `run_end` is emitted at exactly one place, `SighteAddons.kt:186`, gated on
+the end-of-run headline that by definition never comes when you quit from inside a floor. The old step
+was therefore **unpassable** — the sixth recorded statement found false in this repository, and one
+that would have made a correct fix look broken.
+
+The replacement is performable, and I checked the mechanism rather than the prose. `run_report` is
+emitted from `RunReport.write` itself (`RunReport.kt:190`) with `complete`, `rooms`, `roomsCleared`
+and `file`, so all three call sites emit it exactly once. Critically, `DebugLog.write` ends in
+`out.flush()` on **every** line — so an event logged a few statements before `System.exit(0)` reaches
+disk. Steps 2, 4 and 5 are plain filesystem inspection. One scoping imprecision in step 3 is follow-up
+4.
+
+### The judgement this pass was asked for
+
+**Is a bytecode measurement of *where* an event fires enough to call a write path `passing`, when the
+event itself has never been observed? Yes — and the reasoning is not "the tests are green".**
+
+Split the claim. *Given DISCONNECT fires*, the report is built from the right name, written whole or
+not at all, and written once: that half is fully exercised here — 30 tests, four probes, every one
+reproduced, including one the session itself exposed as vacuous and then fixed. *That DISCONNECT
+fires* is the unobserved half, and it is not an assumption — it is a call graph I read out of the two
+jars this module compiles against, with no weak link: `destroy()` → `ClientLevel.disconnect` →
+`channel.close()` → HEAD inject on `channelInactive` → `handleDisconnect` CAS → `invokeDisconnectEvent`
+invoked directly. The only step no artifact can close from here is whether a real Hypixel quit reaches
+`Minecraft.destroy()` at all, and the entry excludes the case where it does not — hard kill, SIGKILL,
+power loss — explicitly and without pretending otherwise.
+
+The alternative status is `in_progress`, and it would be **worse**, because it would misdescribe the
+state in the other direction: it would advertise work remaining for an implementer when there is
+none. The residual uncertainty cannot be reduced by anything available in this repository; it needs
+one dungeon from the user, and `verification_manual` is now the procedure that converts it — which I
+verified is actually performable rather than assuming it.
+
+**And this is not a lower standard than `party-001` is held to at `blocked`.** That distinction
+matters and the list stays consistent because of it. `party-001` is blocked because its
+`user_visible_behavior` — rooms read by *who* a decoration belongs to — is **known to be
+unimplemented**; the mod still reads list order, so `passing` would be a false statement about
+behaviour. `runloss-001`'s behaviour **is** implemented and pinned; only its trigger is unobserved.
+Unimplemented and unobserved are different categories, and `chat-001` is already `passing` on
+cited-not-observed strings, so this is the repository's existing standard rather than a new one.
+
+The condition that makes this acceptable is that `passing` is used here with a **disclosed ceiling**,
+and the disclosure is everywhere it needs to be: the entry's notes, its `verification_manual`,
+`session-handoff.md`'s "Broken Or Unverified", `quality-document.md`'s telemetry row, the
+`RunReport.uploader` KDoc, and the progress log. Nothing implies a real run happened. If the
+disclosure were thinner, this would be a Verification finding.
+
+**On the grade staying at B: right, for the right reason, and it is the load-bearing half of the
+judgement above.** Closing a gap is not evidence, and promoting telemetry on a disassembly would make
+"I read the bytecode" equivalent to "I saw it work" — a lower bar than `party` is held to at C for
+precisely the cited-not-observed reason, and than `events (chat)` is held to at C. The row also names
+independent reasons A is not available anyway (retry schedule is "next game start", no backoff, no
+queue, nothing uploads during a run). **Saying why a letter did not move is the honest entry**, and
+this document now does it twice in a row.
 
 | Category | Question | Score (0-2) | Notes |
 | --- | --- | --- | --- |
-| Correctness | Does the implemented behavior match the requested feature? | 2 | **No Correctness-0 condition is met and I checked rather than inherited.** `git diff -- RunReport.kt` is **0 lines**, `SCHEMA` is 5, `mod_version` 0.9.0, `dist/` and `gradle.properties` absent from the branch. No schema change landed, so none could have landed ahead of the receiver, and `SighteAddonServerside` was read and not written. **The deliverable is a negative and the negative is correct** — I re-established all four claims from `javap` over the 26.1.2 merged jar and from `gh api` over the cited source, and every one holds to the constant: `Optional<List<MapDecoration>>` with no key in the packet; `Map.clear()` then `put(makeConcatWithConstants(i), d)` with `BootstrapMethods #5 = icon-` and `#6 = frame-`; the field initialised `Maps.newLinkedHashMap()` and `getDecorations()` returning `decorations.values()`; NoammAddons-Legacy's `key[key.lastIndex].digitToInt()` into a `livingTeammates` that excludes self. I additionally checked the **current** `Noamm9/NoammAddons`, which the session did not cite: `MapUpdater.kt` makes the identical choice, so the finding is stronger than recorded. `MapDecoration`'s components are `type, x, y, rot, Optional<Component> name` and nothing else, so `deconame-001` really is the last candidate. **Refusing to build the mixin was the correct call, and the correct call was the expensive one.** What did land is behaviour-preserving: I compared `positions()` before and after clause by clause rather than trusting the green suite, because room discovery is inside the blast radius — teammate membership and order, the marker count, frame-by-type, the `!trustOrder` skip and `next++` advancement are all identical, and `players[localSlot]` cannot go out of bounds either way. Reservations are follow-ups 1-2, neither of which is a defect in behaviour. |
-| Verification | Did the required checks actually run, with evidence? | 2 | **Every recorded number reproduced, and all three mutation probes reproduced to the exact failing test names.** The `verification_command` verbatim: 14/0/0/0. Full suite cold with `--rerun-tasks` in a fresh worktree: 14 classes / 167 tests / 0 failures / 0 errors / 0 skipped. `assemble check` green with the jar md5 identical either side and `git status --short dist/ gradle.properties` empty. `init.sh` `BASELINE: PASSING`. `readout.sh` `READOUT: OK` — including the three party assertions that make the solo-run claim checkable rather than stated. Probe A fails 2 (both blackout cases), B fails 4, C fails 1, rebuilt from the prose descriptions alone. **Nothing was removed, deleted or loosened**: `0` `@Test` lines removed, `0` deleted lines in test files of any kind, `0` assertion lines removed anywhere under `src/`, so the Verification-0 condition does not apply. **The vacuity self-report is true and I verified it against `9cb71ee` rather than accepting it** — all 7 prior cases are tab-regex or living-class carry, none touching the heuristic, and the entry was `not_started` at the time, so the vacuous command was never the basis of a passing claim. Keeping the command text unchanged and making the class non-vacuous instead is the honest direction; padding it with class names would have raised the number without raising the coverage. **The unverified paths are named, not implied** — in the entry's `blocked_reason`, its `verification_manual`, its notes, `session-handoff.md`, `quality-document.md`'s row and the `assign` KDoc — and every artifact that could mislead says the dev client cannot reach Hypixel and that the one real run was solo. One structural gap, follow-up 3. |
-| Regression | Are previously passing features still passing? | 2 | Full suite green from a forced cold run in a fresh detached worktree: `classes 14 tests 167 skipped 0 failures 0 errors 0`. `main` at `9cb71ee` is 160 in the same 14, and the delta is exactly the 7 added `@Test` lines in `PartyTrackerTest` — no class added, none removed, and I derived that from the diff rather than from the recorded figure. `assemble check` `BUILD SUCCESSFUL` with the jar byte-identical either side, no version bump, so the release gate never engaged. **The one behaviour at risk is room discovery, and I attacked it directly rather than trusting the suite**: `ContributionTracker.tick` iterates `positions()`, so a subtle reordering in the extraction would change which rooms exist, get named, get cleared and get scored — silently, and in a way `PartyTrackerTest` alone could not see. `ContributionTrackerTest`'s 48 cases are untouched by this branch (`src/test/` diff names only `PartyTrackerTest.kt`) and green, and the clause-by-clause reading above finds no semantic difference beyond the deliberate snapshot. Feature statuses diffed against `9cb71ee`: nothing downgraded, nothing removed, nothing quietly moved — `party-001` `not_started`→`blocked` and `deconame-001` added, which is the discovered-work rule being followed rather than scope creep. |
-| Scope discipline | Did the session stay inside the chosen feature scope? | 2 | Two commits, six files, and the boundary held at the point where it was expensive to hold. **The temptation here was the whole feature**: the session was sent to build a mixin, found the mixin pointless, and delivered a measurement instead of a substitute — which is the harder and the correct outcome. `RunReport.kt`, `rooms.json`, `dist/` and `gradle.properties` are all absent from the branch; no version bump; `SighteAddonServerside` read and never written. `deconame-001` was **recorded rather than built**, per `CLAUDE.md`'s rule, and it carries the design question that makes it a feature rather than a commit — a populated name is probably an IGN, `Pseudonym` exists so the log never carries one, and a redacted value cannot report what it redacted. The title and `user_visible_behavior` corrections are scope *honesty*, not creep: the old title named party sync, which `README.md:9` and `SighteAddons.kt:24` forbid in as many words, and leaving it would have read as a sanctioned plan. The testability seam is the minimum change that makes the heuristic gradeable at all, and it changed no behaviour. |
-| Reliability | Does the result survive restart or rerun without repair? | 2 | Reconstructed cold by a session with no prior context, in a detached worktree at a bare sha, baseline green on the first attempt with no repair and no environment fixing beyond what `session-handoff.md` documents. Three mutations applied and every one restored with `git checkout`, with `git status --porcelain src/` empty after each. **The handoff's quirks are load-bearing and correct rather than decorative**, and two of them were used in anger: the `git worktree add --detach <path> <sha>` recipe (added this session, closing the previous rubric's follow-up 8 — it is what made this pass possible without being told by hand), and "commit the feature first, then probe", which is the trap that cost the implementing session an edit. `python` resolves and `python3` does not; `assemble check` and never `build`; counts from `build/test-results/test/*.xml` and not the console — all three hold exactly as written. The one soft spot is `build/keydiff.py`, follow-up 3, which does not survive a clean; the handoff discloses that and states in prose what the script does, so it is recoverable rather than lost. |
-| Maintainability | Is the code and documentation clear enough for the next session? | 2 | **The `assign` KDoc is the best artifact in this pass, and it is good in a specific and rare way: it records a rejected alternative as a measurement, with the constants named so it can be rechecked in one `javap` — and I rechecked it, and every constant was there.** `icon-` and `frame-` are `BootstrapMethods #5` and `#6`; the field really is a `LinkedHashMap`; the NoammAddons line is verbatim. That is the difference between a comment that ages into folklore and one that stays falsifiable, and the `Do Not Touch` entry pinning it in place — with the instruction to correct it against a fresh `javap` and name the version rather than soften it to "may not work" — is the right guard. The two corrected descriptions now agree with each other and with the tests, the harmless and damaging failure modes are separated and both asserted, and `quality-document.md`'s row states the mutation results and the reason the letter did not move. **The grade staying at C is right and right for the stated reason**: the row's own criterion is "pins the heuristic rather than the truth", and nothing here observed a second decoration — compare `room naming`, which was promoted C→B on a real floor, and `events (chat)`, held at C for the same cited-not-observed reason. Promoting on mutation coverage would have made "tested against its own model" equivalent to "seen once". Four small precision items, follow-ups 1, 2, 4 and 5, none of which misleads a reader about a risk; held at 2 rather than 1 because no artifact contradicts another anywhere in this branch. |
-| Handoff readiness | Can a fresh session continue work from repo artifacts only? | 2 | I reconstructed the entire state from the artifacts alone: branch and head, what each of the two commits is for, every command, all three mutation probes precisely enough to rebuild them from prose and hit identical failure counts **and identical failing test names**, the whole finding re-derived from scratch against the class files and both NoammAddons repositories, the vacuity claim checked against the parent commit, why the grade did not move, and every unverified path. The commit count is derived rather than transcribed and was correct. **"Next Best Step" asked for exactly this pass and named the one judgement worth a second pair of eyes, which is the right way to use an evaluator.** On that judgement — see below; the session's reasoning is correct. Held at 2 because nothing blocked reconstruction, with follow-up 3 recorded against this file. |
+| Correctness | Does the implemented behavior match the requested feature? | 2 | **The Correctness-0 condition — a mod-side schema change landing ahead of the receiver — is not met, and I established that mechanically rather than inheriting it.** `git diff d356ff2..27b9ea8 -- RunReport.kt` contains **not one changed `addProperty`/`add(` line**; `SCHEMA` is 5; `mod_version` 0.9.0; `dist/` and `gradle.properties` absent from the branch; `SighteAddonServerside` clean at `018cee5`, read and never written. I re-derived the key diff independently of the missing script: **17 run keys vs 17, 17 room keys vs 17, all four difference sets empty**. The new `run_report` is a `DebugLog` event into the local JSONL, not a report field, so it cannot reach the validator. **The design's one load-bearing claim holds on every link** — I disassembled `Minecraft.destroy()` (level disconnect at 36 before `disconnectWithProgressScreen` at 40, `System.exit` at 81), `Connection.disconnect` (`close()`/`awaitUninterruptibly` at 23/28), `ConnectionMixin` (both `@Inject`s, `channelInactive`/HEAD and `handleDisconnection`/INVOKE, into a CAS-guarded `handleDisconnect`), `ClientPlayNetworkAddon.invokeDisconnectEvent` (**direct invoker call, no thread hop**) and Netty's `AbstractUnsafe.close` (`doClose0` at 136 before `fireChannelInactiveAndDeregister` at 201/210). So preferring `PartyTracker.localName` is justified, and independently justified again by the tick maps being keyed on the run-time name. The torn-file guarantee is real: `RUN` is `$`-anchored after `\.json`, `matches` is a full match, and **both** consumers filter through that one pattern. The double-write guard does what it claims in both directions. Reservations are follow-ups 1-5, none of which is a behavioural defect. |
+| Verification | Did the required checks actually run, with evidence? | 2 | **Every recorded number reproduced, and all four probes reproduced to the exact failing test names** — under an anchor-must-match-once discipline with the diff stat read after each, so no probe was scored on an edit that never landed. `verification_command` verbatim: 30/0/0/0. Full suite cold with `--rerun-tasks`: 14 classes / 176 tests / 0 failures / 0 errors / 0 skipped, delta from 167 exactly RunReport 21→30. `assemble check` green, jar md5 identical either side, `dist/`+`gradle.properties` clean. `init.sh` `BASELINE: PASSING`. `readout.sh` `READOUT: OK` with `run_end events 0` intact. Probe A fails 1, B fails 2, C fails 1, D fails 1 — all rebuilt from the prose descriptions alone. **Nothing was removed, deleted or loosened**: `0` removed `@Test` lines, `0` removed lines in test files *of any kind*, `0` removed assertion lines anywhere under `src/`, 14 test classes before and after — so the Verification-0 condition does not apply. **The vacuous-probe self-report is true and I verified it in both directions** rather than accepting it: probe D against `1504ace`'s tests is 29/0 (genuinely blind), against `27b9ea8`'s is 30/1 on the added test (genuinely bites), with `RunReport.kt` byte-identical between them. **The unverified paths are named, not implied**, in six artifacts, and every one says the dev client cannot reach Hypixel. The corrected manual step is performable — `run_report` is emitted by `write()` and `DebugLog` flushes every line. One structural gap, follow-up 8. |
+| Regression | Are previously passing features still passing? | 2 | Full suite green from a forced cold run in a fresh detached worktree: `classes 14 tests 176 skipped 0 failures 0 errors 0`, no class added, removed or renamed. `assemble check` `BUILD SUCCESSFUL` with the jar **byte-identical** either side and no version bump, so the release gate never engaged. Feature statuses diffed `d356ff2` → `27b9ea8`: **exactly one change, `runloss-001` `not_started` → `passing`**; 14 entries before and after; nothing downgraded, removed or quietly moved. **The one behaviour genuinely at risk is the JOIN path, whose guard changed**, and I read both versions rather than trusting the suite: `if (!summaryPrinted) write(...)` became an unconditional `write(...)` fronted by `if (reported.get()) return false`. Where the headline succeeded, `reported` is already true and the new call returns immediately; where there were no rooms, both versions return without writing. The one case that genuinely differs is a headline whose write *failed* — old code skipped at JOIN and lost the run, new code retries and saves it, which is an improvement rather than a regression (follow-up 5 records that the artifacts describe this as "both end in an early return", which is not quite what happens). `PartyTracker.localName` is nulled by `reset()` alongside everything else and only ever assigned a non-null name, so it cannot leak across runs. |
+| Scope discipline | Did the session stay inside the chosen feature scope? | 2 | Three commits, nine files, and the split between them is meaningful rather than cosmetic: `1504ace` is the feature, `cd26786` is **test-only** (the 20-line test that makes probe D bite), `27b9ea8` is artifacts. `rooms.json`, `dist/`, `gradle.properties` and `mod_version` are all untouched; `SighteAddonServerside` was read for the key diff and never written; `assemble check` was used throughout rather than `build`. The `PartyTracker` change is the minimum the design needs — one captured field plus a null-guard — rather than a refactor of the tracker. **The session verified the pairing question instead of assuming it**, which is the rule that exists because getting it backwards loses a release's data, and the answer was correctly "not paired". The `ponytail:` note that had stood at `SighteAddons.kt:53-57` was removed because it is no longer a plan, which is the right disposition for a note whose work has landed. No new feature entries were invented and none were closed as a side effect. |
+| Reliability | Does the result survive restart or rerun without repair? | 2 | Reconstructed cold by a session with no prior context, in a detached worktree at a bare sha, baseline green on the **first** attempt with no repair and no environment fixing beyond what `session-handoff.md` documents. Four mutations applied and every one restored with `git checkout`, `git status --porcelain src/` empty after each, and `RunReportTest` back to 30/0 at the end. **The handoff's quirks are load-bearing and were used in anger**: the `git worktree add --detach <path> <sha>` recipe; "commit the feature first, then probe" (which is what makes `git checkout` a safe restore); applying probes from Python with `io.open(..., newline='')` to preserve CRLF — I extended this into an anchor-count assertion plus a diff-stat check, and it caught nothing because nothing was wrong, which is the correct outcome for a guard. `python` resolves and `python3` does not; counts from `build/test-results/test/*.xml` rather than the console; `assemble check` never `build`. All hold exactly as written. The soft spot is `build/keydiff.py`, follow-up 8, now absent for the third consecutive pass. |
+| Maintainability | Is the code and documentation clear enough for the next session? | 2 | **`RunReport.uploader`'s KDoc is the pivotal artifact and it survives being rechecked**, which is the only test that matters for a comment pinned as "a measurement, not an opinion": four numbered facts, each with the `javap` that re-establishes it, and all four are true against the jars named. The `Do Not Touch` entry forbidding a future session from softening it to "may not work" or "simplifying" the report back to `Minecraft.getInstance().player` is the right guard on exactly the right line, and the same is true of the entry pinning the `.part` + move, which correctly warns that the suite sees the *consumption* rather than the move and that a "simplification" will therefore look harmless — a warning probe D proves is literally accurate. The DISCONNECT site's comment explains the omitted `reset()` in terms of the render loop rather than asserting a rule. Four precision items (follow-ups 1-4) and one artifact overstatement (follow-up 5); held at 2 rather than 1 because none of them misleads a reader about a risk, the two bytecode nits are self-correcting via the recheck commands sitting next to them, and no artifact contradicts another anywhere on this branch. Follow-up 3 is the one worth acting on, because it is the only one where the artifacts are quieter than the hazard. |
+| Handoff readiness | Can a fresh session continue work from repo artifacts only? | 2 | I reconstructed the entire state from the artifacts alone: branch and head, what each of the three commits is for, every command, all four mutation probes precisely enough to rebuild them from prose and hit **identical failure counts and identical failing test names**, the whole four-link disassembly re-derived from scratch against the jars, the probe-D vacuity claim checked in both directions against the parent commit, the key diff re-derived after finding its script absent, why the grade did not move, and every unverified path. The commit count is derived rather than transcribed. **"Next Best Step" asked for exactly this pass, named the one judgement worth a second pair of eyes, and stated the alternative status it would accept** — that is the right way to use an evaluator, and it is now the second consecutive handoff to do it. The environment quirks made the difference between a cold start and a stall. Held at 2 because nothing blocked reconstruction; follow-up 8 is recorded against the one command that could not be re-executed. |
 
 **Total: 14 / 14.**
 
@@ -141,205 +232,235 @@ Derived from the scores — do not override without written justification:
 Verdict: **ACCEPT** — 14/14, no category 0, and Correctness, Verification and Regression all 2. Not
 overridden.
 
-**The negative is real, and that was the thing most worth checking.** A fabricated negative closes a
-door permanently, so I went to the primary sources rather than to the citations. All four claims hold
-to the constant — the unkeyed `Optional<List<MapDecoration>>` in the packet, the `Map.clear()` and
-`put(makeConcatWithConstants(i), …)` in `addClientSideDecorations` with `icon-` and
-`frame-` as `BootstrapMethods #5` and `#6`, the `Maps.newLinkedHashMap()` field behind a
-`values()` accessor, and NoammAddons' `key[key.lastIndex].digitToInt()` into a self-excluding
-`livingTeammates`. **The finding is also stronger than the session recorded**: it cited only
-`NoammAddons-Legacy`, and the current `Noamm9/NoammAddons` makes the identical choice in
-`MapUpdater.kt`. `MapDecoration` has exactly five components and `name()` is the only identity channel
-among them, so `deconame-001` genuinely is the last candidate rather than the first one thought of.
+**The judgement the session asked to have checked — `passing` on a write path whose trigger has never
+been observed — is correct, and it is correct for a reason that keeps the list consistent rather than
+by exception.** The behaviour is implemented and pinned by 30 tests and four probes; only the trigger
+is unobserved, and the trigger is a call graph read out of the exact jars this module compiles
+against, with every link verified independently in this pass. That is a different category from
+`party-001` at `blocked`, whose promised behaviour is known to be *absent*. `in_progress` would be the
+worse description, because no work remains that this repository can do.
 
-**Every recorded number reproduced**: 14 on the `verification_command`, 167 in 14 classes cold, jar md5
-unchanged, `SCHEMA` 5, `mod_version` 0.9.0, `RunReport.kt` diff empty, `readout.sh` green including its
-three party assertions, and all three probes to the exact failing test names.
+**Every recorded number reproduced**: 30 on the `verification_command`, 176 in 14 classes cold, jar md5
+`b2ebc35ccfeb9cc96134eb3b18f0306f` unchanged, `SCHEMA` 5, `mod_version` 0.9.0, `readout.sh` green with
+`run_end events 0` intact, the key diff clean at 17/17 both directions, and all four probes to the
+exact failing test names — including probe D in **both** of its generations, confirming that the
+session's admission of a vacuous probe was true and that the test it then wrote genuinely closes it.
 
-**On `blocked` rather than `passing` — the judgement the session asked to have checked: `blocked` is
-correct, and closing the entry would have been wrong.** The `user_visible_behavior` promises rooms read
-by *who* a decoration belongs to; the mod still reads list order, so `passing` would be false whatever
-the suite says. And `blocked` is not a parking space here, because the entry carries an explicit,
-falsifiable exit condition — if `MapDecoration.name()` comes back empty on a real party floor, close it;
-the channel does not exist and party sync is forbidden rather than a fallback. That is a better-specified
-block than most entries manage, and it costs one field on an existing debug event to resolve. Closing now
-would discard a question that is one dungeon away from an answer. This is also the same condition
-`ingame-001` is already `blocked` under, so the list stays internally consistent.
+**Not a schema change and not paired, confirmed rather than assumed.** No key line changed, `SCHEMA`
+stayed 5, and the receiver was read and never written — so the cross-repo ordering rule was never
+engaged and no receiver change is owed.
 
-**On recording `deconame-001` rather than building it: correct, and mandated.** `CLAUDE.md`'s discovered-work
-rule says to record and stay on the active feature. Beyond compliance, the entry earns its existence: the
-redaction problem it names is genuine — a populated name is probably an IGN, `Pseudonym` exists so the log
-never carries one, and a redacted value cannot report what it redacted — and deciding that before writing
-the field is the difference between a debug field and a privacy defect. Its own notes say it proves nothing
-here and is only worth doing if somebody is about to play a party floor, which is the right fence. See
-follow-up 4 for the one thing wrong with it.
-
-**On the grade staying at C: right, and saying why a grade did not move is the honest entry.** The party
-row's stated criterion for C is that the tests pin the heuristic rather than the truth. Three mutation
-probes raise confidence that the *guard* works; nothing raises confidence that decoration order is tab
-order, because no run has ever contained two decorations. `room naming` moved C→B on a real floor and
-`events (chat)` is held at C for the same cited-not-observed reason, so the letter is consistent with how
-this document grades everything else.
+**On telemetry staying B: right.** Closing a gap is not evidence, the fix's one real path is
+unobserved, and promoting on a disassembly would set a lower bar than `party` and `events (chat)` are
+held to at C. The row also names independent reasons A is unavailable regardless.
 
 ## Required Follow-Up
 
 Nothing here blocks acceptance. None of it is a defect in behaviour that reaches a player, and no
-receiver change is owed — `party-001` writes no new field, changes no key, and is genuinely not paired.
+receiver change is owed. Items 1-5 are new; 6-18 are carried forward and were **each re-checked at
+`27b9ea8` by opening the file, not by trusting the previous rubric**.
 
 ### New this pass
 
-1. **The `assign` KDoc says "NoammAddons" without naming which repository or version, and there are
-   two.** The `Do Not Touch` entry promises the finding "can be rechecked in one `javap`" and the same
-   standard should apply to the mod citation, which is the half that cannot be checked from the jar.
-   The evidence entry names `Noamm9/NoammAddons-Legacy` correctly; the KDoc, which is what a reader
-   meets, does not. Worth naming both — I checked the current `Noamm9/NoammAddons` too and
-   `map/handlers/MapUpdater.kt:55-65` does `key.lastOrNull()?.digitToIntOrNull()` into
-   `livingTeammates`, i.e. the same heuristic and the same self-counting defect. **Recording that here
-   because it strengthens the finding and because the next reader should not have to rediscover that
-   the modern port agrees.** One clause, and it makes the citation falsifiable by path rather than by
-   name.
+1. **A recorded bytecode offset is wrong by two, in a document whose authority is that it can be
+   rechecked.** `runloss-001`'s evidence entry says `Minecraft.disconnect(Screen, boolean, boolean)`
+   "nulls `player` at offset 184". It is `185: aconst_null` / `186: putfield #2612 // Field
+   player`. The substance is untouched — the field *is* nulled there, which is the point — and the
+   entry ships the `javap` that corrects it, which is what keeps this cosmetic rather than
+   misleading. Worth fixing precisely because this repository's convention is that a named constant
+   can be re-established in one command.
 
-2. **"Behaviour is unchanged" is stated flatly in three artifacts, and there is one deliberate
-   exception.** `positions()` used to read `map.decorations` twice — once to count markers, once to
-   iterate — and now snapshots it once with `.toList()`, because `getDecorations()` is a live view over
-   the `LinkedHashMap`. The comment at the site says so and the change is strictly safer, so this is a
-   documentation gap rather than a defect: the entry, the progress log and the handoff all say
-   "behaviour unchanged" without the exception, and a future session diffing the two versions will find
-   a difference the artifacts told them was not there. One clause in the entry's notes.
+2. **`RunReport.uploader`'s KDoc says "the very next thing `Minecraft.disconnect(Screen, boolean,
+   boolean)` does is `this.player = null`", and it is not the very next thing.** Before it: `59:
+   putfield singleplayerServer`, `71: putfield gameMode`, `102: putfield level`, `181:
+   updateLevelInEngines`. The load-bearing claim — that `player` is nulled during a teardown running
+   on the client thread while the DISCONNECT handler runs on a Netty thread — is exactly right, and
+   the race does not depend on the adverb. But the `Do Not Touch` entry explicitly forbids softening
+   this KDoc, so the correction has to be made *precisely* rather than by hedging: name the offset
+   and the intervening writes. One clause.
 
-3. **`build/keydiff.py` is cited as a re-runnable command and does not exist in a clean checkout.**
-   `build/` is gitignored, so the script the evidence names was gone in my worktree and the recorded
-   `python build/keydiff.py` could not be re-executed. The handoff discloses this and says to re-create
-   it "from its docstring" — but the docstring is inside the script that does not survive, which is
-   circular. What saves it is that the handoff *also* states in prose what the script parses, and that
-   the conclusion is checkable a cheaper way (`RunReport.kt` diff is 0 lines, so no key moved), which is
-   what I did. Two sessions have now re-created this script from scratch. Either move it somewhere
-   tracked or stop recording it as a command; a `verification`-shaped line that cannot be run is the
-   thing this repository keeps trying to eliminate.
+3. **The DISCONNECT write reads run state off the client thread, and the artifacts are quieter about
+   this than about the `reset()` hazard they do document.** `SighteAddons.kt` says "the write itself
+   only reads", but reading is the hazard here: `ContributionTracker.visitedRooms()` is
+   `rooms.values.distinct()` over a plain `HashMap`, and `build()` then walks each room's `ticks`
+   `HashMap`, while the client thread can be in `ContributionTracker.tick` calling `discover` and
+   `ticks.merge`. A concurrent structural modification can throw `ConcurrentModificationException` or
+   yield a partly-updated read. **Materially defused** — the DISCONNECT site wraps the call in
+   `try/catch`, so the worst case is a lost report, which is exactly the pre-feature outcome and not
+   a crash in the render loop; and on the quit path the level has already disconnected, so ticking has
+   very likely stopped. That is why this is a follow-up and not a deduction. But the mitigation is
+   load-bearing and currently reads as belt-and-braces ("an exception escaping into either is a worse
+   outcome than a missing report") rather than as the thing that makes an unsynchronised cross-thread
+   read acceptable. One clause at the site, and it should say *why* the `try/catch` is required rather
+   than prudent.
 
-4. **`deconame-001` ships with the exact defect this session was praised for diagnosing.** Its
-   `verification_command` is `./gradlew test --tests 'sighteaddons.DebugLogTest'` — 2 tests, neither of
-   which can touch a field added inside `PartyTracker.positions`, which needs a `MapItemSavedData` and
-   is untestable here by the handoff's own note. That command is **vacuously green today and will stay
-   vacuously green after the feature is built**, which is precisely the trap `party-001` just spent a
-   session escaping. Materially defused by the entry saying in its own notes that it "proves nothing on
-   its own and cannot be verified here", and by the entry being `not_started` so nothing rests on it —
-   which is why this is a follow-up and not a deduction. But whoever picks it up should fix the command
-   before writing the field, not after.
+4. **`verification_manual` step 3 asks for `run_report` "as its last line", which is only guaranteed
+   for one of the two ways in that step 1 admits.** Quitting to desktop ends the process, so the line
+   is last. Dropping to the title screen — which step 1 explicitly says "exercises the same path" —
+   leaves the client running and free to log further events before the file is read. The check should
+   be "the session's only `run_report` line, with `\"complete\":false`" rather than a positional
+   claim, or the positional claim should be scoped to the quit-to-desktop case. Otherwise a correct
+   fix can fail the manual check on the very variant the step invites, which is the same shape of
+   defect the `run_end` → `run_report` correction just fixed.
 
-5. **One test's name promises more than its body delivers.** `two teammates in one room resolve to one
-   cell whichever way round they are` never calls `assign` — it exercises `DungeonGrid` only, asserting
-   that two nearby pixels give one `Pos` and a third gives another. The property it pins is the
-   load-bearing half of the harmlessness claim and its KDoc explains exactly that, so nothing is
-   overstated where it counts; but the name implies an ordering case that is not run. Rename, or add the
-   two-line `assign` call that makes the "whichever way round" literal. Cosmetic.
+5. **"The two cases where old and new differ both end in an early return" is stated in
+   `session-handoff.md` and the progress log, and there is a third case that does not.** If the
+   end-of-run headline came but its write *failed*, `reported` was given back and `summaryPrinted` is
+   true: the old JOIN site skipped and the run was lost, the new one retries and saves it. That is an
+   improvement and worth claiming rather than denying. Worth one clause for a second reason: the
+   rescued report is written with `complete = false` for a run that did complete, which is the
+   conservative direction and consistent with "the headline remains the only thing allowed to claim
+   that it did" — but it is a real property of the rescue path and nothing currently says so.
 
 ### Carried forward — still open, verified still open rather than assumed
 
-The rubric is overwritten every pass and items have repeatedly had to be rescued by hand. Each of these
-was re-checked at `64cba74` by opening the file, not by trusting the previous rubric.
+This file is overwritten every pass and items have repeatedly had to be rescued by hand; **item 6 has
+now lost its last durable trace twice over and is the reason this section is not optional.**
 
-6. **Previous follow-up 4 is still open and has now materialised exactly as predicted.**
-   `chat-001`'s `verification_command` widening (`ChatEventsTest` → plus `SecretTrackerTest` and
-   `ContributionTrackerTest`) was recorded only in `session-handoff.md`. That file has since been
-   overwritten by this session, as the operating loop requires. `grep -n "verification_command"
-   claude-progress.md` returns five hits and **none of them is the chat-001 widening**; `grep` for
-   `widened|widening|scope-widen` returns nothing; and `chat-001`'s own `notes` field does not mention
-   it. **The only durable trace is now gone.** The change was legitimate — the previous pass established
-   that — but there is no longer any artifact that says so, which is how a legitimate change becomes
-   suspicious later. One line in `claude-progress.md` or one sentence in `chat-001`'s `notes`.
-   Not scored against this session; actioning a previous rubric is the orchestrator's call.
+6. **Previous follow-up 6 is still open, and has now decayed one step further.** `chat-001`'s
+   `verification_command` widening (`ChatEventsTest` → plus `SecretTrackerTest` and
+   `ContributionTrackerTest`) has **no durable record anywhere in the repository**. Verified at
+   `27b9ea8`: `grep -ci "widen" claude-progress.md` → **0**; `grep -n "SecretTrackerTest"
+   claude-progress.md` → **no hits**; `chat-001`'s `notes` field mentions neither `SecretTrackerTest`
+   nor `widen` nor `verification_command`. The widened command *is* in the entry and *is* legitimate —
+   two consecutive rubrics established that — but the only artifact that ever said so was the previous
+   rubric, which this file replaces. **A legitimate scope change with no surviving justification is
+   indistinguishable from a quietly loosened check**, which is precisely the thing this repository
+   keeps trying to eliminate. One line in `claude-progress.md` or one sentence in `chat-001`'s
+   `notes` closes it permanently. Not scored against this session; actioning it is the orchestrator's
+   call.
 
-7. **Previous follow-up 2 is still open.** `ChatEvents.kt:129` still reads that `DungeonChatFilter`
-   "has no other `found a` shape". It has two — the `DUNGEON BUFF! (.*) found a Blessing of (.*)` pair.
-   The substantive negative survives (a Blessing is not a secret and the anchored pattern cannot match
-   it), but the sentence is disproved by a one-line grep of the file it cites. Narrow it to "no other
-   shape naming a finder for a *secret*". Unchanged this pass.
+7. **Previous follow-up 1 is still open.** The `assign` KDoc still says "NoammAddons" without naming
+   which repository, and there are two (`PartyTracker.kt:183`, `:194`). The previous pass established
+   that the current `Noamm9/NoammAddons` — `map/handlers/MapUpdater.kt:55-65`,
+   `key.lastOrNull()?.digitToIntOrNull()` into `livingTeammates` — makes the identical choice to
+   `NoammAddons-Legacy`'s `DungeonUtils.kt:250-260`. **That finding is recorded only here**, so it is
+   restated rather than referenced: the negative is stronger than the source comment claims, and the
+   next reader should not have to rediscover that the modern port agrees.
 
-8. **Previous follow-up 5 is still open.** `ContributionTracker.kt:457` still says "a dead player cannot
-   die again without being revived first". True of the game, not of this mod's knowledge of it: `onRevive`
-   is the only thing that clears `deathAt` and the `Revived` pattern is itself unverified, so a missed
-   revive line plus a second death inside `DEATH_DEDUP_TICKS` loses the death. No test can catch it;
-   worth one clause, and worth knowing the revive pattern is load-bearing for death counts.
+8. **Previous follow-up 3 is still open, third pass running.** `build/keydiff.py` is cited as a
+   re-runnable command in `runloss-001`'s evidence and in the handoff's Commands section, and it does
+   **not exist in a clean checkout** — `build/` is gitignored. I re-derived its conclusion from
+   scratch instead (17/17 both directions, four empty sets) and additionally the cheap way (no
+   `addProperty` line changed on the branch). Three sessions have now re-created or re-derived this
+   script. **Either move it somewhere tracked or stop recording it as a `command` in `evidence`**: an
+   evidence entry naming a command that cannot be executed is the exact failure mode the six corrected
+   statements were about.
 
-9. **Previous follow-up 6 is still open.** `residue-001`'s `settle` KDoc at
-   `ContributionTracker.kt:712` still reads "the clamp this replaces only ever caught the negative half"
-   when the real alternative a reader would propose is a symmetric threshold-to-zero. Behaviour is right
-   and tested; only the justification aims at a weaker option. **The migration into `residue-001`'s
-   `notes` still holds** — I checked the field rather than the previous rubric.
+9. **Previous follow-up 4 is still open.** `deconame-001`'s `verification_command` is still
+   `./gradlew test --tests 'sighteaddons.DebugLogTest'` — 2 tests, neither able to touch a field added
+   inside `PartyTracker.positions`, which needs a `MapItemSavedData` and is untestable here. It is
+   **vacuously green today and would stay vacuously green after the feature is built**. Defused by the
+   entry's own notes saying it proves nothing, and by `not_started` meaning nothing rests on it. Fix
+   the command before writing the field, not after.
 
-10. **Previous follow-up 7 is still open, and `party-001` adds a fifth thing waiting on the same input.**
-    `clear-001` note (2), the zero-margin gap tolerance: `MIN_TICKS` is 20 against a documented worst-case
-    roster-skew blackout of 20. That blackout is `assign`'s `trustOrder` guard, so the two features are
-    now provably the same window — and this pass confirms the duration is still an estimate from other
-    mods, because `roster_skew` fired **zero** times on the one committed run (`readout.sh`, green). The
-    migration into `clear-001`'s `notes` holds, with (1) and (3) still marked MEASURED AND CLOSED.
+10. **Previous follow-up 2 is still open.** `party-001`'s "behaviour is unchanged" is stated without
+    its one deliberate exception: `positions()` used to read `map.decorations` twice and now snapshots
+    it once, because `getDecorations()` is a live view. Verified still absent — `party-001`'s `notes`
+    mention neither `snapshot` nor `toList`. Strictly safer, so a documentation gap rather than a
+    defect, but a future session diffing the two versions will find a difference the artifacts denied.
 
-11. **Previous follow-up 9 is still open.** `ContributionTrackerTest.kt:868` still sanity-checks
-    `weightOf(expensive) > 2 * weightOf(plain())`, i.e. a bound of 1.5 against a fixture worth 3.50. The
-    comment above it now argues for a relative rather than absolute bound, which is a fair argument, but
-    the slack is unchanged. Optional.
+11. **Previous follow-up 5 is still open.** `PartyTrackerTest.kt:188`, `two teammates in one room
+    resolve to one cell whichever way round they are`, still never calls `assign` — it exercises
+    `DungeonGrid` only. The property it pins is the load-bearing half of the harmlessness claim and
+    its KDoc says so, but the name implies an ordering case that is not run. Cosmetic.
 
-12. **Previous follow-up 10 is still open.** `readout.sh:47` still calls the input "a per-tick decoration
-    stream" and the evidence `README.md:17` still says "Every figure quoted below is asserted in that
-    script" when the 220-line census cannot be. Both cosmetic, both verified still present.
+12. **Previous follow-up 7 is still open.** `ChatEvents.kt:129` still reads that `DungeonChatFilter`
+    "has no other `found a` shape". It has two — the `DUNGEON BUFF! (.*) found a Blessing of (.*)`
+    pair. The substantive negative survives (a Blessing is not a secret and `SECRET` at `:154` is
+    anchored on `found a Wither Essence!`), but the sentence is disproved by a one-line grep of the
+    file it cites. Narrow it to "no other shape naming a finder for a *secret*".
 
-13. **Previous follow-up 11, carried as context.** `ContributionTrackerTest.kt:342`, `size and kind are no
-    longer paid for directly`, is still the one test standing between the tree and a reintroduced
-    size/kind bonus. Unchanged.
+13. **Previous follow-up 8 is still open.** `ContributionTracker.kt:457` still says "a dead player
+    cannot die again without being revived first". True of the game, not of this mod's knowledge of
+    it: `onRevive` is the only thing that clears `deathAt` and the `Revived` pattern is itself
+    unverified, so a missed revive line plus a second death inside `DEATH_DEDUP_TICKS` loses the
+    death. No test can catch it; worth one clause, and worth knowing the revive pattern is
+    load-bearing for death counts.
+
+14. **Previous follow-up 9 is still open.** `residue-001`'s `settle` KDoc at
+    `ContributionTracker.kt:712` still reads "the clamp this replaces only ever caught the negative
+    half" when the alternative a reader would actually propose is a symmetric threshold-to-zero.
+    Behaviour is right and tested; only the justification aims at a weaker option. The migration into
+    `residue-001`'s `notes` still holds.
+
+15. **Previous follow-up 10 is still open.** `clear-001` note (2), the zero-margin gap tolerance:
+    `MIN_TICKS` is 20 against a documented worst-case roster-skew blackout of 20, so the two features
+    are provably the same window, and the duration is still an estimate from other mods —
+    `roster_skew` fired **zero** times on the one committed run. The migration into `clear-001`'s
+    `notes` holds (`MIN_TICKS` and the gap tolerance are both present there), with (1) and (3) still
+    marked MEASURED AND CLOSED.
+
+16. **Previous follow-up 11 is still open.** `ContributionTrackerTest.kt:868` still sanity-checks
+    `weightOf(expensive) > 2 * weightOf(plain())`, i.e. a bound of 1.5 against a fixture worth 3.50.
+    Optional.
+
+17. **Previous follow-up 12 is still open.** `readout.sh:47` still calls the input "a per-tick
+    decoration stream" and the evidence `README.md:17` still says "Every figure quoted below is
+    asserted in that script" when the 220-line census cannot be. Both cosmetic, both verified still
+    present.
+
+18. **Previous follow-up 13, carried as context.** `ContributionTrackerTest.kt:342`, `size and kind
+    are no longer paid for directly`, is still the one test standing between the tree and a
+    reintroduced size/kind bonus. Unchanged.
 
 ### Closed since the previous pass — verified closed, not assumed
 
-- **Previous follow-up 8 is CLOSED.** The worktree recipe is now in `session-handoff.md`'s Environment
-  Quirks at `:211-214`, with the `--detach <path> <sha>` form and the reason the plain form is refused.
-  It is why this pass did not need to be told by hand. Closed by this session.
-- **Previous follow-up 1 is CLOSED, and closed in both operational places.** `chat-001`'s
-  `verification_manual` step 5 now reads "**CHAT_WINDOW is NOT the fix for that**… a late line needs the
-  credit DEFERRED", and `SecretTracker.kt:131` now reads "And the window is NOT the fix for that, however
-  much it looks like one." All four statements now agree. Closed before `9cb71ee`, not by this session.
-- **Previous follow-up 3 is CLOSED.** The mis-attribution of the *next* secret is now stated explicitly at
-  the end of `chat-001`'s `verification_manual` step 5. Closed before `9cb71ee`, not by this session.
+- **Nothing from the previous pass's 13 items closed this session.** All thirteen were re-checked
+  individually against the files at `27b9ea8` and all thirteen are still open; they are carried above
+  as 6-18. This is stated explicitly because an empty "closed" section is otherwise
+  indistinguishable from a section nobody filled in.
+- **The `run_end` → `run_report` correction in `runloss-001`'s `verification_manual` is closed by this
+  session and verified performable**, not merely reworded: `run_report` is emitted from
+  `RunReport.write` at `RunReport.kt:190`, `run_end` is emitted only at `SighteAddons.kt:186` behind
+  the headline regex, and `DebugLog.write` flushes every line so the event survives the imminent
+  `System.exit(0)`. This is the sixth recorded statement in this repository found false and corrected.
 
 ### Remaining unverified paths, all named by the session, none a deduction
 
-- **Whether the order heuristic is correct at all** — the ceiling on this entire domain. `assign` is
-  pinned against its own model of a dungeon. That Hypixel emits decorations in tab order has never been
-  observed, and the one real run was **solo**: `readout.sh` asserts `roster_skew` 0, one distinct player,
-  one distinct `decoIndex`. A single decoration cannot be mis-ordered, so that run is evidence neither
-  for nor against.
-- **Whether `MapDecoration.name()` carries anything.** `party-001`'s blocker and `deconame-001`'s whole
-  subject. If no, close `party-001`; there is no client-side channel left and party sync is forbidden.
-- **Whether `roster_skew` ever fires**, and the real duration of the blackout window (documented 10-20
-  ticks, estimated from other mods).
-- **The wiring of `positions()` itself** — that a real Hypixel dungeon map carries exactly one `FRAME`
-  and one marker per living teammate is read from other mods, not observed here.
-- **All three of `chat-001`'s halves**, the death path in either source, the `RED` checkmark path, every
-  pixel of `/sa`, and the measured half of the scoring model. All unchanged.
+- **That Fabric raises `DISCONNECT` at all on a real Hypixel quit** — this feature's ceiling. The
+  four-link disassembly is verified and the chain holds, but no client has ever done it here. What a
+  real quit would show: a `run_report` line with `"complete":false` and a
+  `run-<millis>-<installId>.json` in `config/sighteaddons/runs/`. Nobody has seen either.
+- **A hard kill still loses the run** — task manager, `SIGKILL`, power loss. Explicitly uncovered,
+  explicitly not implied to be covered, and the rejected JVM-shutdown-hook alternative is reasoned
+  rather than waved away.
+- **That the atomic move is atomic.** The suite sees a stale `.part` being consumed; the move itself
+  is a property of the code. Probe D proves this distinction is real rather than pedantic.
+- **Whether the order heuristic is correct at all** — the ceiling on the whole party domain. `assign`
+  is pinned against its own model of a dungeon and the one real run was solo.
+- **Whether `MapDecoration.name()` carries anything** (`party-001`'s blocker, `deconame-001`'s
+  subject). If no, **`party-001` should be closed rather than carried**.
+- **Whether `roster_skew` ever fires**, and **the wiring of `positions()` itself**.
+- **That Hypixel actually sends `chat-001`'s strings**, and all three of its halves.
+- **The party half of everything else** — the one real run is solo and deathless, so `clear-001`'s
+  zero-margin gap tolerance is open and **the death path has never been exercised at all**.
+- **The `RED` checkmark path, every pixel of `/sa`, and the measured half of the scoring model.**
 - **The dev client still cannot reach Hypixel**, and every artifact that could imply otherwise says so.
-- **`runloss-001` remains a measured, permanent data loss and is unfixed.** Unchanged by this feature.
-- **The schema is 5 in source and 4 in every install**, and six features now exist in source only.
-  Nothing breaks meanwhile and nothing reaches a player either, until somebody bumps the version and
-  takes the release gate — the user's decision.
+- **The schema is 5 in source and 4 in every install**, and **seven** features now exist in source
+  only. Nothing breaks meanwhile and nothing reaches a player either, until somebody bumps the version
+  and takes the release gate — the user's decision.
 
 ### Next review trigger
 
-`runloss-001`, per the handoff, and I agree it now outranks everything: `records-001` is deferred by the
-user, `party-001` is blocked on an input this machine cannot produce, `ingame-001` needs a party floor,
-and `runloss-001` is the only entry known to have destroyed real data — ten cleared rooms on 2026-08-14,
-and `readout.sh` asserts `run_end` events **0** on that file. It needs no receiver change and no real
-dungeon to verify the write path. Read its notes first: the fix is *when* `RunReport.write` is called, and
-whether the player is still resolvable at `DISCONNECT` is something to **measure**, not assume. If it
-touches `RunReport.kt`, re-run the key diff first and **the receiver goes first**. Do **not** start
-`chatfields-001` by editing `RunReport.kt` — its first move is a feature in `Sighte/skyblock-server`. Do
-**not** start `scores-fetch-001`. Do **not** start `deconame-001` unless somebody is about to play a party
-floor, and fix its `verification_command` (follow-up 4) before writing the field.
+**If the user offers a run, the highest-value single act has changed and is now cheap to state: play a
+floor and quit the game from inside it.** That verifies `runloss-001` end to end — the one thing this
+repository cannot do for itself — and costs one dungeon. **A party floor with a death in it that is
+then quit from does both**, moving `party-001`, `deconame-001`, `clear-001`'s last open note, the rest
+of `ingame-001`, all three of `chat-001`'s unverified halves *and* this feature's ceiling at once. It
+remains the single highest-value input this repository can receive.
 
-**If the user offers another run, ask for a party floor with a death in it.** That one file now moves
-`party-001`, `deconame-001`, `clear-001`'s last open note, the rest of `ingame-001` and all three of
-`chat-001`'s unverified halves at once. It is the single highest-value input this repository can receive
-and it costs the user one dungeon.
+Otherwise `runend-001` is next: the only `not_started` entry workable here, cheap, and its open
+question already answered (write the run-level count, not the event count). Do **not** start
+`chatfields-001` by editing `RunReport.kt` — its first move is a feature in `Sighte/skyblock-server`.
+Do **not** start `scores-fetch-001`, still blocked on the receiver serving `roomstats.json`. Do **not**
+start `deconame-001` unless somebody is about to play a party floor, and fix its `verification_command`
+(follow-up 9) before writing the field. `records-001` is deferred by the user.
 
-`party-001` is accepted at `64cba74` as a **blocked** feature with a landed testability seam — nothing here
-is `passing` and nothing here claims to be. It sits on a branch, unpushed and unmerged; merging and
-releasing remain the user's decisions and take the release gate at the top of `CLAUDE.md` with them. This
-feature adds nothing to the release notes' outstanding list, because it changed no behaviour.
+`runloss-001` is accepted at `27b9ea8` as `passing` **with a disclosed and correctly disclosed
+ceiling**: the write path is implemented, pinned and mutation-checked; the event that drives it is
+measured but unobserved; and no artifact anywhere on this branch implies otherwise. It sits on a
+branch, unpushed and unmerged; merging and releasing remain the user's decisions and take the release
+gate at the top of `CLAUDE.md` with them. **It adds one line to the release notes' outstanding list** —
+that a run ended by quitting from inside a floor used to be discarded and now is not, and that this
+path is unverified against a real client — bringing that list to seven.

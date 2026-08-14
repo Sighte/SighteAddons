@@ -54,6 +54,22 @@ object PartyTracker {
      */
     private var localSlot = 0
 
+    /**
+     * The local player's Minecraft name, kept from the last [update] of this run.
+     *
+     * **Held rather than looked up because the run report has to survive the client going away.**
+     * `RunReport.write` is keyed on this name — it picks the uploader's own class out of the roster
+     * and their own ticks out of every room's tick map — and since `runloss-001` one of its call
+     * sites is `ClientPlayConnectionEvents.DISCONNECT`, where `Minecraft.getInstance().player` is
+     * being torn down on another thread and may already be null. Measured, not assumed: see the
+     * disassembly cited on [RunReport.uploader]. A field that was read once a second all run long
+     * cannot be racing anything by the time the connection drops.
+     *
+     * Nulled by [reset], like everything else here, so it never carries into the next run.
+     */
+    internal var localName: String? = null
+        private set
+
     /** Last logged decoration→player assignment, so only changes are written to the debug log. */
     private val lastAssignment = HashMap<String, Pos>()
 
@@ -64,6 +80,7 @@ object PartyTracker {
         players.fill(null)
         lastAssignment.clear()
         localSlot = 0
+        localName = null
         skewed = false
     }
 
@@ -108,6 +125,10 @@ object PartyTracker {
         }
 
         val self = client.player?.name?.string
+        // Only ever overwritten with a real name: a null here means the client is between players,
+        // and forgetting who we are because of one such tick is exactly the loss [localName] exists
+        // to prevent.
+        if (self != null) localName = self
         val slot = players.indexOfFirst { it != null && it.name == self }
         if (slot >= 0 && slot != localSlot) {
             localSlot = slot
