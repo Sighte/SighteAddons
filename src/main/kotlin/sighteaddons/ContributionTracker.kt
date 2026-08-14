@@ -21,16 +21,42 @@ class TrackedRoom(val type: RoomType, val mapSegments: Set<Pos>, val cells: Set<
     val ticks = HashMap<String, Int>()
 
     /**
-     * Run tick the first party member was seen in here. The anchor [clearedAtTick] needs to become a
-     * duration: on its own it only says *when* in the run the checkmark appeared, which is route
-     * order rather than how long the room took.
+     * Run tick the room's clock starts: the beginning of the first stay long enough to be work
+     * rather than a walk-through. The anchor [clearedAtTick] needs to become a duration — on its own
+     * a checkmark timestamp says *when* in the run it appeared, which is route order rather than how
+     * long the room took.
      *
-     * First *sighting*, with no minimum stay — somebody crossing the room on the way elsewhere starts
-     * the clock just as much as the party that fights here. `clearedAtTick - enteredAtTick` is
-     * therefore an upper bound on the clear, never an underestimate. See the `ponytail:` note at the
-     * assignment in `discover`.
+     * **Schema 5 changed what this means, which is why it cost a schema bump** (`RunReport.SCHEMA`).
+     * Up to schema 4 it was the first *sighting* of anybody, with no minimum stay, so a member
+     * crossing the room on the way elsewhere started the clock just as much as the party that fights
+     * here: `clearedAtTick - enteredAtTick` was an upper bound that ran long by however far apart the
+     * two were — 145 s for a 1x1 in the receiver's own example. The key is unchanged and the field is
+     * still optional to the receiver; only the meaning moved, and `profiles/` is append-only, so both
+     * meanings live in it forever and the receiver buckets them apart by `v` (`roomstats.py`,
+     * `STAY_ANCHOR_SCHEMA`). Nothing may set this from a bare sighting again.
+     *
+     * Two ways it gets stamped, in [onPresence] and [anchorOnClear], and both are bounded:
+     * a stay that reaches [ContributionTracker.MIN_TICKS] anchors at *its own start*, and a room that
+     * clears before anyone gets that far falls back to a stay begun within the last
+     * [ContributionTracker.MIN_TICKS] — so the fallback can never manufacture a span longer than one
+     * second. When neither applies this stays null, which the receiver reads as "no sample" rather
+     * than as a zero. An unrecorded room costs nothing; a bogus record is permanent.
+     *
+     * Never stamped after the clear, so `enteredAtTick <= clearedAtTick` holds whenever both are set.
+     * A [preCleared] room therefore keeps a null anchor for its whole life: it was already done when
+     * we arrived, so there is no clear of ours to measure.
      */
     var enteredAtTick: Int? = null
+        private set
+
+    /**
+     * One member's current stay in this room: when it began, how many ticks of it we have seen, and
+     * when we last saw them. Ticks accumulate per stay rather than for the whole run, which is what
+     * separates "came back and fought" from "walked through twice".
+     */
+    private class Stay(val start: Int, var ticks: Int, var lastSeen: Int)
+
+    private val stays = HashMap<String, Stay>()
 
     var clearedAtTick: Int? = null
     var secretsAtTick: Int? = null
@@ -72,6 +98,69 @@ class TrackedRoom(val type: RoomType, val mapSegments: Set<Pos>, val cells: Set<
     val allSecrets get() = secretsAtTick != null
 
     fun label() = name ?: "${type.name.lowercase().replaceFirstChar { it.uppercase() }} (unknown)"
+
+    /**
+     * [player] was seen in this room at run tick [at]. Extends their current stay, or begins a new
+     * one, and stamps [enteredAtTick] the moment a stay is long enough to count. Returns whether
+     * *this* call is the one that anchored the room, so the caller logs it exactly once.
+     *
+     * The anchor is the stay's **start**, not the tick it qualified at. Waiting for the threshold is
+     * how we find out the stay was real; the room's clock still started when that person walked in,
+     * and anchoring at `start + MIN_TICKS` would shorten every clear in the data by a flat second.
+     *
+     * A gap of more than [ContributionTracker.MIN_TICKS] between sightings begins a new stay, so
+     * somebody who passes through and returns much later is anchored on the return rather than on the
+     * pass-through — the whole point of the change. Shorter gaps are tolerated on purpose:
+     * [PartyTracker.positions] deliberately reports no teammate positions at all for the 10-20 ticks
+     * around a death, when the marker count and the tab roster disagree, and a stay must not be split
+     * by our own blind spot. One second is the same threshold attribution already uses, so this adds
+     * no second notion of "long enough".
+     *
+     * Does nothing once the room is [cleared]: an anchor stamped after the checkmark would describe a
+     * stay that cannot have contributed to it, and would read as a negative duration on the server.
+     */
+    fun onPresence(player: String, at: Int): Boolean {
+        var stay = stays[player]
+        // `- 1` so the comparison is on the ticks actually missed rather than on the distance between
+        // two sightings: consecutive ticks are a gap of zero, and tolerating a full MIN_TICKS of them
+        // covers the widest roster-skew window PartyTracker documents.
+        if (stay == null || at - stay.lastSeen - 1 > ContributionTracker.MIN_TICKS) {
+            stay = Stay(start = at, ticks = 0, lastSeen = at)
+            stays[player] = stay
+        }
+        stay.ticks++
+        stay.lastSeen = at
+        if (cleared || enteredAtTick != null || stay.ticks < ContributionTracker.MIN_TICKS) return false
+        enteredAtTick = stay.start
+        return true
+    }
+
+    /**
+     * The room was just cleared at [at] and no stay ever reached the threshold. Anchors on the
+     * earliest stay begun within the last [ContributionTracker.MIN_TICKS] instead. Returns whether it
+     * stamped one.
+     *
+     * Without this the rooms that clear the instant somebody steps into them — the empty 1x1s, three
+     * of them in one M7 by the count in [ContributionTracker.award] — would report no anchor at all,
+     * and the server's average would be built from every room *except* the fastest ones. That is not
+     * sparsity, it is a bias, and a silent one: the mean would come out high and nothing in the data
+     * would say why.
+     *
+     * The window is what makes it safe. Every anchor this can produce is at most
+     * [ContributionTracker.MIN_TICKS] before the clear, so the fallback cannot reach back to an old
+     * walk-through however flaky the decoration stream was — it can only ever record a clear of under
+     * a second, which is exactly the case it exists for. A room with nothing in the window keeps a
+     * null anchor and contributes no sample.
+     */
+    fun anchorOnClear(at: Int): Boolean {
+        if (enteredAtTick != null) return false
+        val start = stays.values
+            .map { it.start }
+            .filter { at - it in 0..ContributionTracker.MIN_TICKS }
+            .minOrNull() ?: return false
+        enteredAtTick = start
+        return true
+    }
 
     /** What one secret did to the room's run. Anything but [DONE] leaves the history untouched. */
     enum class SecretRun { IGNORED, STARTED, RUNNING, DONE, DISCARDED }
@@ -256,6 +345,14 @@ object ContributionTracker {
             lastCell[name] = cell
             val room = rooms[cell] ?: discover(map, cell) ?: continue
             room.ticks.merge(name, 1, Int::plus)
+            // Separate from the tick count on purpose: that one is a total for attribution, this is
+            // the current stay, and only a stay can say whether somebody was working here.
+            if (room.onPresence(name, DungeonSession.runTicks)) {
+                DebugLog.event(
+                    "room_anchored",
+                    "room" to room.label(), "at" to room.enteredAtTick, "by" to Pseudonym.of(name),
+                )
+            }
         }
 
         client.level?.let { drainChunks(it) }
@@ -270,12 +367,16 @@ object ContributionTracker {
             if (checkmark != DungeonMapReader.WHITE && checkmark != DungeonMapReader.GREEN) continue
 
             if (!room.cleared) {
+                // Before clearedAtTick, so the fallback still sees an uncleared room, and before the
+                // log line, so "cleared" carries the anchor the report will actually ship.
+                val anchoredOnClear = room.anchorOnClear(DungeonSession.runTicks)
                 room.clearedAtTick = DungeonSession.runTicks
                 roomsCleared++
                 DebugLog.event(
                     "cleared",
                     "room" to room.label(), "type" to room.type, "checkmark" to checkmark,
                     "ticks" to Pseudonym.keys(room.ticks).toString(),
+                    "enterTick" to room.enteredAtTick, "anchoredOnClear" to anchoredOnClear,
                 )
                 award(room)
                 RoomHistory.onRoomCleared(room)
@@ -388,21 +489,14 @@ object ContributionTracker {
         val room = TrackedRoom(type, mapSegments, cells)
         cells.forEach { rooms[it] = room }
 
-        // Discovery only happens for a cell a party member is standing in (see tick), so this is the
-        // first entry rather than the moment the map revealed the room.
-        // ponytail: two ceilings on this anchor, both of which only ever make a clear look longer or
-        // shorter than it was, never wrong in a way the number admits to.
-        // 1. No minimum stay: any sighting starts the clock, so a member who walks through a room the
-        //    party clears twenty seconds later anchors it at the walk-through. MIN_TICKS (1s) is the
-        //    threshold attribution already uses for exactly this, and applying it here is the upgrade
-        //    path — it costs a schema bump, because profiles/ is append-only and the same field would
-        //    otherwise mean two things in one average. Until then `clear` is an upper bound: fine for
-        //    ranking rooms against each other, not a difficulty weight anybody should trust blind.
-        // 2. Presence comes from map decorations, so the clock starts when the decoration resolves —
-        //    the same ceiling room.ticks already counts under, and a room entered while the decoration
-        //    lags reads as marginally faster. Upgrade path is party sync, which would replace
-        //    decoration reading altogether (see PartyTracker's ponytail).
-        room.enteredAtTick = DungeonSession.runTicks
+        // No anchor is stamped here any more. Discovery is a first *sighting*, which is precisely the
+        // schema-4 meaning schema 5 removed: the room's clock starts on a stay, so it is TrackedRoom
+        // .onPresence — called for this same tick right after discover returns — that decides when.
+        // ponytail: one ceiling left on the anchor, and it only ever makes a clear look marginally
+        // shorter than it was. Presence comes from map decorations, so a stay begins when the
+        // decoration resolves rather than when the player crossed the threshold — the same ceiling
+        // room.ticks already counts under. Upgrade path is party sync, which would replace decoration
+        // reading altogether (see PartyTracker's ponytail).
 
         // Baseline: a checkmark that is already there was not earned during this run.
         val existing = DungeonMapReader.checkmarkColor(map, mapSegments, roomSize, type.color)

@@ -52,8 +52,18 @@ object RunReport {
      * no line before it can yield a clear duration. 4 added `complete`, and that one changes what
      * every *earlier* line means: up to 3 a report existing at all implied a finished run, so an
      * absent `complete` reads as true and must keep reading that way forever.
+     *
+     * 5 added no field at all — it changed what `enterTick` *means*, from the first sighting of any
+     * party member to the start of the first stay long enough to be work (`clear-001`, see
+     * [TrackedRoom.enteredAtTick]). That is the more dangerous kind of change and the reason this
+     * constant exists: the key, its type and its optionality are identical, so nothing would reject a
+     * v4-anchored report or notice it arriving, and both meanings would fold into one average that
+     * describes neither. The receiver routes on this number and only on this number — `roomstats.py`
+     * `STAY_ANCHOR_SCHEMA` sends `v` below 5 to its `clear` bucket and 5 or above to `clearStay`,
+     * and never mixes them. Shipping the new anchor with this left at 4 is therefore silent: no 400,
+     * no log line, just a permanently contaminated mean in an append-only store.
      */
-    private const val SCHEMA = 4
+    private const val SCHEMA = 5
 
     /**
      * [complete] is false for a run that was left before the end. Everything below the run level is
@@ -263,7 +273,10 @@ object RunReport {
         obj.addProperty("segments", room.cells.size)
         // Both of these are run timestamps, not durations. `enterTick` is the anchor that turns the
         // clear one into "how long the room took" rather than "how far into the run it happened" —
-        // the server averages the difference per room.
+        // the server averages the difference per room, and since schema 5 it averages it in a
+        // separate bucket, because the anchor is now a stay rather than a sighting. Null is a real
+        // answer here and not a hole to be filled: it says nobody stayed long enough for the span to
+        // mean anything, and the server drops the visit instead of averaging in a wrong number.
         obj.addProperty("enterTick", room.enteredAtTick)
         obj.addProperty("clearTick", room.clearedAtTick)
         obj.addProperty("secretsTick", room.secretsAtTick)
