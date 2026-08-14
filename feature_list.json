@@ -345,7 +345,7 @@
         "Play a real floor with the mod installed, telemetry on, and at least one death in the party.",
         "In the session jsonl: every `death` should carry `source: CHAT`. A `source: TAB` means the chat line for that death did not arrive or did not match, and a `death_duplicate` next to it means both arrived and the dedup held. Zero `death` events in a run that had a death means the wiring does not fire at all.",
         "In the same file: `chat_unparsed` lines are patterns that are wrong, quoted (redacted) so they can be corrected. Oruo's flavour prose is expected there and is not a defect.",
-        "For the secret path the open question is ORDERING: a `chat_secret` must arrive before the `secret` it attributes. Read `attributedBy` on each `secret` -- `chat` proves the ordering works, `click` next to a preceding `chat_secret` proves it does not and CHAT_WINDOW is the fix."
+        "For the secret path the open question is ORDERING: a `chat_secret` must arrive BEFORE the `secret` it attributes. Read `attributedBy` on each `secret` -- `chat` proves the ordering works. A `click` sitting next to a preceding `chat_secret` proves it does not, and **CHAT_WINDOW is NOT the fix for that**: `chatAttribution` runs a forward-only window from a line that has already landed, so there is nothing to widen toward. A late line needs the credit DEFERRED until the chat for that tick has been seen, which is a different change. Note also that a late `chat_secret` does not merely fail benignly - it can MIS-ATTRIBUTE the NEXT secret taken within CHAT_WINDOW ticks."
       ],
       "blocked_reason": "",
       "evidence": [

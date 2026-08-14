@@ -126,7 +126,15 @@ object SecretTracker {
         // Logged on arrival and not only where it is used, so a real floor shows both ticks and
         // settles the one thing this repository cannot: whether the chat line reaches the client
         // before the action bar update it is meant to attribute. If it does not, every one of these
-        // will be followed by a `secret` carrying `attributedBy: click`, and the window is the fix.
+        // will be followed by a `secret` carrying `attributedBy: click`.
+        //
+        // And the window is NOT the fix for that, however much it looks like one. [chatAttribution]
+        // reads forward from a line that has already landed, so a line that arrives late leaves
+        // nothing to widen toward — the credit would have to be deferred until the chat for that tick
+        // has been seen, which is a different change to a different place. Worse, a late line is not
+        // inert while it sits there: it stays valid for [CHAT_WINDOW] ticks and can be spent on the
+        // *next* secret taken inside that window, so the failure mis-attributes rather than merely
+        // missing. Read `attributedBy` on a real floor before believing either half of this.
         DebugLog.event("chat_secret", "mine" to mine, "at" to at)
     }
 
