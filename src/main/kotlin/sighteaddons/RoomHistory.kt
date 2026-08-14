@@ -301,6 +301,13 @@ object RoomHistory {
         obj.addProperty("secretsInRoom", room.secretsFound)
         obj.addProperty("ownSecrets", room.ownSecrets)
         obj.addProperty("maxSecrets", room.info?.secrets ?: -1)
+        // Which room scores were in force when this line was written — the receiver's `generatedTs`,
+        // or 0 for the seed values. Room points are not stored here, but they are derived from these
+        // scores, and once the fetch layer exists (`scores-fetch-001`) the scores move on their
+        // own between launches. A permanent, append-only file is the only place a past run's
+        // weighting can still be identified afterwards. Additive: `fold` reads by key, so this is
+        // invisible to every line already written and to every reader of them.
+        obj.addProperty("scoresTs", RoomStats.scores.generatedTs)
         obj.addProperty("pb", pb)
         try {
             val out = writer ?: open() ?: return

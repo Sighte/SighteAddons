@@ -25,7 +25,7 @@ scores above B.
 | Domain | Grade | Verification | Agent Legibility | Test Stability | Key Gaps | Last Updated |
 |--------|-------|-------------|-----------------|---------------|----------|-------------|
 | telemetry (`RunReport`, `TelemetryUpload`, `DebugLog`) | B | `RunReportTest`, `TelemetryUploadTest`, `DebugLogTest` | High — the ceilings carry `ponytail:` notes | Stable | Retry schedule is "next game start", no backoff, no queue (`TelemetryUpload.kt:211`); nothing uploads during a run; quitting straight from a dungeon has no JOIN and loses the session (`SighteAddons.kt:54`) | 2026-08-14 |
-| scoring (`ContributionTracker`) | B | `ContributionTrackerTest` (33 cases) covers the clear anchor at the `TrackedRoom` seam and the weighting and unattributed accounting at the new `onCleared` seam; `RoomDatabaseTest` checks the weighting against the bundled `rooms.json` rather than a fixture; `settle` is pinned through `RunReportTest` | High — the weighting states what each term is for, and the three exclusions (rarity, live secret counts, floor multiplier) are argued where they are made rather than merely absent. **All three are now pinned by tests as well**, the floor since session 007 by `a room is worth the same on every floor`, which reaches `DungeonSession.floor` — `private set` behind `inDungeon(Minecraft)` — through the `object`'s backing field and asserts the write took before asserting the invariant. Earlier revisions of this row and of `weightOf`'s KDoc said that guard was impossible; it is not, and the claim is retracted where it was made | Stable, and mutation-checked seven times: restoring the old `unattributed` subtraction fails 2, flattening every weight to 0.0 fails 7, adding `secretsFound` to the weight fails 3, substituting it for the database count fails 6, a run-progress factor fails 1, a `floorNumber` multiplier fails 1, and a master-mode bonus read off the floor string fails 1 | Nothing here has run against real Hypixel data, which is the ceiling on this domain and the reason it is not A; `ContributionTracker.tick`'s wiring is still untestable, since it needs a `Minecraft` and a `MapItemSavedData` — so *that* `onCleared` and `onPresence` are called once per clear and once per member per tick is read, not asserted; the weight constants are judgement, not measurement, and no real run has yet shown whether they separate players usefully; the floor guard depends on reflection, so a rename of `DungeonSession.floor` breaks it at runtime rather than at compile time | 2026-08-14 |
+| scoring (`ContributionTracker`, `RoomStats`) | B | `ContributionTrackerTest` (42 cases) covers the clear anchor at the `TrackedRoom` seam, and the weighting, the blend and the unattributed accounting at the `onCleared`/`blend` seams; `RoomStatsTest` (9 cases) covers the scores file against the receiver's real document shape; `RoomDatabaseTest` (8) checks the weighting against the bundled `rooms.json` rather than a fixture; `settle` is pinned through `RunReportTest` | High — every number in the model is argued where it is made, including *why* the exponent is 0.5 rather than 1 and why `k` is 10, and the three `clearpoints-001` exclusions (rarity, live secret counts, floor multiplier) are still argued and still pinned. `blend` is pure and takes its sample and median rather than reaching for `RoomStats`, so the model is legible and testable without a file. The three resolution layers are named and numbered in `RoomStats`' KDoc, including the one that does not exist yet and why | Stable, and mutation-checked seven more times at `0d81667` on top of `clearpoints-001`'s seven: a cliff at n=5 fails 2, reading `clear` instead of `clearStay` fails 6, misspelling a seed key fails 3, dropping the clamp fails 2, reintroducing the segment and trap bonuses fails 1 and only 1, defaulting a missing sample instead of falling back to the seed fails 7, inverting the shrinkage fails 4. The suite pins `RoomStats` to the seed layer in `@BeforeEach`, so no weight depends on a file outside the repository | Nothing here has run against real Hypixel data, which is the ceiling on this domain and the reason it is not A; `ContributionTracker.tick`'s wiring is still untestable, since it needs a `Minecraft` and a `MapItemSavedData` — so *that* `onCleared` and `onPresence` are called once per clear and once per member per tick is read, not asserted; **every room is on its seed today and will be until the receiver serves the averages (`scores-fetch-001`)**, so the measured half of the model is exercised only by tests; layer 2 has never been read on a real install, because nothing writes a cache yet; the floor guard depends on reflection, so a rename of `DungeonSession.floor` breaks it at runtime rather than at compile time | 2026-08-14 |
 | history and records (`RoomHistory`, `RecordTable`) | B | `RoomHistoryTest`, `RecordTableTest` | High | Stable | Floors are collapsed into one record per room and kind (`records-001`); whole history in memory, ~40 bytes per line (`RoomHistory.kt:59`) | 2026-08-13 |
 | party (`PartyTracker`) | C | `PartyTrackerTest` | High — the assumption is stated where it is made | Stable, but it pins the heuristic rather than the truth | Decoration order is assumed to match tab order (`PartyTracker.kt:134`); two players on one decoration are not told apart (`party-001`) | 2026-08-13 |
 | room naming (`RoomDatabase`, `DungeonMapReader`, `DungeonGrid`) | C | `RoomDatabaseTest`, `DungeonGridTest` | High | Stable | Version-coupled: core hashes come from `Block.toString()` in a fixed order, so a Hypixel or Mojang change breaks names silently; a room needs a streamed chunk to be named at all | 2026-08-13 |
@@ -45,6 +45,34 @@ scores above B.
 ## Change History
 
 Newest entry first.
+
+### 2026-08-14 (session 008)
+
+- Changes: `clearpoints-002`. Deleted five hand-picked scoring constants (`PUZZLE_BONUS`,
+  `TRAP_BONUS`, `MINIBOSS_BONUS`, `BLOOD_BONUS`, `SEGMENT_POINTS`) and the `kindBonus` that applied
+  them, and replaced them with a measured base blended out of a seed estimate:
+  `base = seed + n/(n+10) * (measured - seed)`. New `RoomStats`/`RoomScores` reads the receiver's
+  `roomstats.json` verbatim from the mod's own config directory, with the seeds as the fallback and
+  no network call. Suite 120 → 140 across 12 → 13 classes.
+- Domains promoted: none. **Scoring stays B**, and it should — the ceiling on this domain is that
+  nothing has run against real Hypixel data, and this feature does not touch that. What changed is
+  the *kind* of thing the weights are: they were judgement dressed as constants and are now a prior
+  with a stated mechanism for retiring itself. That is a better shape, not a verified one.
+- New gaps identified: two, and both are about the half of the model that cannot run yet. **Every
+  room is on its seed and will be until something serves the averages** — recorded as
+  `scores-fetch-001`, blocked on the receiver. And **layer 2 has never been read on a real install**:
+  the cache path is exercised only by `@TempDir` fixtures, because nothing writes a cache today.
+- Gaps closed: the weight constants themselves, partially and honestly. The previous entry recorded
+  "the weight constants are judgement, not measurement, and no real run has yet shown whether they
+  separate players usefully". They are still not measured — but they are now *structurally able to
+  be*, and the blend is what closes the gap once data exists rather than a session editing numbers.
+  The one real M7's numbers were used as a sanity check on the shape (0.75 s to 36.5 s of clear time
+  against a 2.7x spread of estimates) rather than as validation.
+- Legibility note, and it is the reason this change is more than a formula swap: **the shift is
+  stated as an assertion, not a comment.** Old and new standings are not comparable — `Pipes` went
+  from 4.25 to a 2.50 seed — and `the seed weight of Pipes is the user's model, not the old one`
+  pins that number against the real database, so a reader looking for what changed finds a test
+  rather than prose that can drift.
 
 ### 2026-08-14 (session 007)
 

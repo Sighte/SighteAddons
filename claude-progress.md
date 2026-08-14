@@ -15,31 +15,42 @@ new session reads.
   said `build` until session 006; `init.sh` was corrected at `c4c0c56` and prints `assemble check`,
   and session 004 below records that repair. `build` belongs to the release gate in `CLAUDE.md`, where
   refreshing that jar is the whole point.
-- Baseline status (last `./init.sh` run): **PASSING** — 120 tests in 12 classes, 0 failures,
-  0 skipped, 2026-08-14, on branch `clearpoints-001` (off `main` at `1e27b42`),
+- Baseline status (last `./init.sh` run): **PASSING** — 140 tests in 13 classes, 0 failures,
+  0 skipped, 2026-08-14, on branch `clearpoints-002` (off `main` at `fa075bd`),
   `mod_version=0.9.0`. **Not pushed and not merged.** For how many commits the branch carries, run
-  `git rev-list --count 1e27b42..HEAD` — three consecutive reviews found a hand-written number here
+  `git rev-list --count fa075bd..HEAD` — three consecutive reviews found a hand-written number here
   wrong (one, then four, then four again, against three, six and seven), so the number is
-  deliberately not written down any more. `git log --oneline 1e27b42..HEAD` says what each is for.
-- Last feature completed: `clearpoints-001` — rooms are weighted rather than counted
-  (`ContributionTracker.weightOf`), and `unattributed` is now a **count of rooms** rather than
-  `roomsCleared` minus the points handed out. No schema change and no receiver change: `RUN_KEYS`
-  carries no points field, and the field's values are unchanged. Evaluated at 12/14 (**Revise**) and
-  the two docked items are closed in session 006; it wants a fresh evaluator pass, not more work.
-- **Exclusion coverage in `weightOf`: all three are now pinned by tests** — rarity, "secrets from the
-  database, not `secretsFound`", and, as of session 007, the floor
-  (`a room is worth the same on every floor`). The floor case sets `DungeonSession.floor` by
-  reflection on the `object`'s backing field, because `floor` is `private set` behind
-  `inDungeon(Minecraft)`; `floorNumber` then reads the real digit, and the test asserts that the
-  write took before it asserts the invariant, so it cannot degrade into passing either way. **Two
-  earlier entries here said a floor guard was impossible. They were wrong** — measured, a floor
-  multiplier fails that one case and nothing else in the suite, and until session 007 the exclusion
-  was guarded by nothing at all.
+  deliberately not written down any more. `git log --oneline fa075bd..HEAD` says what each is for.
+- Last feature completed: `clearpoints-002` — **a room is now worth what it measures, not what kind
+  it is.** `PUZZLE_BONUS`, `TRAP_BONUS`, `MINIBOSS_BONUS`, `BLOOD_BONUS` and `SEGMENT_POINTS` are
+  deleted; size and kind are emergent. `weight = base + 0.25 per database secret`, where
+  `base = seed + n/(n+10) * (measured - seed)` and
+  `measured = 0.75 * (avgTicks / median) ^ 0.5` clamped to `[0.25, 2.5]`. The seed is the user's
+  table (`Ice Fill` 2.0, `Water Board` 1.5, any other puzzle 1.0, everything else 0.75) and it is a
+  **prior, not a constant** — that is the feature. No schema change and no receiver change: `RUN_KEYS`
+  carries no points field, `unattributed` still counts rooms, `RunReport.kt` is untouched, `SCHEMA`
+  stays 5.
+- **`clearpoints-001`'s exclusions all still stand and are all still guarded** — rarity, "secrets
+  from the database, not `secretsFound`", and the floor
+  (`a room is worth the same on every floor`, which sets `DungeonSession.floor` by reflection on the
+  `object`'s backing field and asserts the write took before it asserts the invariant). **Two earlier
+  entries here said a floor guard was impossible. They were wrong.**
+- **Where the measured averages come from is three layers and only the bottom two exist**
+  (`RoomStats`): (1) a fetch — not built, because the receiver has no endpoint to call; (2) a cached
+  file at `configDir/sighteaddons/roomstats.json`, the receiver's own document verbatim; (3) the
+  seeds. **Absent is the ordinary first case, not an error, and yields exactly the seeds.** Nothing
+  writes the cache today, so every install is on layer 3 and every room is its seed.
 - Current highest-priority unfinished feature: `chat-001` — read the events Hypixel puts in chat.
   Its test class `ChatEventsTest` does not exist yet; creating it is part of the feature.
 - Current blocker: none for `chat-001`. `records-001` is deferred by the user (a product decision,
-  not a technical blocker), and `ingame-001` is blocked on a human playing a real floor, which no
+  not a technical blocker), `ingame-001` is blocked on a human playing a real floor, and the new
+  `scores-fetch-001` is blocked on the receiver serving `roomstats.json` at all — none of which any
   command here can produce.
+- **Old and new ClearPoints standings are not comparable.** Under `clearpoints-001` the one real M7
+  scored rooms from 1.00 (`Hall`) to 4.50 (`Cathedral`) and `Pipes` was
+  `1.0 + 7*0.25 + 3*0.5 = 4.25`; under `clearpoints-002` `Pipes` seeds at `0.75 + 7*0.25 = 2.50`.
+  Every room came down, by different amounts. Pinned as an assertion by
+  `the seed weight of Pipes is the user's model, not the old one`.
 - **The report schema is now 5 in source and 4 in every install.** `dist/sighteaddons-0.9.0.jar` is
   deliberately **not** rebuilt — it is still the released 0.9.0 artifact — so `residue-001` and
   `clear-001` both exist in source only. Neither reaches a player until somebody bumps the version
@@ -50,6 +61,90 @@ new session reads.
 
 Rules: insert the newest session at the TOP of this section. Never edit or delete past session
 entries — they are the audit trail. Copy the template below for each new session.
+
+### Session 008 — `clearpoints-002`: the seed is a prior, not a constant
+
+- Date: 2026-08-14
+- Branch `clearpoints-002`, off `main` at `fa075bd`. One code commit, `0d81667`, plus this artifact
+  commit. **Not pushed and not merged.** Baseline before starting: `bash init.sh` → **PASSING**
+  (120 tests, 12 classes), so no repair was owed.
+- Scope: the feature the list had recorded as `blocked` on data. **The blocker was resolved by the
+  user rather than by data arriving**, and correcting that entry was part of the task: the user
+  supplied seed values and asked for the self-correcting logic to ship anyway — *"Das sind erstmal
+  nur geschätzte Werte, ich möchte dass die Logic trotzdem in Kraft tritt, dass sie die Werte somit
+  immer verbessern."* The data situation is unchanged and was re-measured over SSH this session:
+  `/srv/sighte/roomstats.json` has 83 rooms, 9 with any `clear` sample, and the sum of every room's
+  `clearStay.n` is **0**.
+- **What was deleted.** `PUZZLE_BONUS`, `TRAP_BONUS`, `MINIBOSS_BONUS`, `BLOOD_BONUS`,
+  `SEGMENT_POINTS` and `kindBonus`. Five hand-picked constants and the function that applied them.
+  Size and kind stop being declared and become emergent — a 1x4 earns its points by measuring slow,
+  and if it turns out to clear as fast as a 1x1 then it was never worth more and the constant was
+  paying it for its shape.
+- **The model, and every number in it is argued where it is made.** `MEDIAN_BASE` is `ORDINARY_SEED`
+  itself, not a second opinion, which is what makes the measured scale and the seed scale one scale.
+  `TIME_EXPONENT` is 0.5 — quadruple the time, double the base — and the reason is measured rather
+  than aesthetic: the real clear averages span 0.75 s to 36.5 s (49x) while the user's own estimates
+  span 2.7x, so a linear map would leave the clamp deciding nearly every room, which is a constant
+  wearing a measurement's clothes. `CONFIDENCE_SAMPLES` is 10, the count at which measurement and
+  seed weigh the same; on the box's current rate that is roughly forty runs per room, and a weight
+  that takes a season of play to turn over is the intended speed.
+- **The design changed mid-implementation, on the user's push-back, and the first version was
+  already written.** The brief said to ship a snapshot of `roomstats.json` inside the jar; the file
+  had been fetched from the box and placed in `src/main/resources/assets/sighteaddons/`. It was
+  removed. The reason is decisive rather than a preference: if improving the values requires cutting
+  a jar release, they improve when somebody does release work rather than on their own, which is the
+  one thing this feature exists to prevent. What replaced it is `RoomStats`' three layers, of which
+  the bottom two are implemented. **There is no network call in this feature.**
+- **The silent failure on this feature is reading the wrong metric**, and it is guarded twice. The
+  receiver folds four averages per room; only `clearStay` is a clear duration under the stay anchor.
+  `clear` is the same span under the schema-4 anchor and is an upper bound a walk-through inflates;
+  `afterClear` is exactly the secret hunt the user excludes. Swapping `clearStay` for `clear` fails
+  6 cases — but it would have failed nothing at all in production, because it produces plausible
+  numbers off a metric that means something else.
+- **Two existing tests were replaced, and the accounting is in the evidence rather than glossed.**
+  `a four-segment room is worth more than a 1x1 of the same kind` pinned `SEGMENT_POINTS`, and
+  `every room is still worth at least the point it used to be` pinned `BASE_POINTS = 1.0`. Both
+  pinned constants the user's model deletes, so keeping them would have pinned the behaviour that was
+  replaced. Neither was removed: each became a case asserting the deliberate new behaviour, and both
+  replacements assert **more** — an exact equality across six kinds where there was one inequality,
+  and the part of the old floor that mattered (nothing is ever worth nothing) kept while the 1.0
+  bound the user removed was dropped. One further assertion was loosened inside an otherwise
+  untouched case: `an expensive room nobody was in...` sanity-checked `weightOf(expensive) >= 4.0`
+  and that room is now worth 3.5; it asserts `> 2 * weightOf(plain())` instead, which says what it
+  meant and does not need retuning every time the model moves.
+- **Seven mutation probes, all re-run against the committed source at `0d81667`** and all caught, by
+  the intended guards: a cliff at n=5 fails 2, reading `clear` fails 6, misspelling `Ice Fill` as
+  `IceFill` fails 3, dropping the clamp fails 2, reintroducing the segment and trap bonuses fails 1
+  and *only* 1, defaulting a missing sample instead of falling back to the seed fails 7, and
+  inverting the shrinkage fails 4. The harness is `build/probe.sh` (gitignored) and it restores each
+  file with `git checkout` rather than from memory, because writing the file back from Python turns
+  CRLF into LF on this machine.
+- **Two of my own tests failed first and both were fixture bugs, not model bugs**, which is worth
+  recording because the second one is a trap the next session could fall into. (1) The no-cliff case
+  originally bounded every step at a fiftieth of the journey; the first step is inherently
+  `1/(1+k)` = 9% of it, so the assertion was wrong. It now asserts each step is no larger than the
+  one before it, which is the precise statement of "no cliff" and catches one wherever it is placed.
+  (2) `an unnamed room can carry no measurement` used a one-room snapshot to model a *slow* room —
+  impossible by construction, since a lone measured room **is** the median and therefore measures as
+  ordinary.
+- **The tests pin `RoomStats` to the seed layer explicitly**, in `@BeforeEach` in both
+  `ContributionTrackerTest` and `RoomDatabaseTest`. Left alone it resolves a file from
+  `configDir/sighteaddons/`, which is outside the repository and which a real install or an earlier
+  `runClient` may well have written — a weight that depended on that would pass for the author and
+  fail for the next session.
+- **Which scores a run used is now recorded**, because once the fetch exists a run's points depend on
+  when the player launched. `RoomScores.generatedTs` (0 for the seeds) rides on the `award` debug
+  event, on a new `room_scores` event, and as a `scoresTs` key on every `history.jsonl` line —
+  additive, since `RoomHistory.fold` reads by key. **Deliberately not on the run report:** a key
+  `RUN_KEYS` has not learned is an unknown key and a `400`.
+- New feature recorded rather than built: `scores-fetch-001`, layer 1, `blocked` on the receiver
+  serving the file at all. The endpoint itself is a **receiver** feature and was *not* written into
+  `SighteAddonServerside`'s list — `CLAUDE.md` forbids that from here, so it was reported upward for
+  the orchestrator to place.
+- Regressions: none. `RunReport.kt` is untouched by this branch
+  (`git diff --name-only fa075bd | grep -c RunReport` → 0), `SCHEMA` is still 5, `mod_version` is
+  still 0.9.0, and `dist/sighteaddons-0.9.0.jar` is byte-identical either side of `assemble check`
+  (md5 `b2ebc35ccfeb9cc96134eb3b18f0306f`).
 
 ### Session 007 — `clearpoints-001`: the floor guard that two sessions said could not exist
 

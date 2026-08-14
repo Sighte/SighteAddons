@@ -3,6 +3,7 @@ package sighteaddons
 import net.minecraft.client.Minecraft
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.saveddata.maps.MapItemSavedData
+import kotlin.math.pow
 
 /**
  * One room of the current run: who was in it for how long, when it was cleared, and when all
@@ -230,7 +231,9 @@ class TrackedRoom(val type: RoomType, val mapSegments: Set<Pos>, val cells: Set<
  * ClearPoints exists because Hypixel's own score weights every room equally regardless of
  * difficulty: clearing a puzzle and walking into an empty 1x1 count the same. [weightOf] is the
  * replacement — a room is worth what it took, and the split over its members is proportional to
- * time as before.
+ * time as before. Since `clearpoints-002` "what it took" is *measured* rather than declared: the
+ * room's clear time against the distribution of clear times, blended out of a seed estimate as the
+ * measurement earns it ([blend]). Where the measurement comes from is [RoomStats].
  *
  * **Two units live in here and they are not interchangeable.** [roomsCleared] and [unattributed]
  * count *rooms*; [pointsByPlayer] carries *weighted points*. Before ClearPoints they happened to
@@ -241,11 +244,90 @@ object ContributionTracker {
     const val MIN_TICKS = 20 // 1s; below this a member only passed through
 
     /**
-     * What every cleared room is worth before anything is added for what it took. Deliberately not
-     * zero: no room becomes worthless, so a run's points never fall below the flat count they
-     * replace, and an unnamed room (chunk never streamed, so [TrackedRoom.info] is null) still pays.
+     * The seed base for an ordinary room, and the user's own number: *"alle anderen Raeume haben
+     * einen Base Score von 0.75"*. Deliberately not zero — no room becomes worthless, and an unnamed
+     * room (chunk never streamed, so [TrackedRoom.info] is null) still pays.
      */
-    private const val BASE_POINTS = 1.0
+    private const val ORDINARY_SEED = 0.75
+
+    /** The seed base for a puzzle the user did not name individually. See [SEED_BY_NAME]. */
+    private const val PUZZLE_SEED = 1.0
+
+    /**
+     * The seed bases the user gave by name, 2026-08-14, verbatim. **The keys are `rooms.json`'s
+     * spelling** — `Ice Fill` and `Water Board`, two words each — because that is the string the
+     * database carries, the string the report ships and the string the receiver folds on. A typo
+     * here does not fail: it silently misses, and the room quietly falls back to [PUZZLE_SEED].
+     * `the seeded rooms are spelled the way the database spells them` in `RoomDatabaseTest` is the
+     * guard, and it checks against the bundled `rooms.json` rather than against this map.
+     *
+     * `Quiz` is listed even though its value equals [PUZZLE_SEED] today, so this map is the user's
+     * table one-for-one and a reader comparing the two does not have to work out why a row is
+     * missing. That the two numbers coincide is not an invariant.
+     */
+    private val SEED_BY_NAME = mapOf(
+        "Ice Fill" to 2.0,
+        "Water Board" to 1.5,
+        "Quiz" to 1.0,
+    )
+
+    /**
+     * What a room measuring exactly the median clear time is worth. The median room *is* the
+     * ordinary room, so this is [ORDINARY_SEED] rather than a second opinion about it — which is
+     * what makes the measured scale and the seed scale the same scale, and the blend in [blend] a
+     * blend rather than a mixture of two units.
+     */
+    private const val MEDIAN_BASE = ORDINARY_SEED
+
+    /**
+     * How steeply a room's base follows its clear time, as an exponent on the ratio to the median:
+     * **0.5, so four times the time is twice the base.**
+     *
+     * Not linear, and the reason is measured rather than aesthetic. The only real clear averages
+     * that exist run from 0.75 s to 36.5 s — a spread of about 49x — while the user's own seed
+     * estimates span 0.75 to 2.0, a spread of 2.7x. A linear map calibrated on the median would put
+     * the slowest room at ten times the ordinary base and the clamp below would then be deciding
+     * almost every room, which is a constant wearing a measurement's clothes. The square root maps
+     * that 49x spread of time onto a 7x spread of base, which is the order of magnitude the
+     * estimates live at, and leaves the clamp as a guard against absurdity instead of as the rule.
+     */
+    private const val TIME_EXPONENT = 0.5
+
+    /**
+     * The clamp on the measured base, both ends, so no single average can run away with a room.
+     *
+     * [MIN_BASE] is a third of [ORDINARY_SEED]: a room you cross in a moment is worth much less than
+     * an ordinary one and never nothing, because somebody still cleared it. [MAX_BASE] is 1.25x the
+     * largest seed the user gave (`Ice Fill`, 2.0) — measurement is allowed to say a room is harder
+     * than the hardest thing they named, since that is the information this feature exists to
+     * collect, but not to say it is five times harder on the strength of one 36-second outlier.
+     *
+     * Both are deliberately wide enough that they normally do not bind: at [TIME_EXPONENT] 0.5 the
+     * top clamp needs a room 11x the median and the bottom one a room under a ninth of it. A clamp
+     * that binds on ordinary rooms would be the weighting.
+     */
+    private const val MIN_BASE = 0.25
+    private const val MAX_BASE = 2.5
+
+    /**
+     * The shrinkage constant `k` in `w = n / (n + k)`: **the sample count at which the measurement
+     * and the seed carry equal weight.**
+     *
+     * This is the whole reason the feature can ship on estimated seeds. `n = 0` is exactly the seed,
+     * a large `n` is essentially the measurement, and everything between is a smooth blend — so the
+     * values improve themselves as runs accumulate instead of improving when somebody edits a
+     * constant. Critically there is **no cliff**: `w` is continuous in `n`, so no room's worth jumps
+     * when its ninth clear becomes its tenth. `a room's base never jumps as its sample count grows`
+     * is the guard.
+     *
+     * 10 rather than 1 or 100 because the blocker this feature carried was precisely that one
+     * observation is worth less than a considered estimate: at `n = 1` the measurement moves the
+     * base by 9%, at `n = 10` it is half, at `n = 30` it is three quarters. On the box's current
+     * rate — 157 room visits over 9 runs, spread across 83 rooms — ten clears of one room is
+     * roughly forty runs. A weight that took a season of play to turn over is the intended speed;
+     * these numbers should move slower than a mood.
+     */
+    private const val CONFIDENCE_SAMPLES = 10.0
 
     /**
      * Per secret the room database says the room holds — the room's own count, not
@@ -257,20 +339,6 @@ object ContributionTracker {
      * `ownSecrets`), which is where that analysis belongs.
      */
     private const val SECRET_POINTS = 0.25
-
-    /** Per segment beyond the first: a 2x2 is four times the walking of a 1x1 at the same clear. */
-    private const val SEGMENT_POINTS = 0.5
-
-    /**
-     * Room-kind bonuses. Only for kinds that impose a *specific piece of work* on top of clearing
-     * mobs — a gate the party has to open or a fight it has to win. `RARE` deliberately gets
-     * nothing: a rare room is unusual, not hard, and whatever makes it worth entering is its secret
-     * count, which [SECRET_POINTS] already pays for.
-     */
-    private const val PUZZLE_BONUS = 1.5
-    private const val TRAP_BONUS = 1.0
-    private const val MINIBOSS_BONUS = 1.0
-    private const val BLOOD_BONUS = 1.0
 
     /**
      * The dungeon grid sits at fixed world coordinates, so the chunks holding the sample columns
@@ -345,8 +413,8 @@ object ContributionTracker {
 
     /**
      * Weighted ClearPoints per player — **not** a number of rooms, and not comparable with
-     * [roomsCleared]. One [weightOf] room is worth between [BASE_POINTS] and about five of them, so
-     * this total normally runs well above the room count. See [unattributed].
+     * [roomsCleared]. One [weightOf] room is worth between [MIN_BASE] and [MAX_BASE] plus a quarter
+     * per secret, so this total normally runs above the room count. See [unattributed].
      */
     fun pointsByPlayer(): Map<String, Double> = credited
 
@@ -378,17 +446,34 @@ object ContributionTracker {
     /**
      * What one cleared room is worth, before [award] splits it over the members who were in it.
      *
-     * The whole point of ClearPoints: Hypixel's score counts rooms, so a party that cleared the
-     * puzzles and a party that walked six empty 1x1s score the same. Three things separate them
-     * here, and all three are properties of the *room* rather than of what the party did in it —
-     * so two players in the same room are still separated only by time, which is [award]'s job.
+     *     weight = base(room) + 0.25 per secret the database says the room holds
+     *     base    = seed, blended toward the room's measured clear time as samples accumulate
      *
-     * - **Kind** ([PUZZLE_BONUS] and friends): a gate that has to be opened or a fight that has to
-     *   be won, on top of the mobs every room has.
+     * **What `clearpoints-002` changed, and it is a change of kind rather than of numbers.** The
+     * previous version paid a room for *being* a puzzle (1.5), a trap, a miniboss, a blood room
+     * (1.0 each) and for every segment past the first (0.5). Five hand-picked constants, and a
+     * constant is an opinion. Those are gone. Size and kind are now **emergent**: a four-segment
+     * room scores high because crossing it measures slow, and a puzzle scores high because puzzles
+     * measure slow — not because a number here says they should. What replaces them is [seedOf], a
+     * table of estimates the user supplied, which [blend] moves toward the measurement as the
+     * measurement earns it.
+     *
+     * **Old scores are not comparable with new ones and nothing converts between them.** On the one
+     * real M7 there is, the old formula scored rooms from 1.00 (`Hall`) to 4.50 (`Cathedral`), and
+     * `Pipes` — a 1x4 holding seven secrets — was `1.0 + 7x0.25 + 3x0.5 = 4.25`. Under this model
+     * `Pipes` seeds at `0.75 + 7x0.25 = 2.50` before any measured adjustment, because its size stops
+     * being paid for directly. Every room came down, and rooms came down by different amounts, so a
+     * standing from an older build cannot be held next to one from this build. `the seed weight of
+     * Pipes is the user's model, not the old one` in `RoomDatabaseTest` pins that number against the
+     * real database.
+     *
+     * **Two things are still properties of the room rather than of what the party did in it**, so
+     * two players in the same room are still separated only by time, which is [award]'s job:
+     *
+     * - **Time** ([blend]): how long the average player takes to clear this room, from the
+     *   receiver's `clearStay` average — the stay-anchored clear span, with no secret hunting in it.
      * - **Secrets** ([SECRET_POINTS]): from the room database, and the reason `rooms.json` carries
      *   the counts at all.
-     * - **Size** ([SEGMENT_POINTS]): segments, taken from the map rather than from the database's
-     *   `shape` string, so an unnamed room is still sized correctly.
      *
      * **Floor is deliberately not a factor**, though `DungeonSession.floorNumber` is right there and
      * the README lists it as available. A floor multiplier is constant across every room of a run,
@@ -415,33 +500,79 @@ object ContributionTracker {
      * guard — it covers a factor drawn from *run progress*, and on a floor multiplier it catches
      * nothing.
      *
-     * An unnamed room — the chunk never streamed, so [TrackedRoom.info] is null — falls back to the
-     * map colour for its kind and pays no secret bonus. It is worth less than it should be, never
-     * nothing: a room we could not identify is still a room somebody cleared.
+     * An unnamed room — the chunk never streamed, so [TrackedRoom.info] is null — keeps the seed its
+     * map colour implies, pays no secret bonus, and can carry no measurement, since the measurement
+     * is keyed by name. It is worth less than it should be, never nothing: a room we could not
+     * identify is still a room somebody cleared.
      */
     internal fun weightOf(room: TrackedRoom): Double {
-        val info = room.info
-        val segments = (room.cells.size - 1).coerceAtLeast(0)
-        return BASE_POINTS +
-            kindBonus(info?.type ?: room.type.name) +
-            (info?.secrets ?: 0) * SECRET_POINTS +
-            segments * SEGMENT_POINTS
+        val scores = RoomStats.scores
+        // The database's name, not [TrackedRoom.name], because the database's spelling is what the
+        // report ships and what the receiver folds its averages under. They are the same string
+        // whenever both are set — `applyNames` copies one from the other — so the fallback only
+        // matters for a room identified but not yet named.
+        val name = room.info?.name ?: room.name
+        return blend(seedOf(room), name?.let { scores.of(it) }, scores.medianTicks) +
+            (room.info?.secrets ?: 0) * SECRET_POINTS
     }
 
     /**
-     * The kind bonus for a room described either by the database's vocabulary or, when the room was
-     * never identified, by the map colour's. The two agree on every name that matters except the
-     * miniboss — `rooms.json` calls it `CHAMPION`, [RoomType] calls it `MINIBOSS` — and the map has
-     * no colour for `RARE` at all, since rare rooms are drawn as ordinary ones. Both vocabularies go
-     * through one `when` rather than two, so a kind cannot be worth different amounts depending on
-     * whether its chunk had loaded yet.
+     * The estimated base for a room before any measurement, from the table the user supplied on
+     * 2026-08-14 — *"Das sind erstmal nur geschaetzte Werte, ich moechte dass die Logic trotzdem in
+     * Kraft tritt, dass sie die Werte somit immer verbessern."*
+     *
+     * A **prior, not a constant.** These are the numbers a room is worth when nothing has been
+     * measured about it, and [blend] is what makes them temporary. That distinction is the feature:
+     * the five kind and size constants this replaces could only ever be improved by somebody editing
+     * this file, whereas a seed is improved by playing.
+     *
+     * Two rooms are named individually and everything else falls out of the kind, which is either
+     * the database's vocabulary or — for a room whose chunk never streamed — the map colour's. The
+     * two vocabularies now only have to agree on one word, `PUZZLE`, which they do; the
+     * `CHAMPION`/`MINIBOSS` disagreement that used to matter is moot, because neither is paid for
+     * being what it is any more.
      */
-    private fun kindBonus(kind: String): Double = when (kind) {
-        "PUZZLE" -> PUZZLE_BONUS
-        "TRAP" -> TRAP_BONUS
-        "CHAMPION", "MINIBOSS" -> MINIBOSS_BONUS
-        "BLOOD" -> BLOOD_BONUS
-        else -> 0.0
+    internal fun seedOf(room: TrackedRoom): Double {
+        SEED_BY_NAME[room.info?.name ?: room.name]?.let { return it }
+        return if ((room.info?.type ?: room.type.name) == "PUZZLE") PUZZLE_SEED else ORDINARY_SEED
+    }
+
+    /**
+     * Moves a room's [seed] toward what it actually measures, by however much the measurement has
+     * earned. **This is the point of the feature**, and it is why estimated seeds were shippable at
+     * all: the values correct themselves as runs accumulate rather than when somebody edits a
+     * number.
+     *
+     *     measured = 0.75 * (avgTicks / median) ^ 0.5,  clamped to [0.25, 2.5]
+     *     w        = n / (n + 10)
+     *     base     = seed + w * (measured - seed)
+     *
+     * Three properties, each of which is a test:
+     *
+     * - **`n = 0` — or no sample, or nothing measured anywhere — is exactly the seed.** Not
+     *   approximately: an unmeasured room must not be silently treated as a fast one, so the absent
+     *   case returns [seed] untouched rather than a default measurement.
+     * - **A large `n` is essentially the measurement.** At `n = 1000` the seed contributes under 1%.
+     * - **No cliff.** `w` is continuous in `n`, so there is no sample count at which a room's worth
+     *   jumps — the ninth clear and the tenth differ by two percent of the gap, not by a step.
+     *
+     * The measurement is normalised against the distribution rather than read as seconds, so a
+     * weight says where a room stands among rooms. That is what makes it commensurable with a seed
+     * at all, and it is why [MEDIAN_BASE] is [ORDINARY_SEED] rather than a second number: the median
+     * room *is* the ordinary room. See [TIME_EXPONENT] for the shape and [MIN_BASE]/[MAX_BASE] for
+     * the clamp, which exists so one 36-second outlier cannot make a room worth ten.
+     *
+     * Pure, and takes its inputs rather than reaching for [RoomStats], for two reasons: every
+     * property above is then testable without a scores file on disk, and the layer the scores came
+     * from — fetched, cached or seeded — is deliberately not something the model can see.
+     */
+    internal fun blend(seed: Double, sample: RoomSample?, medianTicks: Double?): Double {
+        if (sample == null || sample.n < 1 || sample.avgTicks <= 0.0) return seed
+        if (medianTicks == null || medianTicks <= 0.0) return seed
+        val measured = (MEDIAN_BASE * (sample.avgTicks / medianTicks).pow(TIME_EXPONENT))
+            .coerceIn(MIN_BASE, MAX_BASE)
+        val confidence = sample.n / (sample.n + CONFIDENCE_SAMPLES)
+        return seed + confidence * (measured - seed)
     }
 
     /**
@@ -561,6 +692,10 @@ object ContributionTracker {
             DebugLog.event(
                 "award",
                 "room" to room.label(), "points" to points,
+                // Which scores produced that number. Once the fetch of layer 1 exists a run's points
+                // depend on when the player last launched, and a number nobody can attribute to a
+                // scores version afterwards is a number nobody can explain. 0 means the seeds.
+                "scoresTs" to RoomStats.scores.generatedTs,
                 "split" to Pseudonym.keys(split).toString(),
             )
             return
