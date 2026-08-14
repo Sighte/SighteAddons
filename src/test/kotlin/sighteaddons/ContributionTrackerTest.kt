@@ -379,12 +379,11 @@ class ContributionTrackerTest {
      * property of the room rather than of the run it appeared in.
      *
      * **What this does not pin, stated so nobody reads more into it than is here.** It covers the
-     * run state a test in this repository can actually move — rooms already cleared and credited,
-     * and the room's own progress through its clear. It does *not* cover `DungeonSession.floorNumber`,
-     * which is unreachable from a test: `floor` is `private set` and only written by
-     * `inDungeon(Minecraft)`, so a floor factor would read null here and fall through whatever it
-     * did in a real run. The floor exclusion rests on the KDoc argument, and no test can currently
-     * change that.
+     * run state this test moves directly — rooms already cleared and credited, and the room's own
+     * progress through its clear. It does *not* cover `DungeonSession.floorNumber`: measured, a floor
+     * multiplier passes this case untouched. The floor is guarded by `a room is worth the same on
+     * every floor` instead, and the two are deliberately separate because they fail on different
+     * edits.
      */
     @Test
     fun `a room is worth the same however far the run has got`() {
@@ -402,6 +401,85 @@ class ContributionTrackerTest {
         room.clearedAtTick = 900
 
         assertEquals(fresh, ContributionTracker.weightOf(room), "the run moved; the room did not")
+    }
+
+    /**
+     * Writes [DungeonSession.floor] the only way a test can: it is `private set` and written only by
+     * `inDungeon(Minecraft)`, which needs a client this repository cannot build. Reflection reaches
+     * the backing field of the `object`, and `floorNumber` then reads back the real digit.
+     *
+     * The only reflection in this suite, and it is confined to this one exclusion. It is here rather
+     * than as a production seam because a seam on [DungeonSession] would be a shape the mod does not
+     * otherwise need, added for a test — a bigger change to `src/main` than the exclusion is worth.
+     * The cost is that a rename of `floor` breaks this test at runtime rather than at compile time;
+     * the assertion on `floorNumber` below is what converts that into a loud failure instead of a
+     * silent pass, and it is the reason this is a guard and not decoration.
+     */
+    private fun setFloor(value: String?) {
+        val field = DungeonSession::class.java.getDeclaredField("floor")
+        field.isAccessible = true
+        field.set(DungeonSession, value)
+    }
+
+    /**
+     * **The floor is not a multiplier**, which is the third of the three exclusions [
+     * ContributionTracker.weightOf]'s KDoc argues for and the one that used to rest on the argument
+     * alone. A floor factor is constant across every room of a run, so it scales every player's
+     * total by the same number and separates nobody; points are only ever compared within one run.
+     *
+     * Three floors, because there are two different edits to catch and they read different things.
+     * `F1` against `F7` catches a factor drawn from [DungeonSession.floorNumber] — the obvious one,
+     * since `floorNumber` is right there. `F7` against `M7` catches one drawn from the floor
+     * *string*, which is how a master-mode bonus would have to be written, and `floorNumber` cannot
+     * tell those two apart. `Entrance` is the case that reads back null, which is what every other
+     * test in this file runs under: it is asserted last so this case says out loud that the null
+     * reading is one of the values checked rather than the only one.
+     *
+     * **This asserts that the setup worked before it asserts the invariant.** Without the
+     * `floorNumber` checks the test would pass whether or not the field was ever written, which is
+     * exactly the guard-in-name-only shape an earlier session believed was the only shape available
+     * here. It is not: with them, adding `val floorFactor = 1.0 + (DungeonSession.floorNumber ?: 0)
+     * * 0.1` to [ContributionTracker.weightOf] fails this case, and — measured — fails nothing else
+     * in the suite.
+     *
+     * Both the weight and the credit are checked, because a floor factor could be applied in
+     * [ContributionTracker.weightOf] or between it and the split in `award`. [ContributionTracker]
+     * is reset between floors so the credited totals are comparable; [DungeonSession] is *not*
+     * reset, because `DungeonSession.reset()` resets half the mod. The floor is put back to null in
+     * a `finally` instead — the suite runs sequentially in one JVM and a left-behind floor would
+     * leak into every test after this one.
+     */
+    @Test
+    fun `a room is worth the same on every floor`() {
+        fun creditOn(floor: String, expectedNumber: Int?): Double {
+            setFloor(floor)
+            assertEquals(
+                expectedNumber,
+                DungeonSession.floorNumber,
+                "the floor was not actually set — this test would pass either way",
+            )
+            ContributionTracker.reset()
+            val room = roomOf(segments = 2, info = info("PUZZLE", secrets = 3))
+            val weight = ContributionTracker.weightOf(room)
+            room.ticks["Fighter"] = 400
+            ContributionTracker.onCleared(room)
+            assertEquals(
+                weight,
+                ContributionTracker.pointsByPlayer()["Fighter"] ?: 0.0,
+                1e-9,
+                "the whole room went to its only occupant, on $floor as anywhere",
+            )
+            return weight
+        }
+
+        try {
+            val onF1 = creditOn("F1", 1)
+            assertEquals(onF1, creditOn("F7", 7), 1e-9, "a room got heavier on a deeper floor")
+            assertEquals(onF1, creditOn("M7", 7), 1e-9, "a room got heavier in master mode")
+            assertEquals(onF1, creditOn("Entrance", null), 1e-9, "no floor is not a discount either")
+        } finally {
+            setFloor(null)
+        }
     }
 
     /**

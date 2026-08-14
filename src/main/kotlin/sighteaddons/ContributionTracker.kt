@@ -398,15 +398,22 @@ object ContributionTracker {
      * has no points field; the per-player breakdown never leaves the client). It would be a constant
      * with no reader. Revisit if points ever become something the server stores.
      *
-     * **That one exclusion is an argument and not a guard, deliberately, and here is why no test
-     * closes it.** The other two are pinned — `a rare room is not paid for being rare` and `the live
-     * secret counter is not what a room is worth`. The floor cannot be: it is not an input to this
-     * function, and `DungeonSession.floor` is `private set` behind `inDungeon(Minecraft)`, which no
-     * test in this repository can build. A floor factor added here would read null and fall through
-     * in every test, so a test claiming to catch it would be a guard in name only. What *is* pinned
-     * is the shape of it — `a room is worth the same however far the run has got` fails on any factor
-     * drawn from run progress rather than from the room. If the floor ever needs a real guard, it
-     * needs a seam on `DungeonSession` first, and that is a feature rather than a test.
+     * **All three exclusions are guarded.** Rarity by `a rare room is not paid for being rare`, the
+     * live secret counter by `the live secret counter is not what a room is worth`, and the floor by
+     * `a room is worth the same on every floor`, which writes `DungeonSession.floor` by reflection:
+     * the field is `private set` and set only by `inDungeon(Minecraft)`, which no test here can call,
+     * but the backing field of the `object` is reachable and `floorNumber` then reads the real digit.
+     * Measured — a floor multiplier added to this function fails that case and **nothing else in the
+     * suite**, in both forms it could take: one drawn from `floorNumber`, and one drawn from the
+     * floor *string*, which is how a master-mode bonus would have to be written since `floorNumber`
+     * cannot tell `F7` from `M7`.
+     *
+     * Earlier revisions of this KDoc said a floor guard was impossible here and would be "a guard in
+     * name only". That was wrong, and it was recorded in six places before an evaluator disproved it
+     * by writing the test. Nothing about the exclusion changed; only the claim that it could not be
+     * checked. `a room is worth the same however far the run has got` stays as a separate, narrower
+     * guard — it covers a factor drawn from *run progress*, and on a floor multiplier it catches
+     * nothing.
      *
      * An unnamed room — the chunk never streamed, so [TrackedRoom.info] is null — falls back to the
      * map colour for its kind and pays no secret bonus. It is worth less than it should be, never
