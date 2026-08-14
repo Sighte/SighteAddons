@@ -15,13 +15,22 @@ new session reads.
   said `build` until session 006; `init.sh` was corrected at `c4c0c56` and prints `assemble check`,
   and session 004 below records that repair. `build` belongs to the release gate in `CLAUDE.md`, where
   refreshing that jar is the whole point.
-- Baseline status (last `./init.sh` run): **PASSING** — `main` at `9cb71ee` (which is `chat-001`
-  merged) carries 160 tests in 14 classes. Branch `party-001`, off `main` at `9cb71ee`, carries
-  **167 in 14**, 0 failures, 0 skipped, 2026-08-14, `mod_version=0.9.0`. **Not pushed and not
-  merged.** For how many commits the branch carries, run `git rev-list --count 9cb71ee..HEAD` —
-  three consecutive reviews found a hand-written number here wrong, so the number is deliberately
-  not written down any more. `git log --oneline 9cb71ee..HEAD` says what each is for. The +7 is
-  entirely `PartyTrackerTest` 7 → 14; no class was added.
+- Baseline status (last `./init.sh` run): **PASSING** — `main` at `d356ff2` (which is `party-001`
+  merged) carries **167 tests in 14 classes**. Branch `scores-fetch-001`, off `main` at `d356ff2`,
+  carries **175 in the same 14**, 0 failures, 0 skipped, 2026-08-14, `mod_version=0.9.0`. **Not
+  pushed and not merged.** The +8 is entirely `RoomStatsTest` 9 → 17; no class was added and nothing
+  was removed, renamed or weakened. For how many commits the branch carries, run
+  `git rev-list --count d356ff2..HEAD` — three consecutive reviews found a hand-written number here
+  wrong, so the number is deliberately not written down any more. `git log --oneline d356ff2..HEAD`
+  says what each is for.
+- **A second branch is open and is not this one: `runloss-001`, also off `d356ff2`, `passing` in its
+  own artifacts and under evaluation.** This branch was cut from `main` on the user's instruction, so
+  its `feature_list.json` still shows `runloss-001` as `not_started` and its progress log has no
+  session 012 — both are the branch point, not a claim. **Merging the two will conflict in
+  `feature_list.json`, `claude-progress.md`, `session-handoff.md` and `quality-document.md`**, and
+  the resolution is a union: no artifact statement in either branch supersedes one in the other,
+  because the two features share no source file. `RunReport.kt` and `SighteAddons.kt`'s connection
+  events belong to that branch and were not touched here.
 - **Last feature attempted: `party-001`, and it is `blocked` on a finding rather than on a task.**
   The mechanism the entry existed to build does not exist. The only concrete upgrade path the
   codebase named — the old comment at `PartyTracker.kt:134-138`, that NoammAddons reads the
@@ -34,7 +43,15 @@ new session reads.
   `PartyTracker.assign(roster, localSlot, isFrame)`, behaviour unchanged, with 7 cases and 3
   mutation probes where there had been none. The single surviving candidate channel is
   `MapDecoration.name()` — recorded as `deconame-001`, not built.
-- Last feature completed: `chat-001` — **the mod reads the dungeon events Hypixel states in chat**,
+- Last feature completed: `scores-fetch-001` — **the room weights improve without a jar release.**
+  The receiver started serving `GET /roomstats`, so layer 1 of `RoomStats` exists: a daemon-thread
+  fetch at game start, the receiver's bytes cached verbatim through `.part` + rename with the `ETag`
+  beside them, `If-None-Match` on the next launch, and every failure — no route, a dead host, a 503,
+  a 404, a proxy's HTML page under a 200, a body that stops halfway — falling through to the last
+  cache and then to the seeds. A document that arrives *after* the session resolved is cached and
+  **not** adopted, so a weight cannot move mid-run. No report field, no schema change, `SCHEMA` 5,
+  `RunReport.kt` untouched.
+- Feature completed before that: `chat-001` — **the mod reads the dungeon events Hypixel states in chat**,
   through a pure `String -> Event?` parser. A death is charged on the tick it is announced instead of
   by a once-a-second tab poll; a wither-essence secret is credited to the player Hypixel names
   instead of to whoever clicked recently; wither doors, the blood door and puzzle solves and failures
@@ -42,7 +59,7 @@ new session reads.
   everything it improves lands in fields the receiver already accepts, checked mechanically. The
   entry's `user_visible_behavior` was factually wrong and was corrected in place. New feature
   recorded rather than built: `chatfields-001`.
-- Feature completed before that: `artifacts-001` — **the real dungeon run is in the repository, and
+- Before that: `artifacts-001` — **the real dungeon run is in the repository, and
   the statements that outlived their subject are retired.** No runtime behaviour changed; every
   `src/` edit is comment text and the diff proves it mechanically. New artifact:
   `docs/evidence/session-1786719912927/`, which is self-checking — `readout.sh` asserts all 35
@@ -62,15 +79,21 @@ new session reads.
   (`a room is worth the same on every floor`, which sets `DungeonSession.floor` by reflection on the
   `object`'s backing field and asserts the write took before it asserts the invariant). **Two earlier
   entries here said a floor guard was impossible. They were wrong.**
-- **Where the measured averages come from is three layers and only the bottom two exist**
-  (`RoomStats`): (1) a fetch — not built, because the receiver has no endpoint to call; (2) a cached
-  file at `configDir/sighteaddons/roomstats.json`, the receiver's own document verbatim; (3) the
-  seeds. **Absent is the ordinary first case, not an error, and yields exactly the seeds.** Nothing
-  writes the cache today, so every install is on layer 3 and every room is its seed.
-- Current highest-priority unfinished feature: **`runloss-001`**, and now by number as well as by
-  value among the workable ones — `records-001` (6) is deferred by the user, `party-001` (7) went
-  `blocked` in session 011, and `ingame-001` (8) needs a party floor. `runloss-001`'s priority 10 is
-  queue position; it is the only entry known to have destroyed real data.
+- **Where the measured averages come from is three layers and all three now exist**
+  (`RoomStats`): (1) a fetch of the receiver's `GET /roomstats` at game start, on a daemon thread —
+  `scores-fetch-001`, session 013; (2) a cached file at `configDir/sighteaddons/roomstats.json`, the
+  receiver's own document verbatim, which layer 1 writes through `.part` + rename with its `ETag`
+  beside it; (3) the seeds. **Absent is the ordinary first case, not an error, and yields exactly the
+  seeds**, and so does every way layer 1 can fail. **The measured half is still inert regardless**:
+  the served document has 105 rooms and `sampled 0` — every `clearStay` is `n=0` — because no
+  schema 5 build has been *released*. Fetching does not change that; it takes the release out of the
+  loop for every later improvement.
+- Current highest-priority unfinished feature: **`runend-001`**, which is cheap and whose open
+  question is already answered (write the run-level count, not the event count). Among the rest:
+  `records-001` (6) is deferred by the user, `party-001` (7) went `blocked` in session 011,
+  `ingame-001` (8) needs a party floor, `deconame-001` needs one too, and `chatfields-001` starts
+  with a feature in `Sighte/skyblock-server`. **`runloss-001` is done on its own branch** — this
+  branch's list showing it `not_started` is the branch point speaking, not a status.
 - **Two players sharing a decoration is not a defect and never was.** Decorations are one per
   player. Two players in one *room* produce two decorations a few pixels apart that both resolve to
   the same `Pos` cell, so swapping them changes nothing — asserted in `PartyTrackerTest`. The
@@ -86,18 +109,28 @@ new session reads.
   wrong pattern fails silently and benignly — it matches nothing and the mod infers exactly as
   before — and `ChatEvents.nearMiss` writes the offending line (redacted) to the debug log so one
   real floor says which ones are wrong.
-- Current blocker: none for the next feature. `records-001` is deferred by the user (a product decision,
-  not a technical blocker), and `scores-fetch-001` is blocked on the receiver serving
-  `roomstats.json` at all — which no command here can produce. **`ingame-001`'s blocker changed in
+- Current blocker: none for the next feature. `records-001` is deferred by the user (a product
+  decision, not a technical blocker). **`scores-fetch-001`'s blocker is gone** — the receiver's
+  `scores-002` is deployed and `GET /roomstats` answers `200` with an `ETag`, measured from here on
+  2026-08-14 rather than taken on trust. **`ingame-001`'s blocker changed in
   session 009 and was narrowed rather than cleared:** the "needs a human to play a floor and hand
   over the session file" half is *done*, and what remains is a **party** floor (for the
   decoration→player mapping and the RED checkmark) plus a human opening the `/sa` screen. Read its
   `blocked_reason`; do not read the old summary of it.
-- **`runloss-001` is new, unblocked, and arguably the highest-value work on the list** even though
-  its priority number is 10 — that number is queue position, appended so no existing entry had to be
-  renumbered by a recording pass. It is the only entry known to have destroyed real data, it needs no
-  receiver change, and every `clearStay` sample the box is waiting for has to survive that code path
-  to arrive at all.
+- **`runloss-001` — the only entry known to have destroyed real data — is implemented and `passing`
+  on the branch of the same name, not merged and under evaluation.** Nothing on this branch depends
+  on it and it touches no file this one does. Its own artifacts are the record; do not re-derive its
+  status from this branch's `feature_list.json`.
+- **The receiver's `/roomstats` contract, measured on 2026-08-14 and worth not re-deriving.**
+  `GET https://217.160.51.229.sslip.io/roomstats` → `200`, ~107 KB, `ETag`,
+  `Cache-Control: no-cache`; `If-None-Match` with the current tag → `304`; `503` with body
+  `no scores document` when there is no document or it does not parse; `404` for **every** other
+  path, the match being exact — `/roomstats.json`, `/roomstats/`, `/roomstats?v=1` and a POST are all
+  `404`. No token: the document is aggregate per room and carries no install id or player name. Not
+  compressed, because Java's `HttpClient` does not decompress transparently and asking would be the
+  mod's half of a feature (`SETUP.md` §10c in the receiver records both). The document is refolded
+  every half hour, so the `ETag` is worth sending: two fetches two hours apart this session returned
+  different tags for the same 107,362 bytes' worth of shape.
 - **Old and new ClearPoints standings are not comparable.** Under `clearpoints-001` the one real M7
   scored rooms from 1.00 (`Hall`) to 4.50 (`Cathedral`) and `Pipes` was
   `1.0 + 7*0.25 + 3*0.5 = 4.25`; under `clearpoints-002` `Pipes` seeds at `0.75 + 7*0.25 = 2.50`.
@@ -132,6 +165,65 @@ new session reads.
 
 Rules: insert the newest session at the TOP of this section. Never edit or delete past session
 entries — they are the audit trail. Copy the template below for each new session.
+
+### Session 013 — `scores-fetch-001`: the weights stop waiting for a jar
+
+- Date: 2026-08-14
+- Branch `scores-fetch-001`, off `main` at `d356ff2` (which is `party-001` merged), on the user's
+  instruction. **Not pushed and not merged.** Run `git rev-list --count d356ff2..HEAD` for the commit
+  count rather than reading one here.
+- Baseline at start: `bash init.sh` → **PASSING**, 167 tests in 14 classes, measured before any edit.
+- Numbered 013 rather than 012: `runloss-001` is session 012 and sits on its own branch off the same
+  commit. That entry is not here because this branch predates it, not because it did not happen.
+
+**The blocker was the receiver's and the receiver cleared it.** `scores-fetch-001` had been `blocked`
+since `clearpoints-002` with the reason "there is no endpoint to call". `scores-002` on
+`Sighte/skyblock-server` is now deployed, and the first thing this session did was check that from
+outside rather than believe it: `GET /roomstats` → `200`, 107,362 bytes, no token, an `ETag` that
+`If-None-Match` turns into a `304`, and `404` for `/roomstats.json`, `/roomstats/`, `/roomstats?v=1`
+and a POST. That is the contract layer 1 is written against and it is recorded in
+`feature_list.json`'s evidence, not only here.
+
+- **Layer 1 is wiring, exactly as `clearpoints-002` predicted it would be.** `RoomScores.parse`
+  already read the receiver's document verbatim, so no format work was owed and none was done. What
+  is new: `RoomStats.start()`, `refresh`, `fetch`, `store`, `cachedEtag`, `adopt`, and a
+  `room_scores_fetch` debug event.
+- **The pattern is `TelemetryUpload`'s, deliberately, and not a second one.** A named daemon thread
+  from `onInitializeClient`, everything inside it wrapped, nothing on the client thread and nothing
+  during a run. Its own thread rather than a step inside the upload's: the upload hands over a
+  backlog at 60 s a file, and the scores would then arrive after the first room of the evening.
+- **A document that lands after the session resolved is cached and not adopted.** That refusal is the
+  feature, not a safety net — a room's weight is read the moment it is cleared and points are
+  compared between party members, so a mid-run change makes a run incomparable with itself. The
+  resolution, `adopt` and `use` are synchronised on `RoomStats` now, because the fetch is on another
+  thread and that race is a run scored against two weightings.
+- **The `ETag` wedge is guarded at both ends.** The document is written before the tag, and
+  `cachedEtag` returns null whenever the document is not on disk — an `ETag` naming bytes that are
+  not there earns a `304`, and a `304` with no cache behind it is a session on the seeds at *every*
+  launch until the receiver's document happens to change. Own case, own mutation probe.
+- **The failure table is driven through a real HTTP client, on loopback.** Nine shapes in one test —
+  `503`, `404`, `500`, an HTML 502 page under a `200`, half a document, an empty body, an array
+  instead of the document, a body that stops halfway, and a dead port. A truncated read and a refused
+  connection cannot be produced by a pure function, and they are what a flaky connection actually
+  hands the mod. No case reaches a network: an ephemeral port on the loopback address, closed with
+  the test.
+- **`Config.upload` gates the fetch**, which is a decision rather than a requirement and is written
+  down as one in the entry's notes, with the one line to delete if the user wants the other trade.
+  The switch is worded about *sending* and this request sends nothing — but it is the only control a
+  player has over whether the mod talks to the analysis server at all.
+- **No report field and no schema change**, verified mechanically rather than asserted:
+  `python build/keydiff.py` is four empty sets, 17 run keys and 17 room keys, `SCHEMA` 5, and
+  `RunReport.kt` is not in this branch's diff. One correction to that script against the version the
+  previous handoff describes — the key regex now requires the comma after the string, because
+  `classes.add("${it.livingClass} …")` appends a *value* to a `JsonArray` and counting it invents an
+  18th run key that the validator would appear to reject.
+- **Grade: scoring stays B**, on the same standard session 012 held telemetry to. The gap this
+  closes is real — the domain's input is now obtained by the code rather than by a person, and the
+  obtaining is measured against the live box end to end — but the one thing that matters most has
+  still never happened: no real client has ever run `RoomStats.start()`, and every score in the
+  served document is still seed-plus-secrets because `clearStay` is `n=0` until a schema 5 build is
+  *released*. Promoting on a loopback server and a `curl` would apply a lower standard than the one
+  that kept this domain at B while the fetch did not exist at all.
 
 ### Session 011 — `party-001`: the upgrade path did not exist, so the finding is the deliverable
 
