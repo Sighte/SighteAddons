@@ -1,7 +1,7 @@
 {
   "project": "SighteAddons",
   "schema_version": 2,
-  "last_updated": "2026-08-14",
+  "last_updated": "2026-08-15",
   "rules": {
     "single_active_feature": true,
     "passing_requires_evidence": true,
@@ -760,17 +760,72 @@
       "area": "telemetry",
       "title": "A report knows which floor it was",
       "user_visible_behavior": "A run report carries the floor it was played on instead of `?`, so per-floor questions can be asked of the data at all.",
-      "status": "not_started",
+      "status": "passing",
       "depends_on": [],
       "verification_command": "./gradlew test --tests 'sighteaddons.DungeonSessionTest' --tests 'sighteaddons.RunReportTest'",
       "verification_manual": [
-        "Play a floor, leave it normally, and confirm the uploaded report carries the floor rather than `?`.",
-        "Play a floor and quit the client from inside it (the runloss-001 path), and confirm the same.",
-        "On the box: jq over profiles/*.jsonl and confirm new reports no longer group under `?`."
+        "Play a floor, leave it normally, and confirm the uploaded report carries the floor rather than `?`. This is the JOIN path and it is the one that produced most of the 20.",
+        "Play a floor and quit the client from inside it (the runloss-001 path), and confirm the same. This is the off-thread read.",
+        "Enter a floor, leave, then enter a DIFFERENT floor and leave: confirm the second report says the second floor. A floor that is never forgotten is the failure this fix could have introduced, and only a real client crosses two dungeons in one session.",
+        "On the box: jq over profiles/*.jsonl and confirm new reports no longer group under `?`. Old ones are not repaired - the floor they were played on is not recoverable from what was stored."
+      ],
+      "blocked_reason": "",
+      "evidence": [
+        {
+          "date": "2026-08-15",
+          "command": "./gradlew test --tests 'sighteaddons.DungeonSessionTest' --tests 'sighteaddons.RunReportTest'",
+          "result": "BUILD SUCCESSFUL. DungeonSessionTest tests=7 failures=0 errors=0 skipped=0 (a new class - DungeonSession had no test of any kind, which is how a one-line defect survived five schema versions). RunReportTest tests=32 failures=0 errors=0 skipped=0, up from 30. The seven are 'a floor named on the sidebar is seen and remembered', 'master mode is remembered as master mode', 'the floor survives leaving the dungeon, and the check still answers about now', 'no sidebar at all is not a dungeon and forgets nothing', 'reset forgets the floor', 'a floor seen later replaces the one before it', 'the floor is readable off the client thread'. The two new RunReportTest cases are 'a report is filed under the floor the session remembers' and 'a floor that was never seen is still a question mark'.",
+          "commit": "c6142d4",
+          "artifact": "build/test-results/test/TEST-sighteaddons.DungeonSessionTest.xml"
+        },
+        {
+          "date": "2026-08-15",
+          "command": "./gradlew test --rerun-tasks; bash init.sh",
+          "result": "Regression over everything. BUILD SUCCESSFUL; build/test-results/test/*.xml sums to classes 15, tests 193, skipped 0, failures 0, errors 0 - up from 14 classes and 184 tests at the branch point ec12a27, and the difference is exactly the new DungeonSessionTest (7) plus RunReportTest 30 -> 32. STRICTLY ADDITIVE: nothing was removed, renamed, weakened or retuned. The one pre-existing test line touched is RunReportTest's private report() helper, which gained a `floor: String = \"M5\"` parameter with the old value as its default, so every existing case builds the identical report. bash init.sh -> BASELINE: PASSING, run before any edit at ec12a27 (184) and again at the end.",
+          "commit": "c6142d4",
+          "artifact": "build/test-results/test/"
+        },
+        {
+          "date": "2026-08-15",
+          "command": "./gradlew assemble check; md5sum dist/sighteaddons-0.10.0.jar; git status --short dist/ gradle.properties",
+          "result": "BUILD SUCCESSFUL. Jar md5 5e0b1cd2d3b97cfaa6cd5e86061cbdbe measured before and after and identical; git status over dist/ and gradle.properties empty. assemble check rather than build, so the released 0.10.0 artifact is untouched and mod_version did not move.",
+          "commit": "c6142d4",
+          "artifact": ""
+        },
+        {
+          "date": "2026-08-15",
+          "command": "python build/keydiff.py",
+          "result": "KEYDIFF: CLEAN - run written 17 / known 17, room written 17 / known 17, all four difference sets empty, SCHEMA in source 5. Confirms the entry's NOT PAIRED claim mechanically rather than by assumption: `floor` is in ingest.py's RUN_KEYS (line 145) and required, so this changes the value and not the shape. SighteAddonServerside was READ and never written.",
+          "commit": "c6142d4",
+          "artifact": ""
+        },
+        {
+          "date": "2026-08-15",
+          "command": "python build/floorprobe.py <A|B|C|D|E>; ./gradlew test --tests 'sighteaddons.DungeonSessionTest' --tests 'sighteaddons.RunReportTest'; git checkout src/main/kotlin/sighteaddons/DungeonSession.kt src/main/kotlin/sighteaddons/RunReport.kt",
+          "result": "Five mutation probes, all caught, all restored after the feature was committed. (A) `if (seen != null) floor = seen` -> `floor = seen` in observeSidebar, which is the defect restored verbatim as DungeonSession.kt:61 stood at ec12a27 -> fails 2: 'the floor survives leaving the dungeon...' and 'no sidebar at all...'. (B) `return seen != null` -> `return floor != null`, the fix done wrong - the floor is kept but the predicate answers from it, so inDungeon would return true forever after the first dungeon -> fails the same 2. (C) drop `floor = null` from reset() -> fails 1, 'reset forgets the floor'. (D) `reportedFloor()` -> `\"?\"` -> fails 2, 'a report is filed under the floor the session remembers' and 'the floor is readable off the client thread'. (E) drop `@Volatile` from `floor` -> fails 1, 'the floor is readable off the client thread'. Re-create all five from build/floorprobe.py (build/ is gitignored, so re-create it from these old -> new pairs after a clean; it needs encoding='utf-8' as well as newline='' - DungeonSession.kt has em dashes and cp1252 cannot read it).",
+          "commit": "c6142d4",
+          "artifact": ""
+        }
+      ],
+      "notes": "MEASURED ON THE BOX, 2026-08-15. Of 22 uploaded reports, 20 carry floor `?` and only 2 carry a real floor - and both of those are v4/0.9.0. In roomstats.json, 115 of 125 room entries are grouped under `?`. This is not old data: the three newest reports are v5, one of them from the 0.10.0 release, and all three say `?`.\n\nTHE CAUSE, and it is one line doing two jobs. DungeonSession.kt:61 is\n  floor = sidebarLines(client).firstNotNullOfOrNull { FLOOR.find(it)?.groupValues?.get(1) }\n  return floor != null\nThat assignment IS the in-dungeon check, so every call outside a dungeon overwrites a known floor with null. RunReport.kt:171 then reads `DungeonSession.floor ?: \"?\"`. The report is written on ClientPlayConnectionEvents.JOIN - after leaving - so by then the value is gone. The two reports that DO carry M7 are the ones written from the run-end headline, while the player was still inside and the sidebar still showed it. The check that asks whether you are still in a dungeon destroys the fact the report needs.\n\nWHY IT MATTERS BEYOND TIDINESS: roomstats groups every room entry by floor, so the fold cannot separate a room that is genuinely harder on F7 from the same room on F5 even if somebody wanted it to. records-001 was deferred by the user on the grounds that per-floor judgement is too much work - worth knowing that the data would not currently support it either way. The scoring model does not read floor and is unaffected.\n\nSHAPE OF THE FIX, not prescribed: keep the last known floor for the life of a run rather than letting the detector clear it, and clear it in DungeonSession.reset() where the run actually ends. Check runloss-001's DISCONNECT path too - it writes off-thread and must see the same value.\n\nNOT PAIRED: `floor` is already in RUN_KEYS and the receiver validates it today. This changes the value, not the shape.\n\nFIXED 2026-08-15 at c6142d4. The shape is the one the diagnosis proposed. `inDungeon(client)` is now `observeSidebar(sidebarLines(client))`, and `observeSidebar` does the two jobs separately: it answers about NOW (`return seen != null`, so the session state machine in onTick still stops the moment the sidebar stops naming a floor) and it only ever WRITES a floor it actually saw. Nothing else clears the field; `DungeonSession.reset()` does, and reset() runs on JOIN *after* the JOIN site has written the report for the run being left. `floor` is `@Volatile` now because the DISCONNECT path reads it from a Netty event-loop thread - the same reason RunReport.reported is an AtomicBoolean. `RunReport.reportedFloor()` names the read all three write paths share, because RunReport.write() needs a live Minecraft and cannot be called from this suite at all - which is how a one-line defect survived five schema versions with 184 tests around it.\n\nWHAT IS STILL UNVERIFIED: every one of the three paths, end to end. The dev client cannot log in, so no real report has been written under this code. What the suite measures is the whole of the remember/forget/answer decision on real sidebar strings, and that the report reads the remembered value; what it cannot measure is that the sidebar in a real Hypixel dungeon is read by `sidebarLines` at all (unchanged by this feature and evidenced by the two reports on the box that DO carry M7), and that reset() lands on the JOIN edge of every real run. Also unverified in the strict sense: `@Volatile` gives visibility, but no test can observe its absence reliably - the modifier is asserted by reflection instead.\n\nDISCOVERED, NOT FIXED: the receiver's FLOOR validator accepts `?|E|[FM][1-7]` and this mod can produce the string `Entrance`. See floorname-001. Measured as unreachable today - a report needs a non-empty room list, which needs calibration inside a floor instance, where the sidebar reads F/M - so this fix does not open it. It is recorded rather than patched inline."
+    },
+    {
+      "id": "floorname-001",
+      "priority": 16,
+      "area": "telemetry",
+      "title": "The mod cannot send a floor the receiver would reject",
+      "user_visible_behavior": "A run played anywhere the sidebar names is uploaded rather than 400'd away, so no run is lost to a floor string the two sides spell differently.",
+      "status": "not_started",
+      "depends_on": [
+        "floorloss-001"
+      ],
+      "verification_command": "./gradlew test --tests 'sighteaddons.DungeonSessionTest' --tests 'sighteaddons.RunReportTest'",
+      "verification_manual": [
+        "Diff the value domain, not just the key set: every string DungeonSession.floor can hold against ingest.py's FLOOR pattern."
       ],
       "blocked_reason": "",
       "evidence": [],
-      "notes": "MEASURED ON THE BOX, 2026-08-15. Of 22 uploaded reports, 20 carry floor `?` and only 2 carry a real floor - and both of those are v4/0.9.0. In roomstats.json, 115 of 125 room entries are grouped under `?`. This is not old data: the three newest reports are v5, one of them from the 0.10.0 release, and all three say `?`.\n\nTHE CAUSE, and it is one line doing two jobs. DungeonSession.kt:61 is\n  floor = sidebarLines(client).firstNotNullOfOrNull { FLOOR.find(it)?.groupValues?.get(1) }\n  return floor != null\nThat assignment IS the in-dungeon check, so every call outside a dungeon overwrites a known floor with null. RunReport.kt:171 then reads `DungeonSession.floor ?: \"?\"`. The report is written on ClientPlayConnectionEvents.JOIN - after leaving - so by then the value is gone. The two reports that DO carry M7 are the ones written from the run-end headline, while the player was still inside and the sidebar still showed it. The check that asks whether you are still in a dungeon destroys the fact the report needs.\n\nWHY IT MATTERS BEYOND TIDINESS: roomstats groups every room entry by floor, so the fold cannot separate a room that is genuinely harder on F7 from the same room on F5 even if somebody wanted it to. records-001 was deferred by the user on the grounds that per-floor judgement is too much work - worth knowing that the data would not currently support it either way. The scoring model does not read floor and is unaffected.\n\nSHAPE OF THE FIX, not prescribed: keep the last known floor for the life of a run rather than letting the detector clear it, and clear it in DungeonSession.reset() where the run actually ends. Check runloss-001's DISCONNECT path too - it writes off-thread and must see the same value.\n\nNOT PAIRED: `floor` is already in RUN_KEYS and the receiver validates it today. This changes the value, not the shape."
+      "notes": "FOUND WHILE FIXING floorloss-001, 2026-08-15, and deliberately not fixed inline.\n\nThe receiver validates `floor` with FLOOR = re.compile(r\"\\?|E|[FM][1-7]\") under fullmatch (ingest.py:93, used at ingest.py:225). The mod's own FLOOR regex is Regex(\"\"\"The Catacombs \\((\\w+)\\)\"\"\") and DungeonSession.floor's own KDoc has said since it was written that the values are \"F7\", \"M7\" or \"Entrance\". `Entrance` does not fullmatch that pattern - the receiver clearly expected `E`. A report carrying it is a 400, and TelemetryUpload never retries a 400, so the run is gone.\n\nWHY IT IS NOT URGENT, measured rather than assumed: RunReport.write returns early on an empty room list, rooms are only ever added by ContributionTracker.tick, and that only runs once DungeonSession.update has calibrated against the Mort armor stand and the dungeon map - which exists only inside a floor instance, where the sidebar reads (F7)/(M7). The Catacombs Entrance is a separate Hypixel server, so arriving there is a JOIN and a reset. So no report with rooms in it can currently carry `Entrance`. floorloss-001 does not widen this: the floor is cleared on every JOIN either way.\n\nWHAT THE WORK IS. Decide which side spells it, then make the two agree and TEST THE AGREEMENT rather than restating it. The cheap half is on this side (map `Entrance` -> `E` at the one point that files it, RunReport.reportedFloor) and needs no receiver change, no schema move and no pairing. The other half - teaching the validator the long spelling - is a receiver feature and would be paired. Prefer the first: `E` is already the shape the receiver's own regex was written for.\n\nWORTH KNOWING EITHER WAY: build/keydiff.py compares KEY SETS and is clean here. It cannot see a value-domain mismatch, and this is the first one anybody has hit. That is a gap in the check, not a failure of it."
     }
   ]
 }
