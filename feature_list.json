@@ -123,7 +123,7 @@
       "area": "scoring",
       "title": "ClearPoints proper — weight rooms instead of counting them",
       "user_visible_behavior": "A cleared puzzle or a secret-heavy room is worth more than an empty 1x1, so the score separates players the flat count cannot.",
-      "status": "not_started",
+      "status": "passing",
       "depends_on": [],
       "verification_command": "./gradlew test --tests 'sighteaddons.ContributionTrackerTest' --tests 'sighteaddons.RoomDatabaseTest'",
       "verification_manual": [
@@ -131,8 +131,44 @@
         "Verify a puzzle room and a plain 1x1 no longer carry the same points."
       ],
       "blocked_reason": "",
-      "evidence": [],
-      "notes": "README 'Not implemented yet': every room is still worth 1 point, which reproduces exactly the flat weighting this metric is meant to replace. The inputs already exist — rooms.json carries the secret and crypt counts, and DungeonSession.floorNumber is available for floor multipliers. rooms.json is Odin's database verbatim and must not be edited or regenerated to fit."
+      "evidence": [
+        {
+          "date": "2026-08-14",
+          "command": "./gradlew test --tests 'sighteaddons.ContributionTrackerTest' --tests 'sighteaddons.RoomDatabaseTest' --rerun-tasks",
+          "result": "BUILD SUCCESSFUL in 6s, 7 actionable tasks: 7 executed. ContributionTrackerTest tests=29 failures=0 errors=0 (up from 16); RoomDatabaseTest tests=6 failures=0 errors=0 (up from 4). The cases that pin the weighting: 'a puzzle is worth more than an empty 1x1', 'a secret-heavy room is worth more than an empty one', 'a four-segment room is worth more than a 1x1 of the same kind', 'a rare room is not paid for being rare', 'every room is still worth at least the point it used to be', 'the database and the map agree on what a miniboss is', 'an unnamed room keeps its kind and loses only its secrets'. The cases that pin the unit decision: 'weighting cannot silence the unattributed count', 'an expensive room nobody was in is one unattributed room, not its weight in points', 'a run where every room was attributed reports nothing unattributed', 'a room somebody only passed through is still attributed', 'the unattributed count does not survive the run', 'a pre-cleared room is not an unattributed one'. In RoomDatabaseTest, against the bundled rooms.json rather than a fixture: 'the database separates the rooms the weighting has to separate' and 'a real puzzle outscores a real empty room' (Ice Fill vs Admin, both 1x1, Ice Fill holding no secrets, so the kind is the only difference).",
+          "commit": "13c9fb5",
+          "artifact": "build/test-results/test/TEST-sighteaddons.ContributionTrackerTest.xml"
+        },
+        {
+          "date": "2026-08-14",
+          "command": "bash init.sh",
+          "result": "BASELINE: PASSING. Regression check over the whole suite: build/test-results/test/*.xml sums to classes 12, tests 116, skipped 0, failures 0, errors 0 — up from 101. No existing test was removed, weakened or changed: the whole diff to the two test files is additive (two new helpers and 15 new cases), and no other test file is touched.",
+          "commit": "13c9fb5",
+          "artifact": "build/test-results/test/"
+        },
+        {
+          "date": "2026-08-14",
+          "command": "./gradlew assemble check; git status --short dist/ gradle.properties",
+          "result": "BUILD SUCCESSFUL in 1s, and 'git status --short dist/ gradle.properties' is empty. Deliberately not './gradlew build', which is finalizedBy copyToDist and would replace the released dist/sighteaddons-0.9.0.jar. mod_version stays 0.9.0, so the release gate at the top of CLAUDE.md did not fire.",
+          "commit": "13c9fb5",
+          "artifact": ""
+        },
+        {
+          "date": "2026-08-14",
+          "command": "Reverted unattributed() to the old subtraction: sed -i 's|fun unattributed(): Double = unattributedRooms.toDouble()|fun unattributed(): Double = settle(roomsCleared - credited.values.sum())|' ContributionTracker.kt; ./gradlew test --tests 'sighteaddons.ContributionTrackerTest' --tests 'sighteaddons.RoomDatabaseTest' --rerun-tasks   (mutation check, reverted immediately)",
+          "result": "BUILD FAILED, 35 tests completed, 2 failed: 'weighting cannot silence the unattributed count' and 'a pre-cleared room is not an unattributed one'. This is the check that matters most on this feature, because the failure it guards against is silent — the old expression returns a clamped 0.0 and raises nothing. Source restored from a copy taken before the edit and re-verified in the run above.",
+          "commit": "13c9fb5",
+          "artifact": ""
+        },
+        {
+          "date": "2026-08-14",
+          "command": "Set SECRET_POINTS, SEGMENT_POINTS, PUZZLE_BONUS, TRAP_BONUS, MINIBOSS_BONUS and BLOOD_BONUS all to 0.0, i.e. flat 1 point per room again; ./gradlew test --tests 'sighteaddons.ContributionTrackerTest' --tests 'sighteaddons.RoomDatabaseTest' --rerun-tasks   (mutation check, reverted immediately)",
+          "result": "BUILD FAILED, 35 tests completed, 7 failed: 'a puzzle is worth more than an empty 1x1', 'a secret-heavy room is worth more than an empty one', 'a four-segment room is worth more than a 1x1 of the same kind', 'an unnamed room keeps its kind and loses only its secrets', 'weighting cannot silence the unattributed count', 'an expensive room nobody was in is one unattributed room, not its weight in points', and RoomDatabaseTest's 'a real puzzle outscores a real empty room'. Evidence that the new cases pin behaviour rather than shape: a silent return to flat weighting cannot pass this suite. Source restored and re-verified in the run above.",
+          "commit": "13c9fb5",
+          "artifact": ""
+        }
+      ],
+      "notes": "NOT a schema change and NOT paired with the receiver. Checked against its source rather than assumed, as CLAUDE.md requires before touching anything schema-shaped: (a) RUN_KEYS (ingest.py:137) and ROOM_KEYS (ingest.py:152) carry NO per-player points field at all — the breakdown never leaves the client, so weighting is invisible to the validator; (b) `unattributed` is validated as _real(x, 0, MAX_CLEARED) with MAX_CLEARED=200 (ingest.py:167,226), the same ceiling roomsCleared is bounded by, and no 400 is reachable from either the old or the new definition; (c) the values the field carries are unchanged, so nothing routes on `v` differently and RunReport.SCHEMA stays 5.\n\nWHAT THE WEIGHTING IS: ContributionTracker.weightOf(room) = BASE_POINTS 1.0, plus a kind bonus (PUZZLE 1.5; TRAP, CHAMPION/MINIBOSS and BLOOD 1.0 each), plus 0.25 per secret the room database says the room holds, plus 0.5 per segment beyond the first. The split over the members in the room is unchanged — proportional to time, MIN_TICKS filter, raw-presence fallback — so two players in one room are still separated only by time. THREE DELIBERATE EXCLUSIONS, each of which is the obvious next edit and each of which would measure the wrong thing: RARE gets nothing, because a rare room is unusual to draw rather than harder to clear and what makes it worth entering is its secret count, already paid for; secrets come from the database and not from room.secretsFound, because award() fires on the clear checkmark while the room's secrets are usually still being collected, so the live counter would weight most rooms at whatever they were part-way through; and the floor is NOT a multiplier, though DungeonSession.floorNumber is right there and the README listed it as an input — it is constant across every room of a run, so it scales every player's total equally and separates nobody, and points are only ever compared within one run because they are not in the run report at all. Revisit only if points ever become something the server stores. An unnamed room (chunk never streamed, info null) keeps its kind from the map colour and pays no secret bonus: worth less than it should be, never nothing.\n\nTHE LOAD-BEARING HALF, and the reason this feature is not just a formula. `unattributed` was `roomsCleared - pointsByPlayer().values.sum()`. That expression was only ever correct because a room was worth exactly 1.0 point, which made a COUNT and a SCORE numerically interchangeable. Weighted, the score routinely exceeds the room count, the subtraction goes negative, and settle()'s clamp reports 0.0 on every run forever — no exception, no 400, no log line, a field that stops saying anything while looking perfect. Same failure shape this project has spent two sessions removing elsewhere. So the count is now COUNTED, in award(), at the one place the decision is made (ContributionTracker.unattributedRooms), and it stays in ROOMS: a heavy room nobody was in is one unattributed room, not five points of one. That is not a preference — the receiver reads this field RELATIVE to roomsCleared and it is its only diagnostic for a broken decoration->player mapping (its agent/AGENT-PROMPT.md line 62), and a ratio of a score to a count means nothing at either end. WHY NO SCHEMA BUMP IS OWED: under flat weighting every award credited either the full point or nothing, so the old subtraction already produced exactly this count (give or take the float residue residue-001 removed). Same meaning, same numbers, now by construction instead of by coincidence — which is the opposite of clear-001, where the key stayed and the meaning moved.\n\nNEW SEAM: ContributionTracker.onCleared(room) is internal and does roomsCleared++ then award(room). tick() calls it. This closes the gap session 002 recorded — 'unattributed()'s composition has no test, because roomsCleared and credited are private and only a real run fills them' — since onCleared needs a cleared room and nothing else, while tick() still needs a Minecraft and a MapItemSavedData. DebugLog.event was measured to be safe under the test runtime (it resolves Config and FabricLoader without throwing), which is what makes driving award() from a test possible at all.\n\nNOT SHIPPED: no version bump, no dist/ refresh, so this reaches no install until the next release, which is the user's decision. rooms.json was read and never written."
     },
     {
       "id": "chat-001",
@@ -202,6 +238,23 @@
       "blocked_reason": "Loom's dev client has no valid session and cannot reach Hypixel, so no command in this repository can produce the data. Unblocking needs a human to play a floor with the mod installed and hand over the debug session file. Until then this stays blocked — it is not work a session can finish.",
       "evidence": [],
       "notes": "README 'Known limits': the build compiles and the grid, timing and tab-parsing logic are unit tested, but calibration, decoration mapping, checkmark reading and core hashing have never run against real Hypixel data. The /sa screen is one step further down — its API use is pinned by the compiler and its record fold is unit tested, but no pixel of it has ever been on screen. Note also that the room database is version-coupled: core hashes are built from Block.toString() in a fixed order, so RoomDatabase.coreAt must be re-verified whenever Hypixel changes a room or Mojang changes that representation."
+    },
+    {
+      "id": "runend-001",
+      "priority": 8,
+      "area": "telemetry",
+      "title": "run_end carries the field the receiver's analysis agent is told to read",
+      "user_visible_behavior": "An analyst opening a debug session can read `unattributed` against `roomsCleared` in one event, the way the receiver's own runbook says to.",
+      "status": "not_started",
+      "depends_on": [],
+      "verification_command": "./gradlew test --tests 'sighteaddons.DebugLogTest'",
+      "verification_manual": [
+        "Capture a debug session from a real run.",
+        "Find the run_end line and verify it carries both roomsCleared and unattributed."
+      ],
+      "blocked_reason": "",
+      "evidence": [],
+      "notes": "FOUND WHILE IMPLEMENTING clearpoints-001, recorded rather than fixed inline per CLAUDE.md. The receiver's agent/AGENT-PROMPT.md line 62 tells its analysis agent to look for '`unattributed` large relative to `roomsCleared` in `run_end`' — that gap is the documented diagnostic for a broken decoration->player mapping. The mod's run_end event (SighteAddons.kt:149) writes floor, roomsCleared, points, unnamed and newRecords, and NOT unattributed. So the receiver's runbook names a field that has never been in the log, and an analyst following it finds a hole rather than a signal. This is a one-field addition to a debug event: not a schema change, not paired (DebugLog is the mod's own JSONL and the receiver does not validate it), and no version bump. Worth doing deliberately anyway, because the alternative reading is that AGENT-PROMPT.md meant the per-room `unattributed` EVENT that award() emits, in which case the fix is on the receiver's side of the wire and is a different delegation — decide which before writing the line. Note also that the per-room `unattributed` event fires whenever the MIN_TICKS split was empty, including when the raw-presence fallback then credited somebody, so counting those events is NOT the same number as the run's unattributed rooms; whoever picks this up should say which of the two the analyst wants."
     }
   ]
 }

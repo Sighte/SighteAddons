@@ -9,16 +9,18 @@ new session reads.
 - Standard startup path: `./gradlew runClient` — Loom's dev client, which has no valid session and
   cannot reach Hypixel
 - Standard verification path: `./init.sh` → `./gradlew test`; full is `./gradlew build`
-- Baseline status (last `./init.sh` run): **PASSING** — 101 tests in 12 classes, 0 failures,
-  0 skipped, 2026-08-14, at `a6d92b6` on branch `clear-001` (off `main` at `b588cc4`),
+- Baseline status (last `./init.sh` run): **PASSING** — 116 tests in 12 classes, 0 failures,
+  0 skipped, 2026-08-14, at `13c9fb5` on branch `clearpoints-001` (off `main` at `1e27b42`),
   `mod_version=0.9.0`
-- Last feature completed: `clear-001` — `enterTick` is anchored on a minimum stay instead of on the
-  first sighting, and `RunReport.SCHEMA` is **5**. Its receiver half, `schema-001`, was deployed
-  first and is live on `master` at `f1085a7`.
-- Current highest-priority unfinished feature: `clearpoints-001` — weight rooms instead of counting
-  them. Not paired with the receiver and not a schema change.
-- Current blocker: none for `clearpoints-001`. `ingame-001` is blocked on a human playing a real
-  floor, which no command here can produce.
+- Last feature completed: `clearpoints-001` — rooms are weighted rather than counted
+  (`ContributionTracker.weightOf`), and `unattributed` is now a **count of rooms** rather than
+  `roomsCleared` minus the points handed out. No schema change and no receiver change: `RUN_KEYS`
+  carries no points field, and the field's values are unchanged.
+- Current highest-priority unfinished feature: `chat-001` — read the events Hypixel puts in chat.
+  Its test class `ChatEventsTest` does not exist yet; creating it is part of the feature.
+- Current blocker: none for `chat-001`. `records-001` is deferred by the user (a product decision,
+  not a technical blocker), and `ingame-001` is blocked on a human playing a real floor, which no
+  command here can produce.
 - **The report schema is now 5 in source and 4 in every install.** `dist/sighteaddons-0.9.0.jar` is
   deliberately **not** rebuilt — it is still the released 0.9.0 artifact — so `residue-001` and
   `clear-001` both exist in source only. Neither reaches a player until somebody bumps the version
@@ -29,6 +31,62 @@ new session reads.
 
 Rules: insert the newest session at the TOP of this section. Never edit or delete past session
 entries — they are the audit trail. Copy the template below for each new session.
+
+### Session 005 — `clearpoints-001`: weight rooms, and stop measuring rooms in points
+
+- Date: 2026-08-14
+- Branch `clearpoints-001`, off `main` at `1e27b42`. One commit, `13c9fb5`, **not pushed and not
+  merged**. Baseline before starting: `bash init.sh` → **PASSING**, so no repair was owed.
+- **The cross-repo check first**, because `CLAUDE.md` requires it before anything schema-shaped and
+  because it was the question the feature turned on. Read against the receiver's source, not
+  assumed: `RUN_KEYS` (`ingest.py:137`) and `ROOM_KEYS` (`ingest.py:152`) carry **no per-player
+  points field at all** — the breakdown never leaves the client — so the weighting is invisible to
+  the validator. `unattributed` is `_real(x, 0, MAX_CLEARED)` with `MAX_CLEARED = 200`
+  (`ingest.py:167,226`), the same ceiling `roomsCleared` is bounded by, and no `400` is reachable
+  from either the old or the new definition. **Not paired, no schema bump, `SCHEMA` stays 5.**
+- **What the weighting is.** `ContributionTracker.weightOf(room)` = 1.0 base, plus a kind bonus
+  (puzzle 1.5; trap, champion/miniboss and blood 1.0), plus 0.25 per secret the room database says
+  the room holds, plus 0.5 per segment beyond the first. The split over the members in the room is
+  untouched, so two players in one room are still separated only by time. Three exclusions are
+  deliberate and each is the obvious next edit: **rare** rooms are paid nothing for being rare (rare
+  is unusual to draw, not harder to clear); **secrets come from the database, not from
+  `secretsFound`**, because `award()` fires on the clear checkmark while the room's secrets are
+  usually still being collected; and **the floor is not a multiplier**, though `floorNumber` is right
+  there and the README listed it — it is constant across a run, so it scales everyone equally and
+  separates nobody, and points are only ever compared inside one run because they are not in the run
+  report at all.
+- **The half that carried the risk, and the actual design question.** `unattributed` was
+  `roomsCleared - pointsByPlayer().values.sum()`. That was only ever correct because a room was worth
+  exactly 1.0, which made a *count* and a *score* numerically interchangeable. Weighted, the score
+  exceeds the count, the subtraction goes negative, and `settle`'s clamp reports `0.0` on every run
+  forever — no exception, no `400`, no log line. The same shape of failure this project has spent two
+  sessions removing elsewhere. So the count is now **counted**, in `award()`, and stays **in rooms**:
+  a heavy room nobody was in is one unattributed room, not five points of one. Not a preference — the
+  receiver reads the field *relative to* `roomsCleared` and it is its only diagnostic for a broken
+  decoration→player mapping (`agent/AGENT-PROMPT.md:62`).
+- **Why no schema bump is owed**, and this is the mirror image of `clear-001`: under flat weighting
+  every award credited either the full point or nothing, so the old subtraction already produced
+  exactly this count. Same key, same meaning, same numbers — now by construction instead of by
+  coincidence. `clear-001` was the other case, where the key stayed and the meaning moved, and that
+  one cost a bump.
+- New seam: `ContributionTracker.onCleared(room)` is `internal` and does `roomsCleared++` then
+  `award(room)`; `tick()` calls it. This closes the gap session 002 recorded — that
+  `unattributed()`'s composition had no test because `roomsCleared` and `credited` are private and
+  only a real run fills them.
+- Verification, all at `13c9fb5`: the `verification_command` green (`ContributionTrackerTest` 29,
+  `RoomDatabaseTest` 6, 0 failures); `bash init.sh` → `BASELINE: PASSING`, whole suite 12 classes /
+  **116 tests** / 0 failures, up from 101 with nothing removed or weakened; `./gradlew assemble check`
+  → `BUILD SUCCESSFUL` with `git status --short dist/ gradle.properties` empty. Two mutation checks,
+  both reverted immediately and both recorded as evidence: restoring the old subtraction fails 2
+  tests, flattening every weight to 0.0 fails 7.
+- Discovered work, recorded rather than fixed inline: **`runend-001`**. The receiver's
+  `agent/AGENT-PROMPT.md:62` tells its analysis agent to read `unattributed` against `roomsCleared`
+  *in `run_end`*, and the mod's `run_end` event has never carried `unattributed`. Its notes also flag
+  the ambiguity — the per-room `unattributed` *event* is a different number, since it fires whenever
+  the `MIN_TICKS` split was empty even when the raw-presence fallback then credited somebody.
+- Not done and deliberately so: no version bump, no `dist/` refresh, no harness file edited,
+  `rooms.json` read and never written, `records-001` left `blocked` as the user decided, and
+  `SighteAddonServerside` read but never written.
 
 ### Session 004 — a harness change, at the user's explicit request
 

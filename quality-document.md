@@ -25,7 +25,7 @@ scores above B.
 | Domain | Grade | Verification | Agent Legibility | Test Stability | Key Gaps | Last Updated |
 |--------|-------|-------------|-----------------|---------------|----------|-------------|
 | telemetry (`RunReport`, `TelemetryUpload`, `DebugLog`) | B | `RunReportTest`, `TelemetryUploadTest`, `DebugLogTest` | High — the ceilings carry `ponytail:` notes | Stable | Retry schedule is "next game start", no backoff, no queue (`TelemetryUpload.kt:211`); nothing uploads during a run; quitting straight from a dungeon has no JOIN and loses the session (`SighteAddons.kt:54`) | 2026-08-14 |
-| scoring (`ContributionTracker`) | C | `ContributionTrackerTest` (16 cases, new) covers the clear anchor end to end at the `TrackedRoom` seam; `settle` is pinned through `RunReportTest` | High — the anchor's two ways of being stamped are stated where they are made, with the reason for each bound | Stable, and mutation-checked: reverting the anchor to first-sighting fails 9 of the 16 | Every room is still worth 1 point — exactly the flat weighting the metric replaces (`clearpoints-001`), and that is what holds this at C; `ContributionTracker.tick`'s wiring to the anchor is untestable here, since it needs a `Minecraft` and a `MapItemSavedData`; `unattributed()`'s own composition is untestable for the same family of reason, `roomsCleared` and `credited` being private and filled only by a real run | 2026-08-14 |
+| scoring (`ContributionTracker`) | B | `ContributionTrackerTest` (29 cases) covers the clear anchor at the `TrackedRoom` seam and the weighting and unattributed accounting at the new `onCleared` seam; `RoomDatabaseTest` checks the weighting against the bundled `rooms.json` rather than a fixture; `settle` is pinned through `RunReportTest` | High — the weighting states what each term is for, and the three exclusions (rarity, live secret counts, floor multiplier) are argued where they are made rather than merely absent | Stable, and mutation-checked twice: restoring the old `unattributed` subtraction fails 2, flattening every weight to 0.0 fails 7 | Nothing here has run against real Hypixel data, which is the ceiling on this domain and the reason it is not A; `ContributionTracker.tick`'s wiring is still untestable, since it needs a `Minecraft` and a `MapItemSavedData` — so *that* `onCleared` and `onPresence` are called once per clear and once per member per tick is read, not asserted; the weight constants are judgement, not measurement, and no real run has yet shown whether they separate players usefully | 2026-08-14 |
 | history and records (`RoomHistory`, `RecordTable`) | B | `RoomHistoryTest`, `RecordTableTest` | High | Stable | Floors are collapsed into one record per room and kind (`records-001`); whole history in memory, ~40 bytes per line (`RoomHistory.kt:59`) | 2026-08-13 |
 | party (`PartyTracker`) | C | `PartyTrackerTest` | High — the assumption is stated where it is made | Stable, but it pins the heuristic rather than the truth | Decoration order is assumed to match tab order (`PartyTracker.kt:134`); two players on one decoration are not told apart (`party-001`) | 2026-08-13 |
 | room naming (`RoomDatabase`, `DungeonMapReader`, `DungeonGrid`) | C | `RoomDatabaseTest`, `DungeonGridTest` | High | Stable | Version-coupled: core hashes come from `Block.toString()` in a fixed order, so a Hypixel or Mojang change breaks names silently; a room needs a streamed chunk to be named at all | 2026-08-13 |
@@ -45,6 +45,32 @@ scores above B.
 ## Change History
 
 Newest entry first.
+
+### 2026-08-14 (session 005)
+
+- Changes: `clearpoints-001`. `ContributionTracker.weightOf` pays a room for what it took — kind,
+  secrets from the room database, segments from the map — instead of one flat point, and the split
+  over the members in it is unchanged. The load-bearing half is `unattributed`: it was
+  `roomsCleared - pointsByPlayer().values.sum()`, correct only while a count and a score were
+  numerically interchangeable at 1.0 a room, and weighted it would have clamped to `0.0` on every run
+  forever with nothing anywhere saying so. It is now counted, in `award()`, and stays in **rooms**,
+  which is the unit the receiver reads it in. No schema bump is owed: the values are unchanged,
+  because under flat weighting every award credited either the full point or nothing.
+- Domains promoted: **scoring C → B.** The single reason it was held at C — every room worth exactly
+  1 point, the flat weighting the metric exists to replace — is gone, and the domain is
+  mutation-checked in both directions. B and not A for the standing reason: nothing here has run
+  against real Hypixel data.
+- Domains demoted: none.
+- New gaps identified: the weight constants are judgement rather than measurement — no real run has
+  shown whether 1.5 for a puzzle and 0.25 a secret separate players usefully, and the first debug
+  session from a real floor is what would say. `runend-001` was found and recorded: the receiver's
+  `agent/AGENT-PROMPT.md:62` tells its analyst to read `unattributed` against `roomsCleared` in the
+  `run_end` event, and `run_end` has never carried `unattributed`.
+- Gaps closed: the flat weighting itself. Also the gap session 002 recorded — `unattributed()`'s
+  composition had no test, because `roomsCleared` and `credited` are private and only a real run
+  filled them; the new `internal onCleared(room)` seam needs a cleared room and nothing else, and six
+  cases now drive it. `README.md` no longer describes `rooms unattributed` as "the gap between rooms
+  cleared and points handed out", which this change would have made false.
 
 ### 2026-08-14 (session 003)
 

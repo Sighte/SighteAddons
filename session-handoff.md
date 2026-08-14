@@ -5,115 +5,136 @@ historical record lives in `claude-progress.md`.
 
 ## Verified Now
 
-- What is currently working: the build and the unit suite. **101 tests across 12 classes, 0 failures,
-  0 skipped** — up from 84, with no existing test removed or weakened. `mod_version=0.9.0`,
-  `dist/sighteaddons-0.9.0.jar` unchanged.
-- Branch: `clear-001`, off `main` at `b588cc4`. Two commits, **not pushed and not merged**.
-- What verification actually ran (exact commands), all at `a6d92b6`:
-  - `./gradlew test --tests 'sighteaddons.ContributionTrackerTest' --tests 'sighteaddons.RunReportTest' --rerun-tasks`
-    → `BUILD SUCCESSFUL in 7s`, `7 actionable tasks: 7 executed`;
-    `ContributionTrackerTest tests=16 failures=0`, `RunReportTest tests=21 failures=0`
+- What is currently working: the build and the unit suite. **116 tests across 12 classes, 0 failures,
+  0 skipped** — up from 101, with no existing test removed, weakened or changed. `mod_version=0.9.0`,
+  `dist/sighteaddons-0.9.0.jar` unchanged, `RunReport.SCHEMA` still 5.
+- Branch: `clearpoints-001`, off `main` at `1e27b42`. One commit, `13c9fb5`, **not pushed and not
+  merged**.
+- What verification actually ran (exact commands), all at `13c9fb5`:
+  - `./gradlew test --tests 'sighteaddons.ContributionTrackerTest' --tests 'sighteaddons.RoomDatabaseTest' --rerun-tasks`
+    → `BUILD SUCCESSFUL in 6s`, `7 actionable tasks: 7 executed`;
+    `ContributionTrackerTest tests=29 failures=0`, `RoomDatabaseTest tests=6 failures=0`
   - `bash init.sh` → `BASELINE: PASSING`
-  - `./gradlew assemble check` → `BUILD SUCCESSFUL`, and `git status --short dist/ gradle.properties` empty
-  - Test totals from `build/test-results/test/*.xml`: `classes 12, tests 101, failures 0, errors 0`
-  - Two mutation checks, both reverted immediately, both recorded as evidence: reverting `SCHEMA` to
-    4 fails 2 tests; reverting the anchor to first-sighting fails 9 of the 16 new ones.
+  - `./gradlew assemble check` → `BUILD SUCCESSFUL`, and `git status --short dist/ gradle.properties`
+    empty
+  - Test totals from `build/test-results/test/*.xml`: `classes 12, tests 116, failures 0, errors 0`
+  - Two mutation checks, both reverted immediately, both recorded as evidence: restoring the old
+    `unattributed` subtraction fails 2 tests; flattening every weight constant to `0.0` fails 7.
 
 ## Changed This Session
 
-- `clear-001` → `passing`. The clear anchor is a **stay**, not a sighting.
-  - `TrackedRoom` keeps a current stay per member (`start`, `ticks`, `lastSeen`) beside the run-long
-    tick total attribution already used. `enteredAtTick` is now `private set`.
-  - `onPresence(player, at)` stamps the anchor at the **start** of the first stay to reach
-    `MIN_TICKS` — its own start, not the tick it qualified at, which would shorten every clear in the
-    data by a flat second. A sighting gap of more than `MIN_TICKS` begins a new stay; shorter ones do
-    not, because `PartyTracker.positions` reports no teammate positions at all for the 10–20 ticks
-    around a death and a stay must not be split by our own blind spot.
-  - `anchorOnClear(at)` is the fallback for a room that clears before anyone qualifies — the empty
-    1x1s. Without it the server's mean would be built from every room *except* the fastest, which is
-    a bias rather than sparsity. Its window bounds it: every span it can produce is under a second.
-  - Nothing anchors after the clear, so `enterTick <= clearTick` holds whenever both are set. A
-    `preCleared` room therefore keeps a null anchor; `roomstats.py:102` skips those anyway.
-  - The first-sighting assignment in `discover` is gone; its `ponytail:` note now names one remaining
-    ceiling (decoration lag) instead of two.
-- **`RunReport.SCHEMA` 4 → 5.** The load-bearing line. See "Do Not Touch".
-- New `ContributionTrackerTest`, 16 cases — the class `clearpoints-001` also names in its
-  `verification_command`, and which no previous session had created.
-- Two existing `RunReportTest` assertions updated because this feature deliberately changes what they
-  pin: `run context survives` now expects `v = 5`, and the shared room fixture earns its anchor
-  through `onPresence` instead of assigning it, landing on the same `120` as before.
-- `clear-001`'s `notes` corrected in place: its claim that this pair risked a `400` and would lose
-  every run of the build was false, and was checked rather than trusted. `ingest.py:214` validates
-  `v` as `_num(x, 1, 10)`; `ingest.py:159` has had `enterTick` in `ROOM_OPTIONAL` since schema 3.
-- No version bump, no `dist/` refresh, no `build.gradle` line, no harness file edited, and
-  `SighteAddonServerside` was read but never written. The release gate did not fire.
+- `clearpoints-001` → `passing`. Rooms are weighted instead of counted, and `unattributed` is a
+  count of rooms instead of a subtraction.
+  - `ContributionTracker.weightOf(room)` = `BASE_POINTS` 1.0, plus a kind bonus (puzzle 1.5; trap,
+    champion/miniboss, blood 1.0), plus 0.25 per secret the room **database** says the room holds,
+    plus 0.5 per segment beyond the first. The split over the members in the room is untouched, so
+    two players in one room are still separated only by time.
+  - Three exclusions are deliberate, argued in the KDoc, and each has a test: **rare** rooms are paid
+    nothing for being rare; **secrets come from the database, not `secretsFound`**, because `award()`
+    fires on the clear checkmark while the room's secrets are usually still being collected; and the
+    **floor is not a multiplier** — it is constant across a run, so it scales everyone equally and
+    separates nobody, and points never leave the client to be compared across runs.
+  - An unnamed room falls back to the map colour for its kind and pays no secret bonus. Worth less
+    than it should be, never nothing.
+- **`unattributed` is now a count of rooms, held in `ContributionTracker.unattributedRooms` and
+  incremented in `award()`.** See "Do Not Touch" — this is the load-bearing line of the session.
+- New seam: `internal fun ContributionTracker.onCleared(room)` does `roomsCleared++` then
+  `award(room)`; `tick()` calls it where it used to do both inline. This is what made the accounting
+  testable, and it closes the gap session 002 recorded.
+- `README.md`: `ClearPoints` is a section describing the weighting instead of a "Not implemented yet"
+  bullet, and `rooms unattributed` is no longer described as "the gap between rooms cleared and points
+  handed out" — that sentence would have become false with this change.
+- New feature recorded, not fixed inline: **`runend-001`**, priority 8. The receiver's
+  `agent/AGENT-PROMPT.md:62` tells its analysis agent to read `unattributed` against `roomsCleared`
+  in the `run_end` event; the mod's `run_end` (`SighteAddons.kt:149`) has never carried
+  `unattributed`.
+- No version bump, no `dist/` refresh, no `build.gradle` line, no harness file edited, `rooms.json`
+  read and never written, and `SighteAddonServerside` read but never written. The release gate did
+  not fire.
 
 ## Broken Or Unverified
 
 - Known defect: none introduced.
-- **Unverified path — the wiring.** The anchor is proven only at the `TrackedRoom` seam.
-  `ContributionTracker.tick` needs a `Minecraft` and a `MapItemSavedData`, so *that* it calls
-  `onPresence` once per member per tick with the run clock, and `anchorOnClear` exactly on the clear
-  and before `clearedAtTick` is set, is asserted by reading the code and by nothing else. No command
-  in this repository can observe it.
-- **Unverified assumption — the gap tolerance.** That a stay survives a sighting blackout is reasoned
-  from the 10–20 tick roster-skew window `PartyTracker.positions` documents, not measured against a
-  real decoration stream. If real blackouts are longer, some rooms will anchor about a second late.
-- Unverified: how often the `anchorOnClear` fallback actually fires on a real floor, and therefore
-  how many rooms end up with a null anchor. The `room_anchored` and `cleared` debug events were added
-  to make exactly that answerable from a session file — that is the first thing to look at when one
-  arrives.
+- **Unverified — the weights themselves.** 1.5 for a puzzle and 0.25 a secret are judgement, not
+  measurement. That they *separate* rooms is tested; that they separate rooms in a way a player would
+  agree with is not, and cannot be until a real run produces a debug session. Treat the constants as
+  a first calibration rather than a result.
+- **Unverified — the wiring, still.** `tick()` needs a `Minecraft` and a `MapItemSavedData`, so that
+  it calls `onCleared` exactly once per clear (and `onPresence` once per member per tick) is asserted
+  by reading the code and by nothing else. `onCleared` itself is now covered.
+- Unverified: the cross-repo reading that `unattributed` is only ever consumed as a ratio against
+  `roomsCleared`. It is what `agent/AGENT-PROMPT.md:62` says and `roomstats.py` does not read the
+  field at all — but no receiver test was run from here, because neither `python` nor `python3`
+  resolves on this machine.
 - Still unverified from before, unchanged: everything `ingame-001` lists — calibration, decoration
-  mapping, checkmark reading, core hashing, and every pixel of the `/sa` screen.
+  mapping, checkmark reading, core hashing, and every pixel of the `/sa` screen. And the `clear-001`
+  gap tolerance, reasoned from `PartyTracker.positions`' documented roster-skew window rather than
+  measured.
 - Regressions found: none.
-- Risk for the next session: **the schema is 5 in source and 4 in every install.** That is correct
-  and harmless — the receiver accepts both and buckets their clear spans apart — but it means the
-  receiver's `clearStay` metric stays at `n = 0` for all 83 rooms until a release happens, and a
-  release is the user's decision. Do not read an empty `clearStay` as this feature failing.
+- Risk for the next session: unchanged from before — **the schema is 5 in source and 4 in every
+  install**, and now three features (`residue-001`, `clear-001`, `clearpoints-001`) exist in source
+  only. Nothing breaks meanwhile; nothing reaches a player either, until somebody bumps the version
+  and takes the release gate, which is the user's decision.
 
 ## Next Best Step
 
-- Highest-priority unfinished feature: `clearpoints-001` — weight rooms instead of counting them.
-- Why it is next: it is the only remaining item that makes a number the mod already reports wrong
-  rather than merely absent. Every room is worth exactly 1 point today, which reproduces the flat
-  weighting the whole ClearPoints metric exists to replace, and it is what holds the scoring domain
-  at C in `quality-document.md`.
+- Highest-priority unfinished feature: `chat-001` — read the events Hypixel puts in chat.
+- Why it is next: `records-001` is deferred by the user (a product decision — rooms stay global — not
+  a technical blocker), `ingame-001` cannot be finished by any session, and `chat-001` is the last
+  item that makes something the mod currently infers *observed* instead. A dead player is detected
+  only via the tab list today, which is late and lossy.
 - What counts as passing: its own `verification_command`
-  (`ContributionTrackerTest` + `RoomDatabaseTest`) green, `./gradlew test` green over everything
-  else, evidence in `feature_list.json`. `ContributionTrackerTest` now exists, so that part of the
-  setup is done. Check before starting whether it needs a schema change — the point split feeds
-  `unattributed`, which the receiver validates as `_real(x, 0, MAX_CLEARED)`, so a *weighted* total
-  may exceed `roomsCleared` in a way the current range and the current field meaning do not expect.
-  If it does, it is one feature per repository and **the receiver goes first**.
+  (`./gradlew test --tests 'sighteaddons.ChatEventsTest'`) green — **that class does not exist yet,
+  and creating it is part of the feature** — plus `./gradlew test` green over everything else and
+  evidence in `feature_list.json`. Check before starting whether anything it adds reaches
+  `RunReport.kt`; if it does, diff against `RUN_KEYS` in the receiver's `ingest.py` first and the
+  receiver goes first.
+- Cheaper alternative if a short session is wanted: `runend-001`, one field on one debug event, but
+  read its notes — decide which of the two `unattributed` numbers the receiver's analyst actually
+  wants before writing the line.
 
 ## Do Not Touch
 
-- **`RunReport.SCHEMA`, now 5, must not go back down while `enterTick` is stay-anchored.** This is
-  the one mistake on this pair that nothing would report: no `400`, no log line, no failing request.
-  `roomstats.py` routes the clear span on `v` alone (`STAY_ANCHOR_SCHEMA = 5`) — below 5 into
-  `clear`, at or above into `clearStay` — and `profiles/` is append-only, so a stay-anchored span
-  filed as v4 contaminates the old average permanently. The test
-  `the stay anchor only ships under a schema that says so` is the guard; it is written as `>= 5` so a
-  later bump passes and a revert does not.
+- **`unattributed` must stay a count of *rooms*, and nothing may go back to deriving it by
+  subtraction.** This is the one mistake on this feature that nothing would report. It was
+  `roomsCleared - pointsByPlayer().values.sum()`, which was only correct while a room was worth
+  exactly 1.0 point and a count and a score were therefore interchangeable. Weighted, the score
+  exceeds the count, the subtraction goes negative, and `settle`'s clamp returns `0.0` — on every
+  run, forever, with no exception, no `400` and no log line. The receiver reads this field *relative
+  to* `roomsCleared` (`agent/AGENT-PROMPT.md:62`) as its only diagnostic for a broken
+  decoration→player mapping, so a permanent zero silently removes that diagnostic. The test
+  `weighting cannot silence the unattributed count` is the guard, and it asserts both halves: that
+  the count survives, and that the old expression would have gone quiet on the same run.
+- **`RunReport.SCHEMA`, 5, must not move for this feature and must not go back down.** `clear-001`'s
+  reasons stand unchanged. `clearpoints-001` needed no bump because the field's *values* are
+  unchanged — under flat weighting every award credited either the full point or nothing, so the old
+  subtraction already produced exactly this count.
 - `rooms.json` — Odin's database verbatim under BSD-3 (`LICENSE-Odin`). Never edited, never
-  regenerated. The receiver reads this exact file.
+  regenerated, and in particular never adjusted to make a weight come out nicer. The receiver reads
+  this exact file.
 - `mod_version` in `gradle.properties`, unless you intend to run the whole release gate at the top of
-  `CLAUDE.md` (tagged GitHub release + Modrinth, same jar, same notes). Note that the notes for the
-  next release have two things to say that this session created: the schema moved to 5, and older
-  installs are unaffected because the receiver still accepts 4.
-- `dist/` by hand — and note that `./gradlew build` is **not** a neutral verification command while a
-  fix sits unreleased: it is `finalizedBy copyToDist` and `copyToDist dependsOn cleanDist`, so it
-  deletes and replaces `dist/sighteaddons-0.9.0.jar` with a jar that is no longer the released 0.9.0.
-  Use `./gradlew assemble check`.
-- `SighteAddonServerside`. Read it — the schema diff `CLAUDE.md` requires before touching
-  `RunReport.kt` means reading `ingest.py` and `roomstats.py` — but a change needed there is a paired
-  feature and a different session.
+  `CLAUDE.md`. The notes for the next release now have three things to say: the schema moved to 5,
+  older installs are unaffected because the receiver still accepts 4, and room points are no longer
+  flat.
+- `dist/` by hand — and `./gradlew build` is **not** a neutral verification command while fixes sit
+  unreleased: it is `finalizedBy copyToDist` and `copyToDist dependsOn cleanDist`, so it deletes and
+  replaces `dist/sighteaddons-0.9.0.jar` with a jar that is no longer the released 0.9.0. Use
+  `./gradlew assemble check`, which is what `init.sh` now prints.
+- `SighteAddonServerside`. Read it — the schema diff `CLAUDE.md` requires means reading `ingest.py`
+  and `roomstats.py` — but a change needed there is a paired feature and a different session.
 
 ## Environment Quirks
 
 - The first `./gradlew test` on a cold cache downloads Loom, the Minecraft jar and the Mojang
   mappings — minutes, not seconds. A run that looks stuck is almost always still downloading. Warm,
-  it is ~25 s; it was warm throughout this session and ran in 4–17 s.
+  it is ~25 s; it was warm throughout this session and ran in 1–7 s.
+- **`DebugLog.event` is safe to call from a unit test**, measured this session with a throwaway test
+  rather than assumed: it resolves `Config` and `FabricLoader` without throwing and reports
+  `enabled=true` under the test runtime. That is what makes driving `award()` from a test possible at
+  all — `RoomHistory.onRoomCleared` is *not* on that seam, which is why `onCleared` stops short of it.
+- `ContributionTracker` is an `object` with run-long state, so any test that writes to it must
+  `reset()` first. `ContributionTrackerTest` does it in `@BeforeEach`; the suite runs sequentially
+  (`test { useJUnitPlatform() }`, no parallel configuration).
 - JDK 25+ required (bytecode 25 via `--release`, no pinned toolchain). Gradle uses `JAVA_HOME`, not
   `PATH`, so `init.sh`'s version line can describe a different JDK than the build uses.
 - Mappings are official Mojang, not Yarn — class names in this repository are Mojmap.
@@ -122,10 +143,12 @@ historical record lives in `claude-progress.md`.
 - Git is set to `core.autocrlf=true` on this machine; `gradlew` and `*.sh` are pinned to LF in
   `.gitattributes` and must stay that way. Kotlin sources warn `LF will be replaced by CRLF` on
   `git add`; that is normal here and not something to fix.
-- Neither `python` nor `python3` resolves from the Bash tool on this machine (the Windows App
-  Execution Alias answers and then refuses). Irrelevant to this repository's own suite, but it means
-  the receiver's own tests cannot be run from here — read its source instead, which is all the
-  cross-repo schema diff needs.
+- **The previous handoff's claim that neither `python` nor `python3` resolves from the Bash tool is
+  no longer true**, measured this session rather than carried forward: both resolve to
+  `/c/Users/marvi/AppData/Local/Python/bin/` and both report `Python 3.14.0`. `python` was used here
+  to inspect `rooms.json` and to sum the test-result XMLs. Note the harness `CLAUDE.md` one level up
+  still describes `python3` as the Windows App-Execution-Alias stub, which is a *third* description
+  of the same thing — measure before relying on any of them.
 
 ## Commands
 
