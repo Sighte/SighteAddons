@@ -469,6 +469,26 @@ class RunReportTest {
         assertFalse(TelemetryUpload.RUN.matches("$name.part"))
     }
 
+    /**
+     * The other half of the same mechanism, and the one that can be observed from here: a torn
+     * temporary left by an earlier attempt is consumed by the next successful write rather than
+     * accumulating in the queue directory. That the target is only ever reached by a move is a
+     * property of the code and not of any end state a test can inspect — this is the assertion that
+     * fails if the move is replaced by writing the report straight to its final name.
+     */
+    @Test
+    fun `a torn temporary from an earlier attempt does not survive the next write`(@TempDir dir: Path) {
+        val name = "run-1786530000000-$installId.json"
+        // What a crash between "write the temporary" and "move it" leaves behind.
+        Files.writeString(dir.resolve("$name.part"), report().toString().take(120))
+
+        assertTrue(RunReport.queue(dir, name, report().toString()))
+
+        assertEquals(report().toString(), Files.readString(dir.resolve(name)))
+        val names = Files.list(dir).use { it.toList() }.map { it.fileName.toString() }
+        assertEquals(listOf(name), names, "the queue directory must hold the report and nothing else")
+    }
+
     /** The queue directory does not exist yet on a first run, and creating it is part of the write. */
     @Test
     fun `the queue directory is created on the way`(@TempDir dir: Path) {
