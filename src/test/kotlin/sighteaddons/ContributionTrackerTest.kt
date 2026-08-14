@@ -1,5 +1,6 @@
 package sighteaddons
 
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
@@ -23,9 +24,26 @@ import org.junit.jupiter.api.Test
  * clock, once per member per tick — and no command in this repository can observe that.
  */
 class ContributionTrackerTest {
-    /** [ContributionTracker] is an object with run-long state, and half of these tests write to it. */
+    /**
+     * [ContributionTracker] is an object with run-long state, and half of these tests write to it.
+     *
+     * [RoomStats] is pinned to [RoomScores.NONE] as well, and that is not tidiness. Left alone it
+     * resolves from `configDir/sighteaddons/roomstats.json` on first use — a path outside this
+     * repository, which `config/` is gitignored under and which a real install or an earlier
+     * `runClient` may well have written. A weight that depended on whether the machine running the
+     * suite happened to have a cache file would be a test that passes for the author and fails for
+     * the next session, so the seed layer is chosen explicitly here and [ContributionTracker.blend]
+     * is exercised directly by the cases below instead.
+     */
     @BeforeEach
-    fun clean() = ContributionTracker.reset()
+    fun clean() {
+        ContributionTracker.reset()
+        RoomStats.use(RoomScores.NONE)
+    }
+
+    /** Back to resolving normally, so nothing here leaks into a test that means to read a file. */
+    @AfterEach
+    fun release() = RoomStats.use(null)
 
     private fun room() = TrackedRoom(RoomType.ROOM, setOf(Pos(0, 0)), setOf(Pos(0, 0)))
 
@@ -42,8 +60,9 @@ class ContributionTrackerTest {
         return TrackedRoom(type, cells, cells).also { it.info = info; it.name = info?.name }
     }
 
-    private fun info(type: String, secrets: Int = 0) =
-        RoomInfo(name = "Fixture", type = type, shape = "1x1", secrets = secrets, crypts = 0)
+    /** [name] matters only to the rooms the user seeded individually: `Ice Fill` and `Water Board`. */
+    private fun info(type: String, secrets: Int = 0, name: String = "Fixture") =
+        RoomInfo(name = name, type = type, shape = "1x1", secrets = secrets, crypts = 0)
 
     /** The cheapest room there is: a named, empty, single-segment 1x1. The baseline everything else
      *  is compared against, and the room the flat count used to make indistinguishable. */
@@ -304,12 +323,64 @@ class ContributionTrackerTest {
         assertTrue(one > ContributionTracker.weightOf(plain()), "and one secret is more than none")
     }
 
+    /**
+     * **Replaces `a four-segment room is worth more than a 1x1 of the same kind`, and it asserts the
+     * opposite on purpose.** That case pinned `SEGMENT_POINTS`, one of the five constants
+     * `clearpoints-002` deletes; keeping it would have pinned the behaviour the user replaced. The
+     * assertion is stronger, not weaker — an exact equality where there was an inequality.
+     *
+     * Size stops being *declared* and becomes *emergent*. A 1x4 really is worth more than a 1x1, but
+     * it has to earn that by measuring slow, because crossing four segments takes time — and if it
+     * turns out a particular 1x4 clears as fast as a 1x1, then it was never worth more and the old
+     * constant was paying it for its shape. Same for kind: `TRAP`, `CHAMPION` and `BLOOD` are worth
+     * exactly an ordinary room until the data says otherwise. `PUZZLE` is the one exception and it is
+     * a seed rather than a bonus — see `the seed table is the user's table`.
+     */
     @Test
-    fun `a four-segment room is worth more than a 1x1 of the same kind`() {
-        assertTrue(
-            ContributionTracker.weightOf(roomOf(segments = 4, info = info("NORMAL"))) >
-                ContributionTracker.weightOf(plain()),
+    fun `size and kind are no longer paid for directly`() {
+        val plain = ContributionTracker.weightOf(plain())
+        assertEquals(
+            plain,
+            ContributionTracker.weightOf(roomOf(segments = 4, info = info("NORMAL"))),
+            1e-9,
+            "a four-segment room has to earn its points by measuring slow, not by being big",
         )
+        for (kind in listOf("TRAP", "CHAMPION", "BLOOD", "RARE", "ENTRANCE", "FAIRY")) {
+            assertEquals(
+                plain,
+                ContributionTracker.weightOf(roomOf(info = info(kind))),
+                1e-9,
+                "a $kind room is still being paid a bonus for its kind",
+            )
+        }
+    }
+
+    /**
+     * The seed table, verbatim from the user on 2026-08-14. These are estimates and they are meant
+     * to be — what makes them shippable is that `the measurement overrules the seed in both
+     * directions` moves them without a code change. Pinned because the two named rooms are the whole
+     * of the hand-tuning that survives, and because their keys have to be `rooms.json`'s spelling:
+     * `Ice Fill` and `Water Board`, two words each. A typo does not fail, it silently misses.
+     */
+    @Test
+    fun `the seed table is the user's table`() {
+        fun seed(name: String, type: String = "PUZZLE") =
+            ContributionTracker.seedOf(roomOf(info = info(type, name = name)))
+
+        assertEquals(2.0, seed("Ice Fill"), 1e-9)
+        assertEquals(1.5, seed("Water Board"), 1e-9)
+        assertEquals(1.0, seed("Quiz"), 1e-9)
+        for (puzzle in listOf(
+            "Boulder", "Creeper Beams", "Higher Blaze", "Ice Path",
+            "Lower Blaze", "Teleport Maze", "Three Weirdos", "Tic Tac Toe",
+        )) {
+            assertEquals(1.0, seed(puzzle), 1e-9, "$puzzle is an unnamed puzzle and seeds at 1.0")
+        }
+        assertEquals(0.75, seed("Admin", type = "NORMAL"), 1e-9)
+        assertEquals(0.75, seed("Old Trap", type = "TRAP"), 1e-9)
+        // The seed is the whole of a room's base with nothing measured, so it is also the weight of
+        // a secretless room — which is what the user's table is a table of.
+        assertEquals(2.0, ContributionTracker.weightOf(roomOf(info = info("PUZZLE", name = "Ice Fill"))), 1e-9)
     }
 
     /**
@@ -483,36 +554,58 @@ class ContributionTrackerTest {
     }
 
     /**
-     * No room becomes worthless, so a run's points can never come out below the flat count they
-     * replace. That includes the rooms nothing is known about: an unidentified room is still a room
-     * somebody cleared, and paying it nothing would quietly hand its clear to no one.
+     * **Replaces `every room is still worth at least the point it used to be`.** That case pinned
+     * `BASE_POINTS = 1.0`, and the user's model moves the ordinary base to 0.75 — so the old floor
+     * is gone deliberately and a run's points no longer bound its room count from above. What
+     * survives, and what actually mattered about it, is that **no room is ever worthless**: a room
+     * nobody can identify, or one that measures faster than anything else in the dungeon, is still a
+     * room somebody cleared, and paying it nothing would quietly hand its clear to no one.
+     *
+     * `MIN_BASE` (0.25) is the floor with a measurement in play; with none, the floor is the
+     * ordinary seed. Both are checked, because the second is what ships today and the first is what
+     * ships the moment a cache file appears.
      */
     @Test
-    fun `every room is still worth at least the point it used to be`() {
+    fun `no room is ever worthless`() {
         for (type in RoomType.entries) {
             assertTrue(
-                ContributionTracker.weightOf(roomOf(type = type)) >= 1.0,
-                "an unnamed $type room fell below one point",
+                ContributionTracker.weightOf(roomOf(type = type)) >= 0.75,
+                "an unnamed $type room fell below the ordinary seed with nothing measured",
             )
         }
         for (type in listOf("NORMAL", "PUZZLE", "TRAP", "RARE", "CHAMPION", "BLOOD", "ENTRANCE", "FAIRY")) {
             assertTrue(
-                ContributionTracker.weightOf(roomOf(info = info(type))) >= 1.0,
-                "a $type room out of the database fell below one point",
+                ContributionTracker.weightOf(roomOf(info = info(type))) >= 0.75,
+                "a $type room out of the database fell below the ordinary seed",
             )
         }
+        // And with the fastest measurement the clamp allows, against the slowest possible seed.
+        val floor = ContributionTracker.blend(0.75, RoomSample(n = 1_000_000, avgTicks = 1.0), 10_000.0)
+        assertTrue(floor >= 0.25, "the clamp let a room fall below MIN_BASE: $floor")
+        assertTrue(floor > 0.0, "no room may ever be worth nothing at all")
     }
 
     /**
      * `rooms.json` says `CHAMPION`, the map colour says `MINIBOSS`, and they are the same room. A
      * room must not be worth different amounts depending on whether its chunk had streamed in yet,
      * which is a race and not a property of the room.
+     *
+     * Since `clearpoints-002` this holds for a stronger reason than it used to: neither vocabulary
+     * is paid for the miniboss at all, so there is no bonus left to disagree about. Kept because it
+     * still fails on the obvious regression — reintroducing a kind bonus in one vocabulary only —
+     * and joined by the `PUZZLE` case, which is the one word the two vocabularies now *have* to
+     * agree on, since it is the only kind the seed table reads.
      */
     @Test
-    fun `the database and the map agree on what a miniboss is`() {
+    fun `the database and the map agree on what a room's kind is`() {
         assertEquals(
             ContributionTracker.weightOf(roomOf(info = info("CHAMPION"))),
             ContributionTracker.weightOf(roomOf(type = RoomType.MINIBOSS)),
+        )
+        assertEquals(
+            ContributionTracker.weightOf(roomOf(info = info("PUZZLE"))),
+            ContributionTracker.weightOf(roomOf(type = RoomType.PUZZLE)),
+            "a puzzle whose chunk has not streamed in yet must seed as a puzzle",
         )
     }
 
@@ -527,6 +620,193 @@ class ContributionTrackerTest {
         val unnamed = ContributionTracker.weightOf(roomOf(type = RoomType.PUZZLE))
         assertTrue(unnamed < named, "the secret bonus needs the database")
         assertTrue(unnamed > ContributionTracker.weightOf(roomOf(type = RoomType.ROOM)), "the kind does not")
+    }
+
+    // --- ClearPoints: the seed is a prior, not a constant (clearpoints-002) ---
+
+    /**
+     * The blend, driven directly. [ContributionTracker.blend] takes its sample and its median rather
+     * than reading [RoomStats], so every property below is checked without a scores file on disk and
+     * without depending on what any particular snapshot happens to contain.
+     */
+    private fun blend(seed: Double, n: Int, avgTicks: Double, median: Double = MEDIAN) =
+        ContributionTracker.blend(seed, RoomSample(n, avgTicks), median)
+
+    /** A plausible middle of the distribution: 5 s, which is where the box's real numbers cluster. */
+    private val MEDIAN = 100.0
+
+    /**
+     * **The case that has to be exactly right, because getting it wrong is silent.** A room nothing
+     * has been measured about is worth its seed and not a penny less — it must never be treated as a
+     * fast room, which is what any "default the missing average to zero" shortcut would do. Four
+     * ways of having no measurement, all of which occur: no entry for the room, an entry the
+     * receiver wrote with `n: 0`, no median because nothing anywhere is measured, and a room with no
+     * name to look up at all.
+     */
+    @Test
+    fun `nothing measured is exactly the seed, not a fast room`() {
+        assertEquals(1.5, ContributionTracker.blend(1.5, null, MEDIAN), 0.0, "no entry for the room")
+        assertEquals(1.5, blend(1.5, n = 0, avgTicks = 10.0), 0.0, "an entry with no samples behind it")
+        assertEquals(1.5, ContributionTracker.blend(1.5, RoomSample(5, 10.0), null), 0.0, "nothing measured at all")
+        assertEquals(1.5, ContributionTracker.blend(1.5, RoomSample(5, 10.0), 0.0), 0.0, "a median of zero")
+
+        // And through the real path: with the seed layer in force, every room is its seed.
+        assertEquals(0.75, ContributionTracker.weightOf(plain()), 1e-9)
+        assertEquals(2.0, ContributionTracker.weightOf(roomOf(info = info("PUZZLE", name = "Ice Fill"))), 1e-9)
+    }
+
+    /**
+     * The user-visible behaviour in one line: *"abhaengig davon wie schnell der durchschnittliche
+     * Spieler diesen Raum cleart geht dieser Wert hoch oder auch runter"*. Two rooms with the same
+     * seed and the same sample count, separated only by how long they measure.
+     */
+    @Test
+    fun `a slow room outscores a fast one`() {
+        val slow = blend(0.75, n = 40, avgTicks = MEDIAN * 6)
+        val fast = blend(0.75, n = 40, avgTicks = MEDIAN / 6)
+        assertTrue(slow > fast, "the slower room has to be worth more: $slow vs $fast")
+        assertTrue(slow > 0.75, "and a room slower than the median has to go up")
+        assertTrue(fast < 0.75, "while a faster one goes down — 'oder auch runter' is half the model")
+    }
+
+    /**
+     * **The whole point of the feature.** The seeds are estimates the user called estimates, and
+     * they ship anyway because the measurement is allowed to overrule them once it has earned it —
+     * in *both* directions. If `Ice Fill` turns out to be a ten-second puzzle it stops being worth
+     * 2.0, and no code change is involved. A model that could only ever raise a room would be a
+     * ratchet, not a measurement.
+     */
+    @Test
+    fun `the measurement overrules the seed in both directions`() {
+        // Ice Fill's seed is 2.0 — the highest the user gave. Measured as a very fast room, at a
+        // sample count nobody could argue with, it comes down below the ordinary base.
+        val overruledDown = blend(2.0, n = 500, avgTicks = MEDIAN / 8)
+        assertTrue(overruledDown < 0.75, "a fast Ice Fill stayed expensive on the strength of its seed alone")
+
+        // And an ordinary room that measures like a puzzle rises past every puzzle seed.
+        val overruledUp = blend(0.75, n = 500, avgTicks = MEDIAN * 15)
+        assertTrue(overruledUp > 2.0, "a genuinely slow ordinary room could not outgrow the seed table")
+    }
+
+    /**
+     * The blocker this feature carried, answered rather than argued: `roomstats.json` has nine rooms
+     * with a clear sample and every one of them is `n = 1`, and weighting off a single observation
+     * is worse than the considered estimate it would replace. So one observation moves a room by
+     * under a tenth of the way — enough that the data is not ignored, far too little for one lucky
+     * run to redefine a room.
+     */
+    @Test
+    fun `a single observation barely moves a room`() {
+        val seed = 0.75
+        val moved = blend(seed, n = 1, avgTicks = MEDIAN * 100)
+        val fully = blend(seed, n = 10_000_000, avgTicks = MEDIAN * 100)
+        val movedBy = (moved - seed) / (fully - seed)
+        assertTrue(movedBy < 0.10, "one sample moved the room ${"%.0f".format(movedBy * 100)}% of the way")
+        assertTrue(movedBy > 0.05, "and it should not be ignored either")
+    }
+
+    /** The other end: with enough observations the seed is a rounding error. */
+    @Test
+    fun `a large sample is essentially the measurement`() {
+        val measured = blend(0.75, n = 1_000_000, avgTicks = MEDIAN * 4)
+        assertEquals(
+            blend(0.75, n = 1_000_000, avgTicks = MEDIAN * 4),
+            blend(2.0, n = 1_000_000, avgTicks = MEDIAN * 4),
+            0.01,
+            "at a million samples two very different seeds must land on the same number",
+        )
+        // Which is the calibration stated in TIME_EXPONENT's KDoc: four times the median clear time
+        // is twice the ordinary base.
+        assertEquals(1.5, measured, 0.01, "four times the median has to be worth twice the ordinary base")
+        assertEquals(0.75, blend(2.0, n = 1_000_000, avgTicks = MEDIAN), 0.01, "and the median room is the ordinary one")
+    }
+
+    /**
+     * **No cliff**, which is the property the brief called out by name: a room's worth must not jump
+     * at any particular sample count. A shrinkage of the shape `w = n / (n + k)` is continuous in
+     * `n`; a rule like "ignore anything under five samples, then trust it" is not, and would make
+     * the fifth clear of a room worth more than the four before it put together.
+     *
+     * Checked as a property over the whole range rather than at a chosen point, and the property is
+     * that **each step is no larger than the one before it**. That is the precise statement of "no
+     * cliff" and it is strictly stronger than bounding the steps by some threshold: a rule like
+     * "ignore anything under five samples, then trust it" would show a step at `n = 5` far larger
+     * than the step at `n = 4`, and this fails on it wherever the cliff is put. Under `n / (n + k)`
+     * the largest step is the first — the seed's own 1/(1+k) of the journey, about 9% here — and
+     * every step after it is smaller. Which is what the first assertion pins.
+     */
+    @Test
+    fun `a room's base never jumps as its sample count grows`() {
+        val seed = 0.75
+        val slow = MEDIAN * 9
+        val total = blend(seed, n = 10_000_000, avgTicks = slow) - seed
+        assertTrue(total > 0.5, "fixture has to actually travel somewhere for this to mean anything")
+
+        assertEquals(seed, ContributionTracker.blend(seed, RoomSample(0, slow), MEDIAN), 0.0, "n = 0 is the seed")
+        val first = blend(seed, n = 1, avgTicks = slow) - seed
+        assertTrue(first <= total / 8.0, "the very first sample moved the room ${first / total} of the way")
+
+        var previous = seed
+        var lastStep = Double.MAX_VALUE
+        for (n in 1..2000) {
+            val here = blend(seed, n = n, avgTicks = slow)
+            val step = here - previous
+            assertTrue(step >= 0.0, "the base fell going from ${n - 1} to $n samples")
+            assertTrue(
+                step <= lastStep + 1e-12,
+                "the step at $n samples ($step) is bigger than the one before it ($lastStep) — a cliff",
+            )
+            previous = here
+            lastStep = step
+        }
+    }
+
+    /**
+     * The clamp, both ends. One 36-second outlier — the real `Altar` figure on the box, against a
+     * distribution whose median is a couple of seconds — cannot make a room worth ten however many
+     * times it is observed, and the fastest room in the dungeon cannot fall to nothing.
+     *
+     * Deliberately checked at an absurd sample count, because the clamp is what stands between the
+     * model and a genuinely wrong average. Shrinkage alone would only delay it.
+     */
+    @Test
+    fun `no measurement however extreme can run away with a room`() {
+        for (n in listOf(1, 10, 100, 10_000, 10_000_000)) {
+            for (ticks in listOf(0.01, 1.0, MEDIAN, MEDIAN * 1_000, MEDIAN * 1_000_000)) {
+                val base = blend(0.75, n = n, avgTicks = ticks)
+                assertTrue(base in 0.25..2.5, "n=$n avgTicks=$ticks produced a base of $base")
+            }
+        }
+        // And through the whole weight, secrets included, so the ceiling on a room is stateable:
+        // MAX_BASE plus a quarter for each of the ten secrets the fattest room in rooms.json holds.
+        val worst = ContributionTracker.blend(2.0, RoomSample(10_000_000, MEDIAN * 10_000), MEDIAN) + 10 * 0.25
+        assertTrue(worst <= 5.0, "the most a single room can be worth is $worst")
+    }
+
+    /**
+     * A measurement is keyed by the database's name, so a room whose chunk never streamed in has
+     * nothing to look up and stays on the seed its map colour implies. Worth stating because it
+     * means the same room can be worth two different amounts across two runs — the same
+     * chunk-streaming race the secret bonus already has, now reaching the base as well.
+     */
+    @Test
+    fun `an unnamed room can carry no measurement`() {
+        // Three fast rooms and one slow one, so the median is genuinely below `Fixture`. A snapshot
+        // holding a single room could not express "slow" at all — that room would *be* the median.
+        RoomStats.use(
+            RoomScores.parse(
+                """{"generatedTs":7,"rooms":[
+                     {"name":"Fixture","clearStay":{"n":400,"avgTicks":4000.0}},
+                     {"name":"Quick A","clearStay":{"n":400,"avgTicks":40.0}},
+                     {"name":"Quick B","clearStay":{"n":400,"avgTicks":50.0}},
+                     {"name":"Quick C","clearStay":{"n":400,"avgTicks":60.0}}]}""",
+            ),
+        )
+
+        val named = ContributionTracker.weightOf(roomOf(type = RoomType.PUZZLE, info = info("PUZZLE")))
+        val unnamed = ContributionTracker.weightOf(roomOf(type = RoomType.PUZZLE))
+        assertTrue(named > unnamed, "the named room's slow measurement did not reach it: $named vs $unnamed")
+        assertEquals(1.0, unnamed, 1e-9, "and the unnamed one is exactly the puzzle seed")
     }
 
     // --- ClearPoints: the unit the score is not measured in ---
@@ -579,7 +859,13 @@ class ContributionTrackerTest {
     @Test
     fun `an expensive room nobody was in is one unattributed room, not its weight in points`() {
         val expensive = roomOf(segments = 4, info = info("PUZZLE", secrets = 10))
-        assertTrue(ContributionTracker.weightOf(expensive) >= 4.0, "fixture is meant to be a heavy room")
+        // Relative to the cheapest room rather than an absolute figure: what this case needs is a
+        // room worth several rooms, and an absolute number would have to be retuned every time the
+        // model moves — which is exactly how it came to say 4.0 against a room now worth 3.5.
+        assertTrue(
+            ContributionTracker.weightOf(expensive) > 2 * ContributionTracker.weightOf(plain()),
+            "fixture is meant to be a heavy room",
+        )
 
         ContributionTracker.onCleared(expensive)
         assertEquals(1.0, ContributionTracker.unattributed())
