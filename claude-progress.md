@@ -15,14 +15,30 @@ new session reads.
   said `build` until session 006; `init.sh` was corrected at `c4c0c56` and prints `assemble check`,
   and session 004 below records that repair. `build` belongs to the release gate in `CLAUDE.md`, where
   refreshing that jar is the whole point.
-- Baseline status (last `./init.sh` run): **PASSING** — `main` at `9cb71ee` (which is `chat-001`
-  merged) carries 160 tests in 14 classes. Branch `party-001`, off `main` at `9cb71ee`, carries
-  **167 in 14**, 0 failures, 0 skipped, 2026-08-14, `mod_version=0.9.0`. **Not pushed and not
-  merged.** For how many commits the branch carries, run `git rev-list --count 9cb71ee..HEAD` —
+- Baseline status (last `./init.sh` run): **PASSING** — `main` at `d356ff2` (which is `party-001`
+  merged) carries **167 tests in 14 classes**. Branch `runloss-001`, off `main` at `d356ff2`, carries
+  **176 in the same 14**, 0 failures, 0 skipped, 2026-08-14, `mod_version=0.9.0`. **Not pushed and
+  not merged.** For how many commits the branch carries, run `git rev-list --count d356ff2..HEAD` —
   three consecutive reviews found a hand-written number here wrong, so the number is deliberately
-  not written down any more. `git log --oneline 9cb71ee..HEAD` says what each is for. The +7 is
-  entirely `PartyTrackerTest` 7 → 14; no class was added.
-- **Last feature attempted: `party-001`, and it is `blocked` on a finding rather than on a task.**
+  not written down any more. `git log --oneline d356ff2..HEAD` says what each is for. The +9 is
+  entirely `RunReportTest` 21 → 30; no class was added.
+- **Last feature completed: `runloss-001` — a run quit straight from the dungeon is no longer thrown
+  away.** `ClientPlayConnectionEvents.DISCONNECT` is a third call site for `RunReport.write`,
+  alongside the end-of-run headline and `JOIN`. The three things that had to be settled before it
+  could be, each of which is why the existing `ponytail:` note called it not-a-one-liner: **(1) the
+  player is genuinely not resolvable there** — measured with `javap`, not assumed: Fabric raises
+  DISCONNECT from a HEAD inject on `Connection.channelInactive`, a Netty callback with no hop to the
+  client thread, and Netty completes the close future *before* firing it, so the handler races
+  `Minecraft.player = null` from another thread. `PartyTracker.localName` now holds the name,
+  captured every second of the run, and it is the *more* correct source because the room tick maps
+  are keyed by it. **(2) A half-written report is worse than none** — the write happens a few
+  statements before `System.exit(0)`, so reports go through the same `.part` + atomic move
+  `restamp` already used. **(3) `summaryPrinted` was not enough** — it is only ever set by the
+  headline, so it cannot see title-screen-then-rejoin writing the same run twice; the once-per-run
+  guard moved into `RunReport`. **No schema change, no receiver change**, confirmed mechanically.
+  **Crash and hard kill are still uncovered and are not implied to be.**
+- **Feature attempted before that: `party-001`, and it is `blocked` on a finding rather than on a
+  task.**
   The mechanism the entry existed to build does not exist. The only concrete upgrade path the
   codebase named — the old comment at `PartyTracker.kt:134-138`, that NoammAddons reads the
   decoration's map key whose last character identifies the player slot — is false in both halves:
@@ -34,7 +50,7 @@ new session reads.
   `PartyTracker.assign(roster, localSlot, isFrame)`, behaviour unchanged, with 7 cases and 3
   mutation probes where there had been none. The single surviving candidate channel is
   `MapDecoration.name()` — recorded as `deconame-001`, not built.
-- Last feature completed: `chat-001` — **the mod reads the dungeon events Hypixel states in chat**,
+- And before that: `chat-001` — **the mod reads the dungeon events Hypixel states in chat**,
   through a pure `String -> Event?` parser. A death is charged on the tick it is announced instead of
   by a once-a-second tab poll; a wither-essence secret is credited to the player Hypixel names
   instead of to whoever clicked recently; wither doors, the blood door and puzzle solves and failures
@@ -67,10 +83,11 @@ new session reads.
   file at `configDir/sighteaddons/roomstats.json`, the receiver's own document verbatim; (3) the
   seeds. **Absent is the ordinary first case, not an error, and yields exactly the seeds.** Nothing
   writes the cache today, so every install is on layer 3 and every room is its seed.
-- Current highest-priority unfinished feature: **`runloss-001`**, and now by number as well as by
-  value among the workable ones — `records-001` (6) is deferred by the user, `party-001` (7) went
-  `blocked` in session 011, and `ingame-001` (8) needs a party floor. `runloss-001`'s priority 10 is
-  queue position; it is the only entry known to have destroyed real data.
+- Current highest-priority unfinished feature: **`runend-001`** (9), which is now the only
+  `not_started` entry that can be worked here — `records-001` (6) is deferred by the user,
+  `party-001` (7) is `blocked`, `ingame-001` (8) needs a party floor, `deconame-001` (14) proves
+  nothing without one, and `scores-fetch-001` and `chatfields-001` both wait on the receiver.
+  `runend-001`'s open question is already answered: write the run-level count, not the event count.
 - **Two players sharing a decoration is not a defect and never was.** Decorations are one per
   player. Two players in one *room* produce two decorations a few pixels apart that both resolve to
   the same `Pos` cell, so swapping them changes nothing — asserted in `PartyTrackerTest`. The
@@ -93,11 +110,12 @@ new session reads.
   over the session file" half is *done*, and what remains is a **party** floor (for the
   decoration→player mapping and the RED checkmark) plus a human opening the `/sa` screen. Read its
   `blocked_reason`; do not read the old summary of it.
-- **`runloss-001` is new, unblocked, and arguably the highest-value work on the list** even though
-  its priority number is 10 — that number is queue position, appended so no existing entry had to be
-  renumbered by a recording pass. It is the only entry known to have destroyed real data, it needs no
-  receiver change, and every `clearStay` sample the box is waiting for has to survive that code path
-  to arrive at all.
+- **`runloss-001` is `passing` in source and unproven on a real quit.** The write path is pinned by
+  30 checks and four mutation probes; that Fabric actually raises `DISCONNECT` when somebody closes
+  the game on Hypixel is read off two disassemblies and observed nowhere, because the dev client
+  cannot reach Hypixel and the event cannot be raised in a unit test. The new `run_report` debug
+  event is what a real quit would show, and the entry's `verification_manual` is the procedure. Like
+  every other source-only fix here, it reaches nobody until the version is bumped.
 - **Old and new ClearPoints standings are not comparable.** Under `clearpoints-001` the one real M7
   scored rooms from 1.00 (`Hall`) to 4.50 (`Cathedral`) and `Pipes` was
   `1.0 + 7*0.25 + 3*0.5 = 4.25`; under `clearpoints-002` `Pipes` seeds at `0.75 + 7*0.25 = 2.50`.
@@ -116,12 +134,14 @@ new session reads.
   and gives `ingame-001` its first evidence for calibration, room naming, core hashing and checkmark
   reading. It does **not** touch `party-001` — the run was solo, `roster_skew` fired zero times — and
   it does **not** settle `clear-001`'s gap tolerance, whose failure mode needs a party and a death.
-- **A documented gap fired for real and a run was permanently lost.** That M7 wrote no `run_end` and
-  no run report: `RunReport.write` is reachable only from the end-of-run headline and from
-  `ClientPlayConnectionEvents.JOIN`, and quitting to desktop from inside a floor produces neither —
-  the `ponytail:` note at `SighteAddons.kt:53-57`. Ten cleared rooms never reached the box. Recorded
-  as `runloss-001`, not fixed. The local `history.jsonl` kept its 14 lines, so only the report is
-  gone.
+- **A documented gap fired for real and a run was permanently lost — and that gap is now closed in
+  source.** That M7 wrote no `run_end` and no run report: `RunReport.write` was reachable only from
+  the end-of-run headline and from `ClientPlayConnectionEvents.JOIN`, and quitting to desktop from
+  inside a floor produced neither — the `ponytail:` note that used to sit at `SighteAddons.kt:53-57`.
+  Ten cleared rooms never reached the box. The local `history.jsonl` kept its 14 lines, so only the
+  report was gone. Fixed by `runloss-001` in session 012; **the lost run itself is not recoverable
+  and the committed evidence of it is deliberately unchanged** — `readout.sh` still asserts
+  `run_end events 0`, because that is what that session file says and always will.
 - **The report schema is now 5 in source and 4 in every install.** `dist/sighteaddons-0.9.0.jar` is
   deliberately **not** rebuilt — it is still the released 0.9.0 artifact — so `residue-001` and
   `clear-001` both exist in source only. Neither reaches a player until somebody bumps the version
@@ -132,6 +152,121 @@ new session reads.
 
 Rules: insert the newest session at the TOP of this section. Never edit or delete past session
 entries — they are the audit trail. Copy the template below for each new session.
+
+### Session 012 — `runloss-001`: the run is reported on the way out, not only on the way back in
+
+- Date: 2026-08-14
+- Branch `runloss-001`, off `main` at `d356ff2` (which is `party-001` merged). **Not pushed and not
+  merged.** Run `git rev-list --count d356ff2..HEAD` for the commit count rather than reading one
+  here.
+- Baseline at start: `bash init.sh` → **PASSING**, 167 tests in 14 classes, the state `party-001`
+  left after merging.
+
+**The defect, restated once because it is the only one on either repository's list that destroyed
+real data.** `RunReport.write` had two call sites: the end-of-run chat headline and
+`ClientPlayConnectionEvents.JOIN`. Quitting the game from inside a dungeon produces neither — no
+headline, and no subsequent JOIN because the process is gone. On 2026-08-14 that cost a real M7: ten
+cleared rooms, 24 secrets, no `run_end`, nothing in `runs/`, nothing on the box
+(`docs/evidence/session-1786719912927/`, whose `readout.sh` asserts `run_end events 0`).
+
+**`DISCONNECT` is now the third call site. The three questions that had to be answered first were
+the whole feature, and the `ponytail:` note was right that none of them was a one-liner.**
+
+**1. Is the player resolvable at `DISCONNECT`? No, and this was measured rather than assumed.** Four
+steps, each re-checkable with one `javap`, against
+`.gradle/loom-cache/.../minecraft-merged-043a8b3edf-26.1.2.jar` and
+`fabric-networking-api-v1-6.3.1+554860db4c.jar`:
+
+- `Minecraft.destroy()` calls `ClientLevel.disconnect(DEFAULT_QUIT_MESSAGE)` at offset 36 and
+  `disconnectWithProgressScreen()` at offset 40 — the level disconnect comes first.
+- `ClientLevel.disconnect` is `connection.getConnection().disconnect(msg)`, and
+  `Connection.disconnect(DisconnectionDetails)` is `channel.close().awaitUninterruptibly()`.
+- Fabric raises the event from `ConnectionMixin`, which injects at **HEAD of
+  `Connection.channelInactive`** and at the `PacketListener.onDisconnect` INVOKE inside
+  `Connection.handleDisconnection`. `AbstractNetworkAddon.handleDisconnect` CASes an `AtomicBoolean`
+  — so DISCONNECT fires exactly once per connection — and `invokeDisconnectEvent` calls the event
+  **straight from the Netty callback, with no hop to the client thread**.
+- Netty completes a close future before it fires `channelInactive`, so `awaitUninterruptibly()` can
+  return while the handler is still queued. The very next thing
+  `Minecraft.disconnect(Screen, boolean, boolean)` does is `this.player = null`, at offset 184.
+
+So the handler races the field it wants, from a thread that is not the one clearing it. **The answer
+was to stop asking the client.** `PartyTracker.localName` holds the name, captured every second of
+the run in the `update` that already read it — and it is the *more* correct source, not a fallback,
+because every room's tick map is keyed by the name that was current during the run. `client.player`
+survives only as the fallback for a report written before `PartyTracker.update` has ever run.
+
+**2. Can it write a whole report? Only through a temporary file.** The write happens a few statements
+before `System.exit(0)` on a thread the exit will not wait for. A truncated `run-*.json` still
+matches `TelemetryUpload.RUN`, is posted at the next launch, fails the receiver's `check_run` with a
+`400` and becomes a permanent resident of `rejected/` — the half-written report is the expensive
+failure, not the missing one. Reports now go through the same `.part` + atomic move that `restamp`
+already used; `.part` is outside the uploader's pattern by construction, so a torn temporary is
+invisible to both `TelemetryUpload` and `restamp`.
+
+**3. Is `summaryPrinted` enough to stop a double write? No.** It is only ever set by the headline, so
+it cannot see the pair `DISCONNECT` introduces: dropping to the title screen from inside a floor
+writes the report, and joining any server afterwards reaches JOIN with `summaryPrinted` still false
+and nothing having reset in between — two reports for one run. The guard moved into `RunReport` as
+an `AtomicBoolean`, **claimed before the write and given back if the write fails** (a run that could
+not be written is not a run that was reported, and the later call site is its second chance), and
+cleared by `DungeonSession.reset()`.
+
+**What the DISCONNECT site deliberately does not do: call `DungeonSession.reset()`.** That would be
+the tidy mirror of the JOIN site, and it would be wrong. `reset()` tears down
+`ContributionTracker`, `PartyTracker` and `ClearPopup` — state `renderHud` reads every frame — and
+this callback can arrive on a Netty thread while the client is still ticking, e.g. when a server
+closes the socket mid-run. A dropped connection must not become a
+`ConcurrentModificationException` in the render loop. The write only reads; the next JOIN resets as
+it always did. The call is also wrapped in a `try`, because the caller is either Netty's pipeline or
+a shutdown sequence and an escaping exception there is worse than a missing report.
+
+**A new `run_report` debug event**, written by `RunReport.write` itself so all three call sites get
+it exactly once, carrying `complete`, the room count and the file name. It is the observable that
+turns the manual check into a measurement: the evidence for this defect is a session file with no
+such line. `verification_manual` was corrected to look for it — the old step 3 said "confirm the
+debug session carries a `run_end` event", which is precisely what this path does not and should not
+produce, since `run_end` means the headline came.
+
+**Not a schema change and not paired, confirmed rather than asserted.** `build/keydiff.py` was
+re-created and run before and after: four empty sets both directions, 17 run keys and 17 room keys
+identical to the receiver's. `RunReport.SCHEMA` stays 5, `mod_version` stays 0.9.0,
+`dist/sighteaddons-0.9.0.jar` md5 `b2ebc35ccfeb9cc96134eb3b18f0306f` either side of
+`assemble check`. `SighteAddonServerside` was **read** (`ingest.py`) and **not written**.
+
+**Four mutation probes, all caught, all restored with `git checkout` after the feature was
+committed.** (A) `uploader(live, captured) = live`, the pre-feature behaviour → fails 1. (B) delete
+the `reported.compareAndSet(false, true)` line from `queue()` → fails 2. (C) `queue` returns
+`publish()`'s result without giving the claim back → fails 1. (D) `publish` writes the target
+directly instead of through `.part` + move → fails 1.
+
+**Probe (D) did not fail at first, and that is worth recording.** A successful direct write and a
+successful move leave an identical directory, so the suite could not see the one mechanism that
+keeps a truncated report out of the queue. What it *can* see is the other half: a `.part` left by a
+crash between "write the temporary" and "move it" must be consumed by the next successful write
+rather than accumulate. That test was added (`cd26786`) and the probe now fails on it. The
+atomicity of the move itself remains a property of the code, not of any end state a unit test on a
+working filesystem can inspect.
+
+**What is not covered, and is not implied to be.** A hard kill — task manager, `SIGKILL`, power loss
+— runs nothing at all and loses the run exactly as before. A Java-level crash that still reaches
+`Minecraft.destroy()` is covered by the same disconnect, but that is read off `destroy()`'s bytecode
+and has never been observed. **A JVM shutdown hook was considered and rejected**: it cannot help
+with `SIGKILL`, `DISCONNECT` already fires before `System.exit(0)` on every path that reaches
+`destroy()`, and a second writer racing the first would buy nothing the once-per-run guard does not
+already have to arbitrate. Above all, **that Fabric raises `DISCONNECT` at all on a real Hypixel
+quit is unobserved** — the dev client cannot reach Hypixel and the event cannot be raised in a unit
+test, so the wiring rests on the two disassemblies and on nothing else.
+
+- Verification, all at `cd26786`:
+  - `./gradlew test --tests 'sighteaddons.RunReportTest'` → PASS, **30 tests**, 0 failures (21
+    before). This is the entry's `verification_command`, unchanged in text.
+  - `./gradlew test --rerun-tasks` → `classes 14, tests 176, skipped 0, failures 0, errors 0`.
+    Baseline `d356ff2` was 167 in the same 14; the difference is exactly `RunReportTest` 21 → 30.
+  - `./gradlew assemble check` → `BUILD SUCCESSFUL`, jar md5 identical either side,
+    `git status --short dist/ gradle.properties` empty.
+  - `python build/keydiff.py` → `KEYDIFF: CLEAN`.
+  - `bash docs/evidence/session-1786719912927/readout.sh` → `READOUT: OK`.
 
 ### Session 011 — `party-001`: the upgrade path did not exist, so the finding is the deliverable
 
