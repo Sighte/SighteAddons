@@ -227,13 +227,50 @@ class TrackedRoom(val type: RoomType, val mapSegments: Set<Pos>, val cells: Set<
  * Attributes room clears to the party members who were actually in the room, and records the
  * clear / all-secrets timeline per room.
  *
- * Phase 1 gives every room one point. Phase 2 replaces that with per-room ClearPoints, which is
- * the whole reason this exists: Hypixel's own score weights every room equally regardless of
- * difficulty. The room database already carries the secret and crypt counts needed for it.
+ * ClearPoints exists because Hypixel's own score weights every room equally regardless of
+ * difficulty: clearing a puzzle and walking into an empty 1x1 count the same. [weightOf] is the
+ * replacement — a room is worth what it took, and the split over its members is proportional to
+ * time as before.
+ *
+ * **Two units live in here and they are not interchangeable.** [roomsCleared] and [unattributed]
+ * count *rooms*; [pointsByPlayer] carries *weighted points*. Before ClearPoints they happened to
+ * agree, because a room was worth exactly 1.0 — see [unattributed] for what that coincidence cost
+ * and why nothing subtracts one from the other any more.
  */
 object ContributionTracker {
     const val MIN_TICKS = 20 // 1s; below this a member only passed through
-    private const val POINTS_PER_ROOM = 1.0
+
+    /**
+     * What every cleared room is worth before anything is added for what it took. Deliberately not
+     * zero: no room becomes worthless, so a run's points never fall below the flat count they
+     * replace, and an unnamed room (chunk never streamed, so [TrackedRoom.info] is null) still pays.
+     */
+    private const val BASE_POINTS = 1.0
+
+    /**
+     * Per secret the room database says the room holds — the room's own count, not
+     * [TrackedRoom.secretsFound]. Two reasons, and the second one is decisive: what is being
+     * weighted is the room rather than the party's thoroughness, and [award] runs on the clear
+     * checkmark, at which point the secrets of that room are usually still being collected. Reading
+     * the live counter here would weight most rooms at whatever they happened to be part-way
+     * through. What the party actually found is already reported per room (`secretsFound`,
+     * `ownSecrets`), which is where that analysis belongs.
+     */
+    private const val SECRET_POINTS = 0.25
+
+    /** Per segment beyond the first: a 2x2 is four times the walking of a 1x1 at the same clear. */
+    private const val SEGMENT_POINTS = 0.5
+
+    /**
+     * Room-kind bonuses. Only for kinds that impose a *specific piece of work* on top of clearing
+     * mobs — a gate the party has to open or a fight it has to win. `RARE` deliberately gets
+     * nothing: a rare room is unusual, not hard, and whatever makes it worth entering is its secret
+     * count, which [SECRET_POINTS] already pays for.
+     */
+    private const val PUZZLE_BONUS = 1.5
+    private const val TRAP_BONUS = 1.0
+    private const val MINIBOSS_BONUS = 1.0
+    private const val BLOOD_BONUS = 1.0
 
     /**
      * The dungeon grid sits at fixed world coordinates, so the chunks holding the sample columns
@@ -262,12 +299,20 @@ object ContributionTracker {
     var roomsCleared = 0
         private set
 
+    /**
+     * Of those, the ones that credited nobody at all — nobody was ever seen in them. Counted as it
+     * happens rather than derived afterwards; [unattributed] is where that matters.
+     */
+    var unattributedRooms = 0
+        private set
+
     var deaths = 0
         private set
 
     fun reset() {
         rooms.clear()
         credited.clear()
+        unattributedRooms = 0
         identified.clear()
         unidentifiable.clear()
         // Cleared on server transfer, so chunks buffered for the previous world are never hashed.
@@ -298,28 +343,106 @@ object ContributionTracker {
         pendingChunks.add(Pos(chunkX, chunkZ))
     }
 
+    /**
+     * Weighted ClearPoints per player — **not** a number of rooms, and not comparable with
+     * [roomsCleared]. One [weightOf] room is worth between [BASE_POINTS] and about five of them, so
+     * this total normally runs well above the room count. See [unattributed].
+     */
     fun pointsByPlayer(): Map<String, Double> = credited
 
     /**
-     * The cleared rooms nobody was credited for: [roomsCleared] minus everything [pointsByPlayer]
-     * handed out, [settle]d.
+     * The cleared rooms nobody was credited for, **in rooms**. A room nobody was ever seen in is one
+     * unattributed room whatever [weightOf] says it was worth.
      *
-     * One expression in one place. The run report and the end-of-run summary both report this
-     * number and both used to compute it inline, which is how they came to disagree about what
-     * counts as zero.
+     * This used to be `roomsCleared - pointsByPlayer().values.sum()`, and that expression was only
+     * ever correct because a room was worth exactly 1.0 point: the two units were numerically
+     * interchangeable, so a count could be recovered by subtracting a score. ClearPoints ends that.
+     * A weighted total is routinely larger than the room count, the subtraction goes negative, and
+     * [settle]'s clamp turns every run's answer into a flat `0.0` — no exception, no `400`, no log
+     * line, just a field that stops saying anything and looks perfect while doing it. So the count
+     * is counted, in [award], where the decision is actually made.
+     *
+     * Not a cosmetic choice. `unattributed` is read *relative to* `roomsCleared` — it is the
+     * receiver's only diagnostic for a broken decoration→player mapping (its
+     * `agent/AGENT-PROMPT.md`), and the ratio is meaningless unless both sides are rooms. The
+     * receiver's own validator agrees: `_real(x, 0, MAX_CLEARED)`, the same ceiling it bounds
+     * `roomsCleared` with.
+     *
+     * The values this returns are unchanged by ClearPoints, which is why the report schema does not
+     * move: under flat weighting every award credited either the full point or nothing, so the old
+     * subtraction already produced exactly this count (give or take the float residue `residue-001`
+     * removed). Same meaning, same numbers, now by construction instead of by coincidence.
      */
-    fun unattributed(): Double = settle(roomsCleared - credited.values.sum())
+    fun unattributed(): Double = unattributedRooms.toDouble()
+
+    /**
+     * What one cleared room is worth, before [award] splits it over the members who were in it.
+     *
+     * The whole point of ClearPoints: Hypixel's score counts rooms, so a party that cleared the
+     * puzzles and a party that walked six empty 1x1s score the same. Three things separate them
+     * here, and all three are properties of the *room* rather than of what the party did in it —
+     * so two players in the same room are still separated only by time, which is [award]'s job.
+     *
+     * - **Kind** ([PUZZLE_BONUS] and friends): a gate that has to be opened or a fight that has to
+     *   be won, on top of the mobs every room has.
+     * - **Secrets** ([SECRET_POINTS]): from the room database, and the reason `rooms.json` carries
+     *   the counts at all.
+     * - **Size** ([SEGMENT_POINTS]): segments, taken from the map rather than from the database's
+     *   `shape` string, so an unnamed room is still sized correctly.
+     *
+     * **Floor is deliberately not a factor**, though `DungeonSession.floorNumber` is right there and
+     * the README lists it as available. A floor multiplier is constant across every room of a run,
+     * so it scales every player's total by the same number and cannot separate anybody — and points
+     * are only ever compared *within* one run, since they are shown on the HUD and in the run
+     * summary and are not part of the run report at all (`RUN_KEYS` in the receiver's `ingest.py`
+     * has no points field; the per-player breakdown never leaves the client). It would be a constant
+     * with no reader. Revisit if points ever become something the server stores.
+     *
+     * An unnamed room — the chunk never streamed, so [TrackedRoom.info] is null — falls back to the
+     * map colour for its kind and pays no secret bonus. It is worth less than it should be, never
+     * nothing: a room we could not identify is still a room somebody cleared.
+     */
+    internal fun weightOf(room: TrackedRoom): Double {
+        val info = room.info
+        val segments = (room.cells.size - 1).coerceAtLeast(0)
+        return BASE_POINTS +
+            kindBonus(info?.type ?: room.type.name) +
+            (info?.secrets ?: 0) * SECRET_POINTS +
+            segments * SEGMENT_POINTS
+    }
+
+    /**
+     * The kind bonus for a room described either by the database's vocabulary or, when the room was
+     * never identified, by the map colour's. The two agree on every name that matters except the
+     * miniboss — `rooms.json` calls it `CHAMPION`, [RoomType] calls it `MINIBOSS` — and the map has
+     * no colour for `RARE` at all, since rare rooms are drawn as ordinary ones. Both vocabularies go
+     * through one `when` rather than two, so a kind cannot be worth different amounts depending on
+     * whether its chunk had loaded yet.
+     */
+    private fun kindBonus(kind: String): Double = when (kind) {
+        "PUZZLE" -> PUZZLE_BONUS
+        "TRAP" -> TRAP_BONUS
+        "CHAMPION", "MINIBOSS" -> MINIBOSS_BONUS
+        "BLOOD" -> BLOOD_BONUS
+        else -> 0.0
+    }
 
     /**
      * Rounds an unattributed-points figure to the two decimals every path that displays it already
      * truncates to, and never returns a negative.
      *
-     * [POINTS_PER_ROOM] is split across a room's players by tick count, so a room shared three ways
+     * A room's points are split across its players by tick count, so a room shared three ways
      * credits 0.333… three times and those three do not add back up to the point they came from.
-     * Over the ~30 rooms of a floor the credited total ends up a few ULPs off, and
-     * `roomsCleared - total` is then a residue of ±1e-15 rather than the 0 it means. A real report
-     * reached the server carrying `"unattributed": 3.552713678800501e-15`; `profiles/` is
-     * append-only, so that line can never be corrected.
+     * Over the ~30 rooms of a floor the credited total ended up a few ULPs off, and
+     * `roomsCleared - total` — which is how [unattributed] used to be computed — was then a residue
+     * of ±1e-15 rather than the 0 it means. A real report reached the server carrying
+     * `"unattributed": 3.552713678800501e-15`; `profiles/` is append-only, so that line can never be
+     * corrected.
+     *
+     * [unattributed] no longer subtracts anything, so it cannot produce that residue any more. This
+     * stays because [RunReport.build] is the contract seam rather than a convenience: it settles
+     * whatever figure it is handed, including from a caller that computed one itself, and a written
+     * profile line is permanent either way.
      *
      * Rounding rather than a threshold-to-zero, because the residue turns up with either sign and
      * rounding removes both — the clamp this replaces only ever caught the negative half. It also
@@ -371,14 +494,16 @@ object ContributionTracker {
                 // log line, so "cleared" carries the anchor the report will actually ship.
                 val anchoredOnClear = room.anchorOnClear(DungeonSession.runTicks)
                 room.clearedAtTick = DungeonSession.runTicks
-                roomsCleared++
                 DebugLog.event(
                     "cleared",
                     "room" to room.label(), "type" to room.type, "checkmark" to checkmark,
                     "ticks" to Pseudonym.keys(room.ticks).toString(),
                     "enterTick" to room.enteredAtTick, "anchoredOnClear" to anchoredOnClear,
                 )
-                award(room)
+                // Counting the room and awarding its points are one decision, not two: the room
+                // count and the unattributed count have to move together or the second stops
+                // meaning anything relative to the first.
+                onCleared(room)
                 RoomHistory.onRoomCleared(room)
             }
             if (checkmark == DungeonMapReader.GREEN && !room.allSecrets) {
@@ -396,13 +521,31 @@ object ContributionTracker {
         }
     }
 
+    /**
+     * The room just earned its checkmark: count it and hand out its points.
+     *
+     * Internal rather than private because this is where the two units meet — [roomsCleared] counts
+     * rooms and [credited] carries weighted points — and that is exactly the seam that has to be
+     * testable. [ContributionTracker.tick] needs a `Minecraft` and a `MapItemSavedData`; this needs
+     * a cleared room and nothing else.
+     */
+    internal fun onCleared(room: TrackedRoom) {
+        roomsCleared++
+        award(room)
+    }
+
     private fun award(room: TrackedRoom) {
         if (room.pointsAwarded) return
         room.pointsAwarded = true
-        val split = DungeonGrid.splitPoints(room.ticks, POINTS_PER_ROOM, MIN_TICKS)
+        val points = weightOf(room)
+        val split = DungeonGrid.splitPoints(room.ticks, points, MIN_TICKS)
         if (split.isNotEmpty()) {
-            split.forEach { (name, points) -> credited.merge(name, points, Double::plus) }
-            DebugLog.event("award", "room" to room.label(), "split" to Pseudonym.keys(split).toString())
+            split.forEach { (name, earned) -> credited.merge(name, earned, Double::plus) }
+            DebugLog.event(
+                "award",
+                "room" to room.label(), "points" to points,
+                "split" to Pseudonym.keys(split).toString(),
+            )
             return
         }
         // Nobody cleared the one-second bar. In a party that filter is right — whoever did the work
@@ -411,11 +554,18 @@ object ContributionTracker {
         // three that way, all of them empty rooms that clear the moment you step in. Falls back to
         // raw presence and logs it as such, so a fallback stays visible in the data instead of
         // hiding inside a normal award.
-        val fallback = DungeonGrid.splitPoints(room.ticks, POINTS_PER_ROOM, minTicks = 1)
-        fallback.forEach { (name, points) -> credited.merge(name, points, Double::plus) }
+        val fallback = DungeonGrid.splitPoints(room.ticks, points, minTicks = 1)
+        fallback.forEach { (name, earned) -> credited.merge(name, earned, Double::plus) }
+        // The one place a room is decided to be unattributed, and therefore the one place it is
+        // counted. Empty means nobody was ever seen in this room at all — not that they were only
+        // seen briefly, which the fallback above has just paid for. Counted in rooms, not in
+        // [points]: what the room was worth says nothing about how many rooms went unattributed,
+        // and `unattributed` is read against `roomsCleared`.
+        if (fallback.isEmpty()) unattributedRooms++
         DebugLog.event(
             "unattributed",
-            "room" to room.label(), "ticks" to Pseudonym.keys(room.ticks).toString(),
+            "room" to room.label(), "points" to points,
+            "ticks" to Pseudonym.keys(room.ticks).toString(),
             "fallback" to Pseudonym.keys(fallback).toString(),
         )
     }

@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
 /**
@@ -22,7 +23,31 @@ import org.junit.jupiter.api.Test
  * clock, once per member per tick — and no command in this repository can observe that.
  */
 class ContributionTrackerTest {
+    /** [ContributionTracker] is an object with run-long state, and half of these tests write to it. */
+    @BeforeEach
+    fun clean() = ContributionTracker.reset()
+
     private fun room() = TrackedRoom(RoomType.ROOM, setOf(Pos(0, 0)), setOf(Pos(0, 0)))
+
+    /**
+     * A room of [segments] cells, optionally named — which is what gives it a [RoomInfo] and so the
+     * secret count and database kind the weighting reads.
+     */
+    private fun roomOf(
+        type: RoomType = RoomType.ROOM,
+        segments: Int = 1,
+        info: RoomInfo? = null,
+    ): TrackedRoom {
+        val cells = (0 until segments).map { Pos(it, 0) }.toSet()
+        return TrackedRoom(type, cells, cells).also { it.info = info; it.name = info?.name }
+    }
+
+    private fun info(type: String, secrets: Int = 0) =
+        RoomInfo(name = "Fixture", type = type, shape = "1x1", secrets = secrets, crypts = 0)
+
+    /** The cheapest room there is: a named, empty, single-segment 1x1. The baseline everything else
+     *  is compared against, and the room the flat count used to make indistinguishable. */
+    private fun plain() = roomOf(info = info("NORMAL"))
 
     /**
      * [player] seen on every tick of `[from, from + count)`, the way [ContributionTracker.tick] sees
@@ -254,5 +279,215 @@ class ContributionTrackerTest {
         second.stay("Fighter", from = 900, count = min)
         assertEquals(200, first.enteredAtTick)
         assertEquals(900, second.enteredAtTick)
+    }
+
+    // --- ClearPoints: what a room is worth (clearpoints-001) ---
+
+    /**
+     * The feature in one line: Hypixel's own score counts rooms, so clearing a puzzle and walking
+     * into an empty 1x1 are worth the same to it. That is the flat weighting ClearPoints exists to
+     * replace, and until now this mod reproduced it exactly.
+     */
+    @Test
+    fun `a puzzle is worth more than an empty 1x1`() {
+        assertTrue(
+            ContributionTracker.weightOf(roomOf(info = info("PUZZLE"))) >
+                ContributionTracker.weightOf(plain()),
+        )
+    }
+
+    @Test
+    fun `a secret-heavy room is worth more than an empty one`() {
+        val heavy = ContributionTracker.weightOf(roomOf(info = info("NORMAL", secrets = 8)))
+        val one = ContributionTracker.weightOf(roomOf(info = info("NORMAL", secrets = 1)))
+        assertTrue(heavy > one, "eight secrets is more room than one")
+        assertTrue(one > ContributionTracker.weightOf(plain()), "and one secret is more than none")
+    }
+
+    @Test
+    fun `a four-segment room is worth more than a 1x1 of the same kind`() {
+        assertTrue(
+            ContributionTracker.weightOf(roomOf(segments = 4, info = info("NORMAL"))) >
+                ContributionTracker.weightOf(plain()),
+        )
+    }
+
+    /**
+     * Rarity is not work. A rare room is unusual to *get*, not harder to clear, and whatever makes
+     * it worth entering is its secret count — which is already paid for. Pinned because "RARE looks
+     * special, give it a bonus" is the obvious next edit and it would be measuring the wrong thing.
+     */
+    @Test
+    fun `a rare room is not paid for being rare`() {
+        assertEquals(
+            ContributionTracker.weightOf(roomOf(info = info("NORMAL", secrets = 4))),
+            ContributionTracker.weightOf(roomOf(info = info("RARE", secrets = 4))),
+        )
+    }
+
+    /**
+     * No room becomes worthless, so a run's points can never come out below the flat count they
+     * replace. That includes the rooms nothing is known about: an unidentified room is still a room
+     * somebody cleared, and paying it nothing would quietly hand its clear to no one.
+     */
+    @Test
+    fun `every room is still worth at least the point it used to be`() {
+        for (type in RoomType.entries) {
+            assertTrue(
+                ContributionTracker.weightOf(roomOf(type = type)) >= 1.0,
+                "an unnamed $type room fell below one point",
+            )
+        }
+        for (type in listOf("NORMAL", "PUZZLE", "TRAP", "RARE", "CHAMPION", "BLOOD", "ENTRANCE", "FAIRY")) {
+            assertTrue(
+                ContributionTracker.weightOf(roomOf(info = info(type))) >= 1.0,
+                "a $type room out of the database fell below one point",
+            )
+        }
+    }
+
+    /**
+     * `rooms.json` says `CHAMPION`, the map colour says `MINIBOSS`, and they are the same room. A
+     * room must not be worth different amounts depending on whether its chunk had streamed in yet,
+     * which is a race and not a property of the room.
+     */
+    @Test
+    fun `the database and the map agree on what a miniboss is`() {
+        assertEquals(
+            ContributionTracker.weightOf(roomOf(info = info("CHAMPION"))),
+            ContributionTracker.weightOf(roomOf(type = RoomType.MINIBOSS)),
+        )
+    }
+
+    /**
+     * An unnamed room falls back to the map colour, so it keeps its kind but loses its secrets.
+     * Less than it should be, never nothing — and worth saying out loud, because it means the same
+     * room can be worth two different amounts across two runs depending on chunk streaming.
+     */
+    @Test
+    fun `an unnamed room keeps its kind and loses only its secrets`() {
+        val named = ContributionTracker.weightOf(roomOf(type = RoomType.PUZZLE, info = info("PUZZLE", secrets = 2)))
+        val unnamed = ContributionTracker.weightOf(roomOf(type = RoomType.PUZZLE))
+        assertTrue(unnamed < named, "the secret bonus needs the database")
+        assertTrue(unnamed > ContributionTracker.weightOf(roomOf(type = RoomType.ROOM)), "the kind does not")
+    }
+
+    // --- ClearPoints: the unit the score is not measured in ---
+
+    /**
+     * **The hazard this feature had to answer.** `unattributed` used to be
+     * `roomsCleared - pointsByPlayer().values.sum()`, which was only ever right because a room was
+     * worth exactly 1.0: a count and a score were numerically interchangeable. Weighted, the score
+     * runs above the count, the subtraction goes negative, and the clamp in
+     * [ContributionTracker.settle] reports `0.0` on every run forever — no exception, no `400`, no
+     * log line. A field that stops saying anything and looks perfect while doing it.
+     *
+     * So the run below has a genuinely unattributed room *and* a points total larger than its room
+     * count, and both assertions matter: the second is the condition that would have silenced the
+     * first.
+     */
+    @Test
+    fun `weighting cannot silence the unattributed count`() {
+        val puzzle = roomOf(info = info("PUZZLE", secrets = 3))
+        puzzle.ticks["Fighter"] = 400
+        ContributionTracker.onCleared(puzzle)
+
+        val big = roomOf(segments = 4, info = info("NORMAL", secrets = 6))
+        big.ticks["Fighter"] = 400
+        ContributionTracker.onCleared(big)
+
+        // Cleared with nobody ever seen in it: one room the party got no credit for.
+        ContributionTracker.onCleared(plain())
+
+        assertEquals(3, ContributionTracker.roomsCleared)
+        assertEquals(1.0, ContributionTracker.unattributed())
+
+        val scored = ContributionTracker.pointsByPlayer().values.sum()
+        assertTrue(
+            scored > ContributionTracker.roomsCleared,
+            "the weighting is too weak to reproduce the hazard: this run has to outscore its rooms",
+        )
+        assertTrue(
+            ContributionTracker.settle(ContributionTracker.roomsCleared - scored) == 0.0,
+            "and the old expression has to be the thing that goes quiet, or this test proves nothing",
+        )
+    }
+
+    /**
+     * `unattributed` counts rooms, not points, and that is what makes it readable against
+     * `roomsCleared` — which is exactly how the receiver reads it (`agent/AGENT-PROMPT.md`: the gap
+     * between the two is its only diagnostic for a broken decoration→player mapping). A ratio of a
+     * score to a count would be a number with no meaning at either end.
+     */
+    @Test
+    fun `an expensive room nobody was in is one unattributed room, not its weight in points`() {
+        val expensive = roomOf(segments = 4, info = info("PUZZLE", secrets = 10))
+        assertTrue(ContributionTracker.weightOf(expensive) >= 4.0, "fixture is meant to be a heavy room")
+
+        ContributionTracker.onCleared(expensive)
+        assertEquals(1.0, ContributionTracker.unattributed())
+        assertEquals(1, ContributionTracker.roomsCleared)
+    }
+
+    /**
+     * The behaviour `residue-001` bought, kept: a run in which every cleared room was attributed
+     * reports a clean zero. It is now structural — nothing is subtracted, so no residue can arise —
+     * rather than rounded back to zero after the fact.
+     */
+    @Test
+    fun `a run where every room was attributed reports nothing unattributed`() {
+        repeat(3) {
+            val cleared = roomOf(info = info("NORMAL", secrets = 2))
+            cleared.ticks["A"] = 300
+            cleared.ticks["B"] = 300
+            cleared.ticks["C"] = 300
+            ContributionTracker.onCleared(cleared)
+        }
+        assertEquals(0.0, ContributionTracker.unattributed())
+        assertEquals("0.0", ContributionTracker.unattributed().toString(), "and with no exponent")
+    }
+
+    /**
+     * The brief visitor is not the empty room. Somebody seen for less than [ContributionTracker
+     * .MIN_TICKS] misses the ordinary split, and `award` falls back to raw presence rather than
+     * dropping the room — so the room *is* attributed and must not be counted. Solo runs live on
+     * this path: the empty 1x1s that clear the moment you step in, three of them in one M7.
+     */
+    @Test
+    fun `a room somebody only passed through is still attributed`() {
+        val brief = plain()
+        brief.ticks["Solo"] = 4
+        ContributionTracker.onCleared(brief)
+
+        assertEquals(0.0, ContributionTracker.unattributed(), "the fallback credited somebody")
+        assertEquals(1, ContributionTracker.pointsByPlayer().size)
+    }
+
+    /** Run state is per run. A count that survived `reset` would age into every later run. */
+    @Test
+    fun `the unattributed count does not survive the run`() {
+        ContributionTracker.onCleared(plain())
+        assertEquals(1.0, ContributionTracker.unattributed())
+
+        ContributionTracker.reset()
+        assertEquals(0.0, ContributionTracker.unattributed())
+        assertEquals(0, ContributionTracker.roomsCleared)
+    }
+
+    /**
+     * A pre-cleared room was never ours to clear: `discover` sets `pointsAwarded` on it so `award`
+     * can never fire, and it never reaches [ContributionTracker.onCleared] at all. Pinned at the
+     * seam anyway — if it ever did, it must not be counted as a room the party failed to be
+     * credited for.
+     */
+    @Test
+    fun `a pre-cleared room is not an unattributed one`() {
+        val entrance = plain()
+        entrance.preCleared = true
+        entrance.pointsAwarded = true
+        ContributionTracker.onCleared(entrance)
+
+        assertEquals(0.0, ContributionTracker.unattributed())
+        assertTrue(ContributionTracker.pointsByPlayer().isEmpty())
     }
 }

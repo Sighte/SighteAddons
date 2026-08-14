@@ -256,9 +256,14 @@ object RoomHistory {
             }
 
         // Was `> 0.01` against an inline subtraction — the same guard against the same split residue
-        // that the run report clamps, written twice and agreeing by coincidence. The one figure now
-        // comes back already rounded to the two decimals this line prints, so "worth printing" is
-        // exactly "not zero once rounded" and the chat can no longer show a 0.00 row.
+        // that the run report clamps, written twice and agreeing by coincidence. The figure is now a
+        // count of rooms rather than a subtraction of a score from a count, so there is no residue
+        // left to guard against and "worth printing" is exactly "not zero". `%.2f` stays: it is what
+        // the run report ships and what this line has always read as, and the field is a real number
+        // to everything downstream even where this side of it produces whole ones.
+        //
+        // Rooms, deliberately, not points — a room nobody was in is one unattributed room whatever
+        // it was worth. See ContributionTracker.unattributed.
         val unattributed = ContributionTracker.unattributed()
         if (unattributed > 0.0) {
             announce(
