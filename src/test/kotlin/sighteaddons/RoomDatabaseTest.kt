@@ -137,9 +137,12 @@ class RoomDatabaseTest {
      *
      * Its three extra segments stop being paid for at all — under the new model a 1x4 earns its
      * points by measuring slow, and `Pipes` has never been measured. On the one real M7 there is,
-     * the old formula scored rooms from 1.00 (`Hall`) to 4.50 (`Cathedral`); every room comes down
-     * under this one and they come down by different amounts, so a per-player total from an older
-     * build cannot be held next to one from this build.
+     * the old formula scored rooms from 1.00 (`Hall`) to 4.50 (`Cathedral`) and `Pipes` at exactly
+     * the 4.25 above; every room comes down under this one and they come down by different amounts,
+     * so a per-player total from an older build cannot be held next to one from this build. That run
+     * is committed — `docs/evidence/session-1786719912927/`, whose `readout.sh` asserts all three of
+     * those numbers out of the run's own `award` events, so this KDoc cites evidence rather than
+     * recollection.
      *
      * Pinned against the real database rather than left in a comment, because a reader who wants to
      * know what changed will look for a number and this is it.

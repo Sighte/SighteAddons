@@ -13,3 +13,8 @@
 # The committed build must never be touched by line ending conversion
 *.jar           binary
 
+# Committed debug-session evidence under docs/evidence/. These files are quoted by line and asserted
+# by readout.sh, so their bytes must not depend on whose machine checked them out. Nothing else in
+# the tree is affected: every other .jsonl lives under the gitignored config/.
+*.jsonl         text eol=lf
+

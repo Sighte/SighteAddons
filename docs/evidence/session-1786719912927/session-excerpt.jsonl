@@ -1,0 +1,143 @@
+{"t":0,"e":"mort_found","x":-152.5,"z":-173.5,"physicalEntrance":"Pos(x=-168, z=-200)"}
+{"t":0,"e":"calibrated","floor":"M7","mapEntrance":"Pos(x=25, z=5)","mapRoomSize":16,"physicalEntrance":"Pos(x=-168, z=-200)"}
+{"t":0,"e":"tab_slot","slot":0,"row":"[391] p-cad01af7 ☄ (EMPTY)","parsed":"p-cad01af7","class":"EMPTY","alive":false}
+{"t":0,"e":"run_start","floor":"M7","mcVersion":"26.1.2","roomCores":272}
+{"t":1,"e":"room_identified","cell":"Pos(x=-168, z=-200)","name":"Entrance","type":"ENTRANCE","shape":"1x1","secrets":0}
+{"t":1,"e":"room_identified","cell":"Pos(x=-136, z=-168)","name":"Well","type":"NORMAL","shape":"L","secrets":7}
+{"t":1,"e":"room_identified","cell":"Pos(x=-104, z=-136)","name":"Slime","type":"NORMAL","shape":"1x3","secrets":5}
+{"t":1,"e":"room_identified","cell":"Pos(x=-72, z=-104)","name":"Duncan","type":"NORMAL","shape":"1x1","secrets":1}
+{"t":1,"e":"room_identified","cell":"Pos(x=-136, z=-200)","name":"Well","type":"NORMAL","shape":"L","secrets":7}
+{"t":1,"e":"room_identified","cell":"Pos(x=-104, z=-168)","name":"Fairy","type":"FAIRY","shape":"1x1","secrets":0}
+{"t":1,"e":"room_identified","cell":"Pos(x=-72, z=-136)","name":"Teleport Maze","type":"PUZZLE","shape":"1x1","secrets":0}
+{"t":1,"e":"room_identified","cell":"Pos(x=-104, z=-200)","name":"Well","type":"NORMAL","shape":"L","secrets":7}
+{"t":1,"e":"room_identified","cell":"Pos(x=-72, z=-168)","name":"Gold","type":"NORMAL","shape":"1x2","secrets":1}
+{"t":1,"e":"room_identified","cell":"Pos(x=-72, z=-200)","name":"Gold","type":"NORMAL","shape":"1x2","secrets":1}
+{"t":1,"e":"room_identified","cell":"Pos(x=-200, z=-72)","name":"Ice Fill","type":"PUZZLE","shape":"1x1","secrets":0}
+{"t":1,"e":"room_identified","cell":"Pos(x=-200, z=-104)","name":"Tic Tac Toe","type":"PUZZLE","shape":"1x1","secrets":1}
+{"t":1,"e":"room_identified","cell":"Pos(x=-168, z=-72)","name":"Atlas","type":"NORMAL","shape":"2x2","secrets":6}
+{"t":1,"e":"room_identified","cell":"Pos(x=-200, z=-136)","name":"Big Red Flag","type":"NORMAL","shape":"1x1","secrets":2}
+{"t":1,"e":"room_identified","cell":"Pos(x=-168, z=-104)","name":"Cathedral","type":"NORMAL","shape":"2x2","secrets":8}
+{"t":1,"e":"room_identified","cell":"Pos(x=-136, z=-72)","name":"Atlas","type":"NORMAL","shape":"2x2","secrets":6}
+{"t":1,"e":"room_identified","cell":"Pos(x=-200, z=-168)","name":"Withermancer","type":"NORMAL","shape":"L","secrets":4}
+{"t":1,"e":"room_identified","cell":"Pos(x=-168, z=-136)","name":"Cathedral","type":"NORMAL","shape":"2x2","secrets":8}
+{"t":1,"e":"room_identified","cell":"Pos(x=-136, z=-104)","name":"Cathedral","type":"NORMAL","shape":"2x2","secrets":8}
+{"t":1,"e":"room_identified","cell":"Pos(x=-104, z=-72)","name":"Slime","type":"NORMAL","shape":"1x3","secrets":5}
+{"t":1,"e":"room_identified","cell":"Pos(x=-200, z=-200)","name":"Withermancer","type":"NORMAL","shape":"L","secrets":4}
+{"t":1,"e":"room_identified","cell":"Pos(x=-168, z=-168)","name":"Withermancer","type":"NORMAL","shape":"L","secrets":4}
+{"t":1,"e":"room_identified","cell":"Pos(x=-136, z=-136)","name":"Cathedral","type":"NORMAL","shape":"2x2","secrets":8}
+{"t":1,"e":"room_identified","cell":"Pos(x=-104, z=-104)","name":"Slime","type":"NORMAL","shape":"1x3","secrets":5}
+{"t":1,"e":"room_identified","cell":"Pos(x=-72, z=-72)","name":"Chains","type":"NORMAL","shape":"1x1","secrets":2}
+{"t":20,"e":"tab_slot","slot":0,"row":"[391] p-cad01af7 ☄ (Berserk L)","parsed":"p-cad01af7","class":"Berserk","alive":true}
+{"t":20,"e":"room_discovered","type":"ENTRANCE","segments":1,"cells":"[Pos(x=-168, z=-200)]","mapPos":"Pos(x=25, z=5)","preCleared":false}
+{"t":24,"e":"room_discovered","type":"ROOM","segments":3,"cells":"[Pos(x=-168, z=-168), Pos(x=-200, z=-168), Pos(x=-200, z=-200)]","mapPos":"Pos(x=25, z=25)","preCleared":false}
+{"t":43,"e":"room_anchored","room":"Withermancer","at":24,"by":"p-cad01af7"}
+{"t":63,"e":"room_identified","cell":"Pos(x=-200, z=-40)","name":"Default","type":"CHAMPION","shape":"1x1","secrets":0}
+{"t":63,"e":"room_identified","cell":"Pos(x=-168, z=-40)","name":"Atlas","type":"NORMAL","shape":"2x2","secrets":6}
+{"t":65,"e":"room_identified","cell":"Pos(x=-136, z=-40)","name":"Atlas","type":"NORMAL","shape":"2x2","secrets":6}
+{"t":65,"e":"room_identified","cell":"Pos(x=-104, z=-40)","name":"Hall","type":"NORMAL","shape":"1x1","secrets":0}
+{"t":65,"e":"room_identified","cell":"Pos(x=-72, z=-40)","name":"New Trap","type":"TRAP","shape":"1x1","secrets":3}
+{"t":185,"e":"cleared","room":"Withermancer","type":"ROOM","checkmark":34,"ticks":"{p-cad01af7=162}","enterTick":24,"anchoredOnClear":false}
+{"t":185,"e":"award","room":"Withermancer","points":3.0,"split":"{p-cad01af7=3.0}"}
+{"t":261,"e":"room_discovered","type":"ROOM","segments":4,"cells":"[Pos(x=-168, z=-136), Pos(x=-136, z=-136), Pos(x=-168, z=-104), Pos(x=-136, z=-104)]","mapPos":"Pos(x=25, z=45)","preCleared":false}
+{"t":280,"e":"room_anchored","room":"Cathedral","at":261,"by":"p-cad01af7"}
+{"t":282,"e":"room_identified","cell":"Pos(x=-40, z=-168)","name":"Blood","type":"BLOOD","shape":"1x1","secrets":0}
+{"t":283,"e":"room_identified","cell":"Pos(x=-40, z=-136)","name":"Pipes","type":"NORMAL","shape":"1x4","secrets":7}
+{"t":284,"e":"room_identified","cell":"Pos(x=-40, z=-104)","name":"Pipes","type":"NORMAL","shape":"1x4","secrets":7}
+{"t":284,"e":"room_identified","cell":"Pos(x=-40, z=-200)","name":"Mushroom","type":"NORMAL","shape":"1x1","secrets":1}
+{"t":285,"e":"room_identified","cell":"Pos(x=-40, z=-72)","name":"Pipes","type":"NORMAL","shape":"1x4","secrets":7}
+{"t":287,"e":"room_identified","cell":"Pos(x=-40, z=-40)","name":"Pipes","type":"NORMAL","shape":"1x4","secrets":7}
+{"t":332,"e":"cleared","room":"Cathedral","type":"ROOM","checkmark":34,"ticks":"{p-cad01af7=72}","enterTick":261,"anchoredOnClear":false}
+{"t":332,"e":"award","room":"Cathedral","points":4.5,"split":"{p-cad01af7=4.5}"}
+{"t":403,"e":"room_discovered","type":"ROOM","segments":4,"cells":"[Pos(x=-136, z=-72), Pos(x=-168, z=-72), Pos(x=-136, z=-40), Pos(x=-168, z=-40)]","mapPos":"Pos(x=45, z=85)","preCleared":false}
+{"t":422,"e":"room_anchored","room":"Atlas","at":403,"by":"p-cad01af7"}
+{"t":603,"e":"cleared","room":"Atlas","type":"ROOM","checkmark":34,"ticks":"{p-cad01af7=201}","enterTick":403,"anchoredOnClear":false}
+{"t":603,"e":"award","room":"Atlas","points":4.0,"split":"{p-cad01af7=4.0}"}
+{"t":644,"e":"room_discovered","type":"MINIBOSS","segments":1,"cells":"[Pos(x=-200, z=-40)]","mapPos":"Pos(x=5, z=105)","preCleared":false}
+{"t":663,"e":"room_anchored","room":"Default","at":644,"by":"p-cad01af7"}
+{"t":694,"e":"cleared","room":"Default","type":"MINIBOSS","checkmark":30,"ticks":"{p-cad01af7=51}","enterTick":644,"anchoredOnClear":false}
+{"t":694,"e":"award","room":"Default","points":2.0,"split":"{p-cad01af7=2.0}"}
+{"t":694,"e":"all_secrets","room":"Default","afterClear":0,"expectedSecrets":0,"secretRunTicks":null}
+{"t":800,"e":"room_discovered","type":"ROOM","segments":1,"cells":"[Pos(x=-104, z=-40)]","mapPos":"Pos(x=65, z=105)","preCleared":false}
+{"t":819,"e":"room_anchored","room":"Hall","at":800,"by":"p-cad01af7"}
+{"t":844,"e":"cleared","room":"Hall","type":"ROOM","checkmark":30,"ticks":"{p-cad01af7=45}","enterTick":800,"anchoredOnClear":false}
+{"t":844,"e":"award","room":"Hall","points":1.0,"split":"{p-cad01af7=1.0}"}
+{"t":844,"e":"all_secrets","room":"Hall","afterClear":0,"expectedSecrets":0,"secretRunTicks":null}
+{"t":960,"e":"secret","room":"Atlas","found":1,"max":6,"delta":1,"mine":false,"ownTotal":0}
+{"t":960,"e":"secret_run_start","room":"Atlas","at":960,"max":6}
+{"t":980,"e":"own_interaction","type":"lever","pos":"BlockPos{x=-108, y=90, z=-39}"}
+{"t":1068,"e":"own_interaction","type":"chest","pos":"BlockPos{x=-157, y=82, z=-41}"}
+{"t":1081,"e":"secret","room":"Atlas","found":2,"max":6,"delta":1,"mine":true,"ownTotal":1}
+{"t":1141,"e":"secret","room":"Atlas","found":3,"max":6,"delta":1,"mine":false,"ownTotal":1}
+{"t":1222,"e":"own_interaction","type":"chest","pos":"BlockPos{x=-137, y=78, z=-20}"}
+{"t":1231,"e":"secret","room":"Atlas","found":4,"max":6,"delta":1,"mine":true,"ownTotal":2}
+{"t":1312,"e":"own_interaction","type":"skull","pos":"BlockPos{x=-130, y=78, z=-68}"}
+{"t":1321,"e":"secret","room":"Atlas","found":5,"max":6,"delta":1,"mine":true,"ownTotal":3}
+{"t":1386,"e":"own_interaction","type":"chest","pos":"BlockPos{x=-132, y=57, z=-57}"}
+{"t":1390,"e":"secret","room":"Atlas","found":6,"max":6,"delta":1,"mine":true,"ownTotal":4}
+{"t":1390,"e":"secret_run_done","room":"Atlas","ticks":426,"secrets":6,"own":4}
+{"t":1391,"e":"all_secrets","room":"Atlas","afterClear":788,"expectedSecrets":6,"secretRunTicks":426}
+{"t":1657,"e":"room_discovered","type":"TRAP","segments":1,"cells":"[Pos(x=-72, z=-40)]","mapPos":"Pos(x=85, z=105)","preCleared":false}
+{"t":1681,"e":"room_anchored","room":"New Trap","at":1657,"by":"p-cad01af7"}
+{"t":1773,"e":"secret","room":"New Trap","found":1,"max":3,"delta":1,"mine":false,"ownTotal":0}
+{"t":1773,"e":"secret_run_start","room":"New Trap","at":1773,"max":3}
+{"t":1805,"e":"own_interaction","type":"chest","pos":"BlockPos{x=-58, y=90, z=-36}"}
+{"t":1812,"e":"secret","room":"New Trap","found":2,"max":3,"delta":1,"mine":true,"ownTotal":1}
+{"t":1813,"e":"cleared","room":"New Trap","type":"TRAP","checkmark":34,"ticks":"{p-cad01af7=152}","enterTick":1657,"anchoredOnClear":false}
+{"t":1813,"e":"award","room":"New Trap","points":2.75,"split":"{p-cad01af7=2.75}"}
+{"t":1898,"e":"own_interaction","type":"chest","pos":"BlockPos{x=-60, y=67, z=-15}"}
+{"t":1903,"e":"all_secrets","room":"New Trap","afterClear":90,"expectedSecrets":3,"secretRunTicks":null}
+{"t":1908,"e":"secret","room":"New Trap","found":3,"max":3,"delta":1,"mine":true,"ownTotal":2}
+{"t":1908,"e":"secret_run_done","room":"New Trap","ticks":129,"secrets":3,"own":2}
+{"t":2203,"e":"room_discovered","type":"ROOM","segments":3,"cells":"[Pos(x=-104, z=-136), Pos(x=-104, z=-104), Pos(x=-104, z=-72)]","mapPos":"Pos(x=65, z=45)","preCleared":false}
+{"t":2222,"e":"room_anchored","room":"Slime","at":2203,"by":"p-cad01af7"}
+{"t":2519,"e":"cleared","room":"Slime","type":"ROOM","checkmark":34,"ticks":"{p-cad01af7=317}","enterTick":2203,"anchoredOnClear":false}
+{"t":2519,"e":"award","room":"Slime","points":3.25,"split":"{p-cad01af7=3.25}"}
+{"t":2606,"e":"secret","room":"Slime","found":1,"max":5,"delta":1,"mine":false,"ownTotal":0}
+{"t":2606,"e":"secret_run_start","room":"Slime","at":2606,"max":5}
+{"t":2709,"e":"own_interaction","type":"chest","pos":"BlockPos{x=-88, y=87, z=-107}"}
+{"t":2720,"e":"secret","room":"Slime","found":2,"max":5,"delta":1,"mine":true,"ownTotal":1}
+{"t":2764,"e":"own_interaction","type":"skull","pos":"BlockPos{x=-89, y=86, z=-116}"}
+{"t":2771,"e":"secret","room":"Slime","found":3,"max":5,"delta":1,"mine":true,"ownTotal":2}
+{"t":2791,"e":"secret","room":"Slime","found":4,"max":5,"delta":1,"mine":false,"ownTotal":2}
+{"t":2893,"e":"secret","room":"Slime","found":5,"max":5,"delta":1,"mine":false,"ownTotal":2}
+{"t":2893,"e":"secret_run_done","room":"Slime","ticks":287,"secrets":5,"own":2}
+{"t":2898,"e":"all_secrets","room":"Slime","afterClear":379,"expectedSecrets":5,"secretRunTicks":287}
+{"t":2990,"e":"room_discovered","type":"ROOM","segments":1,"cells":"[Pos(x=-72, z=-104)]","mapPos":"Pos(x=85, z=65)","preCleared":false}
+{"t":2996,"e":"cleared","room":"Duncan","type":"ROOM","checkmark":34,"ticks":"{p-cad01af7=7}","enterTick":2990,"anchoredOnClear":true}
+{"t":2996,"e":"unattributed","room":"Duncan","points":1.25,"ticks":"{p-cad01af7=7}","fallback":"{p-cad01af7=1.25}"}
+{"t":3029,"e":"room_discovered","type":"ROOM","segments":1,"cells":"[Pos(x=-72, z=-72)]","mapPos":"Pos(x=85, z=85)","preCleared":false}
+{"t":3048,"e":"room_anchored","room":"Chains","at":3029,"by":"p-cad01af7"}
+{"t":3060,"e":"cleared","room":"Chains","type":"ROOM","checkmark":34,"ticks":"{p-cad01af7=32}","enterTick":3029,"anchoredOnClear":false}
+{"t":3060,"e":"award","room":"Chains","points":1.5,"split":"{p-cad01af7=1.5}"}
+{"t":3143,"e":"own_interaction","type":"chest","pos":"BlockPos{x=-69, y=69, z=-52}"}
+{"t":3155,"e":"secret","room":"Chains","found":1,"max":2,"delta":1,"mine":true,"ownTotal":1}
+{"t":3155,"e":"secret_run_start","room":"Chains","at":3146,"max":2}
+{"t":3212,"e":"own_interaction","type":"chest","pos":"BlockPos{x=-59, y=86, z=-56}"}
+{"t":3216,"e":"secret","room":"Chains","found":2,"max":2,"delta":1,"mine":true,"ownTotal":2}
+{"t":3216,"e":"secret_run_done","room":"Chains","ticks":66,"secrets":2,"own":2}
+{"t":3222,"e":"all_secrets","room":"Chains","afterClear":162,"expectedSecrets":2,"secretRunTicks":66}
+{"t":3267,"e":"room_discovered","type":"ROOM","segments":4,"cells":"[Pos(x=-40, z=-72), Pos(x=-40, z=-104), Pos(x=-40, z=-40), Pos(x=-40, z=-136)]","mapPos":"Pos(x=105, z=85)","preCleared":false}
+{"t":3286,"e":"room_anchored","room":"Pipes","at":3267,"by":"p-cad01af7"}
+{"t":3534,"e":"cleared","room":"Pipes","type":"ROOM","checkmark":34,"ticks":"{p-cad01af7=268}","enterTick":3267,"anchoredOnClear":false}
+{"t":3534,"e":"award","room":"Pipes","points":4.25,"split":"{p-cad01af7=4.25}"}
+{"t":3609,"e":"own_interaction","type":"lever","pos":"BlockPos{x=-25, y=94, z=-84}"}
+{"t":3652,"e":"own_interaction","type":"chest","pos":"BlockPos{x=-36, y=55, z=-73}"}
+{"t":3659,"e":"secret","room":"Pipes","found":1,"max":7,"delta":1,"mine":true,"ownTotal":1}
+{"t":3659,"e":"secret_run_start","room":"Pipes","at":3652,"max":7}
+{"t":3703,"e":"own_interaction","type":"chest","pos":"BlockPos{x=-25, y=45, z=-29}"}
+{"t":3710,"e":"secret","room":"Pipes","found":2,"max":7,"delta":1,"mine":true,"ownTotal":2}
+{"t":3776,"e":"own_interaction","type":"chest","pos":"BlockPos{x=-15, y=54, z=-17}"}
+{"t":3780,"e":"secret","room":"Pipes","found":3,"max":7,"delta":1,"mine":true,"ownTotal":3}
+{"t":3820,"e":"secret","room":"Pipes","found":4,"max":7,"delta":1,"mine":false,"ownTotal":3}
+{"t":3850,"e":"own_interaction","type":"chest","pos":"BlockPos{x=-36, y=62, z=-19}"}
+{"t":3860,"e":"secret","room":"Pipes","found":5,"max":7,"delta":1,"mine":true,"ownTotal":4}
+{"t":3990,"e":"secret","room":"Pipes","found":6,"max":7,"delta":1,"mine":false,"ownTotal":4}
+{"t":4086,"e":"own_interaction","type":"chest","pos":"BlockPos{x=-13, y=42, z=-129}"}
+{"t":4090,"e":"all_secrets","room":"Pipes","afterClear":556,"expectedSecrets":7,"secretRunTicks":null}
+{"t":4091,"e":"secret","room":"Pipes","found":7,"max":7,"delta":1,"mine":true,"ownTotal":5}
+{"t":4091,"e":"secret_run_done","room":"Pipes","ticks":438,"secrets":7,"own":5}
+{"t":4261,"e":"all_secrets","room":"Duncan","afterClear":1265,"expectedSecrets":1,"secretRunTicks":null}
+{"t":4261,"e":"secret","room":"Duncan","found":1,"max":1,"delta":1,"mine":false,"ownTotal":0}
+{"t":4261,"e":"secret_run_discarded","room":"Duncan","previous":0,"found":1,"max":1}
+{"t":4373,"e":"room_discovered","type":"PUZZLE","segments":1,"cells":"[Pos(x=-72, z=-136)]","mapPos":"Pos(x=85, z=45)","preCleared":false}
+{"t":4392,"e":"room_anchored","room":"Teleport Maze","at":4373,"by":"p-cad01af7"}

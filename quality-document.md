@@ -13,9 +13,19 @@ part of the "Before You Stop" checklist in CLAUDE.md).
 - **C**: Partially working, known gaps, some code areas hard for agents to understand
 - **D**: Not working, or major structural issues
 
-One thing colours every grade below: **nothing here has run against real Hypixel data.** Loom's dev
-client cannot log in, so "tests pass" means the logic matches its own model of a dungeon, never that
-the model matches Hypixel. That is `ingame-001`, and it is why no domain that touches live data
+One thing colours every grade below, and **it changed on 2026-08-14 — read the new version, not the
+remembered one.** It used to read "nothing here has run against real Hypixel data", and that is no
+longer true. One real M7 is now committed at `docs/evidence/session-1786719912927/`, so calibration,
+room naming, core hashing and checkmark reading have been seen working against live Hypixel data, and
+the two domains that rest on them are promoted below.
+
+What has **not** changed is the ceiling on everything else. Loom's dev client still cannot log in, so
+for every path that run did not touch, "tests pass" still means the logic matches its own model of a
+dungeon rather than that the model matches Hypixel. And that run covered less than it looks like: it
+was **solo and deathless**, so the decoration→player heuristic and the roster-skew blackout were never
+exercised, no pixel of the `/sa` screen was seen, the `RED` checkmark never occurred, and every room
+was scored under `clearpoints-001`'s deleted formula. `ingame-001` is still `blocked` — on a *party*
+floor and a human opening the screen — and that is still why no domain resting on unseen live paths
 scores above B.
 
 ---
@@ -24,11 +34,11 @@ scores above B.
 
 | Domain | Grade | Verification | Agent Legibility | Test Stability | Key Gaps | Last Updated |
 |--------|-------|-------------|-----------------|---------------|----------|-------------|
-| telemetry (`RunReport`, `TelemetryUpload`, `DebugLog`) | B | `RunReportTest`, `TelemetryUploadTest`, `DebugLogTest` | High — the ceilings carry `ponytail:` notes | Stable | Retry schedule is "next game start", no backoff, no queue (`TelemetryUpload.kt:211`); nothing uploads during a run; quitting straight from a dungeon has no JOIN and loses the session (`SighteAddons.kt:54`) | 2026-08-14 |
+| telemetry (`RunReport`, `TelemetryUpload`, `DebugLog`) | B | `RunReportTest`, `TelemetryUploadTest`, `DebugLogTest` | High — the ceilings carry `ponytail:` notes, and the one below is now the *measured* cost of one | Stable | **The quit-from-dungeon gap stopped being theoretical on 2026-08-14 and cost a real run**: the M7 at `docs/evidence/session-1786719912927/` wrote no `run_end` and no report, so ten cleared rooms never reached the box. `RunReport.write` is reachable only from the end-of-run headline and from `ClientPlayConnectionEvents.JOIN` (`SighteAddons.kt:53-57`), and quitting to desktop from inside a floor produces neither. Tracked as `runloss-001`. **Stays B rather than dropping to C, and the reasoning is deliberate:** the domain works — seven runs are in `runs/uploaded/` — the failure is confined to one exit path, it was already documented at the site, and `history.jsonl` kept all 14 of that run's lines, so the loss is the report and the receiver's copy rather than the data. A C would say telemetry is partially working; it is fully working on every path but this one. Other gaps unchanged: retry schedule is "next game start", no backoff, no queue (`TelemetryUpload.kt:211`); nothing uploads during a run | 2026-08-14 |
 | scoring (`ContributionTracker`, `RoomStats`) | B | `ContributionTrackerTest` (42 cases) covers the clear anchor at the `TrackedRoom` seam, and the weighting, the blend and the unattributed accounting at the `onCleared`/`blend` seams; `RoomStatsTest` (9 cases) covers the scores file against the receiver's real document shape; `RoomDatabaseTest` (8) checks the weighting against the bundled `rooms.json` rather than a fixture; `settle` is pinned through `RunReportTest` | High — every number in the model is argued where it is made, including *why* the exponent is 0.5 rather than 1 and why `k` is 10, and the three `clearpoints-001` exclusions (rarity, live secret counts, floor multiplier) are still argued and still pinned. `blend` is pure and takes its sample and median rather than reaching for `RoomStats`, so the model is legible and testable without a file. The three resolution layers are named and numbered in `RoomStats`' KDoc, including the one that does not exist yet and why | Stable, and mutation-checked seven more times at `0d81667` on top of `clearpoints-001`'s seven: a cliff at n=5 fails 2, reading `clear` instead of `clearStay` fails 6, misspelling a seed key fails 3, dropping the clamp fails 2, reintroducing the segment and trap bonuses fails 1 and only 1, defaulting a missing sample instead of falling back to the seed fails 7, inverting the shrinkage fails 4. The suite pins `RoomStats` to the seed layer in `@BeforeEach`, so no weight depends on a file outside the repository | Nothing here has run against real Hypixel data, which is the ceiling on this domain and the reason it is not A; `ContributionTracker.tick`'s wiring is still untestable, since it needs a `Minecraft` and a `MapItemSavedData` — so *that* `onCleared` and `onPresence` are called once per clear and once per member per tick is read, not asserted; **every room is on its seed today and will be until the receiver serves the averages (`scores-fetch-001`)**, so the measured half of the model is exercised only by tests; layer 2 has never been read on a real install, because nothing writes a cache yet; the floor guard depends on reflection, so a rename of `DungeonSession.floor` breaks it at runtime rather than at compile time | 2026-08-14 |
 | history and records (`RoomHistory`, `RecordTable`) | B | `RoomHistoryTest`, `RecordTableTest` | High | Stable | Floors are collapsed into one record per room and kind (`records-001`); whole history in memory, ~40 bytes per line (`RoomHistory.kt:59`) | 2026-08-13 |
-| party (`PartyTracker`) | C | `PartyTrackerTest` | High — the assumption is stated where it is made | Stable, but it pins the heuristic rather than the truth | Decoration order is assumed to match tab order (`PartyTracker.kt:134`); two players on one decoration are not told apart (`party-001`) | 2026-08-13 |
-| room naming (`RoomDatabase`, `DungeonMapReader`, `DungeonGrid`) | C | `RoomDatabaseTest`, `DungeonGridTest` | High | Stable | Version-coupled: core hashes come from `Block.toString()` in a fixed order, so a Hypixel or Mojang change breaks names silently; a room needs a streamed chunk to be named at all | 2026-08-13 |
+| party (`PartyTracker`) | C | `PartyTrackerTest` | High — the assumption is stated where it is made | Stable, but it pins the heuristic rather than the truth | Decoration order is assumed to match tab order (`PartyTracker.kt:134`); two players on one decoration are not told apart (`party-001`). **The 2026-08-14 real M7 is not evidence for this domain and must not be read as promoting it** — that run was solo: one player in tab, `decoIndex` 0 for all 77 position events, `roster_skew` fired zero times. A single decoration cannot be mis-ordered, so the heuristic was never put under load. This domain needs a *party* floor, ideally with a death in it, which would also settle `clear-001`'s open gap-tolerance finding | 2026-08-14 |
+| room naming (`RoomDatabase`, `DungeonMapReader`, `DungeonGrid`) | **B** (was C) | `RoomDatabaseTest`, `DungeonGridTest`, **plus a real floor**: `bash docs/evidence/session-1786719912927/readout.sh` | High | Stable | **Promoted 2026-08-14 on real data, not on new code.** The one committed M7 shows calibration resolving on the first try (1 `calibrated` event, `mapEntrance Pos(x=25, z=5)`, `mapRoomSize 16`), 272 room cores loaded, and 36 `room_identified` events carrying correct Odin names, types, shapes and secret counts. Checkmark reading is evidenced in both directions: of ten clears exactly two read `GREEN` (all secrets found) and they are exactly the two cleared rooms the database gives 0 secrets. So the version coupling below is *currently* holding rather than merely assumed. Remaining gaps: it is still version-coupled — core hashes come from `Block.toString()` in a fixed order, so a Hypixel or Mojang change breaks names silently and this evidence expires the day either moves; the `RED` checkmark path has still never occurred; a room still needs a streamed chunk to be named at all. Not A because one floor is one sample and the coupling is undiagnosable from inside the mod | 2026-08-14 |
 | events (chat) | D | none — the domain does not exist yet | n/a | n/a | Secret clicks, wither doors, puzzle solvers and deaths are not read; a dead player is only seen via the tab list (`chat-001`) | 2026-08-13 |
 | UI (`SettingsScreen`, `ClearPopup`, `/sa`) | C | API use is pinned by the compiler, the record fold is unit tested | Medium | n/a | No pixel has ever been on screen — spacing and hit boxes are unverified | 2026-08-13 |
 
@@ -36,8 +46,8 @@ scores above B.
 
 | Layer | Grade | Boundary Enforcement | Agent Legibility | Key Gaps | Last Updated |
 |-------|-------|---------------------|-----------------|----------|-------------|
-| Map reading | C | Reads the map colour and the block column, never a name from chat | High | Only as correct as the real map — untestable here | 2026-08-13 |
-| Session and state (`DungeonSession`, `SighteAddons`) | B | One session object owns run state; trackers read it | High | An abrupt quit loses the session | 2026-08-13 |
+| Map reading | **B** (was C) | Reads the map colour and the block column, never a name from chat | High | **Promoted 2026-08-14 on the same evidence as room naming** — the layer is no longer "untestable here", it is *tested elsewhere*: `docs/evidence/session-1786719912927/` shows the entrance found, the grid calibrated and every checkmark read correctly on a real M7. Still only as correct as the real map, still one sample, and the `RED` checkmark path is still unseen | 2026-08-14 |
+| Session and state (`DungeonSession`, `SighteAddons`) | B | One session object owns run state; trackers read it | High | An abrupt quit loses the session — **measured on 2026-08-14, not inferred**, and tracked as `runloss-001`. `DungeonSession.reset()` and the report write both hang off `ClientPlayConnectionEvents.JOIN`, so a process that never rejoins never flushes | 2026-08-14 |
 | Persistence (`RoomHistory`, `Config`) | B | Append-only history, config separate | High | Unbounded in memory | 2026-08-13 |
 | Network (`TelemetryUpload`) | B | The URL and the schema are compiled in — deliberate, and the reason a version bump can take old installs off the air | High | A schema change is only safe in one order: receiver first, this build after | 2026-08-13 |
 | Vendored data (`rooms.json`, core hash) | A | Odin's database verbatim under BSD-3, never edited or regenerated; the notice ships in the jar | High — the rule is stated in `build.gradle` where it matters | none | 2026-08-13 |
@@ -45,6 +55,32 @@ scores above B.
 ## Change History
 
 Newest entry first.
+
+### 2026-08-14 (session 009)
+
+- Changes: `artifacts-001`, an artifact pass. **No runtime behaviour changed** — every `src/` edit is
+  comment text and the diff proves it mechanically
+  (`git diff -- src/ | grep -E '^[+-][^+-]' | grep -vE '^[+-]\s*(\*|//|/\*)'` is empty; `@Test` lines
+  touched: 0; suite unchanged at 140 in 13 classes). Committed the first real dungeon run this
+  repository has ever held, at `docs/evidence/session-1786719912927/` — an excerpt, a README, and a
+  `readout.sh` that **asserts** all 35 figures the README quotes and fails if one drifts. Retired six
+  statements that had outlived what they described. New feature recorded rather than built:
+  `runloss-001`.
+- **Domains promoted: room naming C → B, and the Map reading layer C → B.** Both on real data rather
+  than on new code: calibration, 272 core hashes, 36 correctly named rooms and ten correctly read
+  checkmarks on one live M7. Neither goes to A — one floor is one sample, and the core-hash coupling
+  to `Block.toString()` means this evidence expires the day Hypixel or Mojang moves.
+- **Domains demoted: none, and one deliberate non-demotion.** Telemetry stays B even though the
+  quit-from-dungeon gap has now destroyed a real run: the domain works on every path but that one,
+  the failure was already documented at the site, and the local history survived. Recorded with its
+  reasoning in the table so a later reader does not have to guess whether it was considered.
+- **The preamble of this document was itself one of the stale statements.** It opened "nothing here
+  has run against real Hypixel data", which stopped being true the moment the run was committed.
+  Rewritten to say what changed *and* what did not — the run was solo and deathless, so party
+  attribution, the roster-skew blackout, the `RED` checkmark and every pixel of `/sa` are exactly as
+  unverified as before.
+- Follow-up: `runloss-001` is unblocked and arguably the highest-value work on the list; `party-001`
+  and the rest of `ingame-001` both need one party floor.
 
 ### 2026-08-14 (session 008)
 
