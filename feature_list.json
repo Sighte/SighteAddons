@@ -157,16 +157,16 @@
       "area": "history",
       "title": "Records per floor, not collapsed across them",
       "user_visible_behavior": "A room that is genuinely harder on F7 than on F5 shows two records instead of one blended number.",
-      "status": "not_started",
+      "status": "blocked",
       "depends_on": [],
       "verification_command": "./gradlew test --tests 'sighteaddons.RecordTableTest' --tests 'sighteaddons.RoomHistoryTest'",
       "verification_manual": [
         "Run /sa pbs with history from more than one floor.",
         "Verify the same room can hold a separate record per floor."
       ],
-      "blocked_reason": "",
+      "blocked_reason": "DEFERRED BY THE USER, 2026-08-14, and this is a product decision rather than a technical blocker - nothing in the code is in the way. Judging every room separately per floor was called too much for a mod this size: 'es waere einfach zu viel fuer jeden floor jeden raum einzeln zu bewerten also bleiben die Raeume global erstmal'. Do not start this feature, and do not 'fix' the blended record as if it were an oversight - it is the chosen behaviour. Revisit only if the user says so.",
       "evidence": [],
-      "notes": "README 'Not implemented yet': /sa collapses floors into one record per room and kind. The data is already there — the history lines carry floor — so this is a fold and a filter, not a capture change. Watch RoomHistory.kt:59: the whole history is in memory."
+      "notes": "THE BLEND IS DELIBERATE. A room that appears on more than one floor keeps ONE record and ONE average across all of them, and a room genuinely harder on F7 than on F5 therefore reports a number that describes neither exactly. That is accepted. The receiver already behaves the same way on purpose: roomstats.py folds per room name and carries `floors` only as a list beside the averages, so keeping this deferred costs nothing on either side and needs no paired feature.\n\nREADME 'Not implemented yet': /sa collapses floors into one record per room and kind. The data is already there — the history lines carry floor — so this is a fold and a filter, not a capture change. Watch RoomHistory.kt:59: the whole history is in memory."
     },
     {
       "id": "party-001",
