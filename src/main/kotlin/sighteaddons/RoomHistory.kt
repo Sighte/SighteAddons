@@ -27,6 +27,21 @@ import java.util.Locale
  * until it turned cleared — not run-relative time, because that is what a player can influence and
  * it stays comparable across runs and floors. A [SECRETS] line is the room's secret run: first
  * secret to last, timed from the secrets themselves rather than from your arrival.
+ *
+ * **A line is written only when the work behind it was yours** — [ownClear] and [ownSecretRun] are
+ * the two gates, and they gate *whether a line is written*, never what the number in it means. That
+ * distinction is load-bearing: the file is append-only and every line already in it is still read,
+ * so a `clear` has to keep meaning the local player's total ticks in the room and a `secretrun` has
+ * to keep meaning [TrackedRoom.secretRunTicks], for old and new lines alike. Changing either
+ * measurement would make lines of one kind quietly incomparable with each other — which is the exact
+ * failure the `secrets` -> [SECRETS] rename was invented to avoid. Adding a gate cannot: a line that
+ * is not written is not a line that says something different.
+ *
+ * The consequence, accepted deliberately by the user on 2026-08-15: **records already in the file
+ * stay records.** The bogus bests written before the gates existed are not reinterpreted, rewritten
+ * or versioned away, so a room whose record was set by walking into somebody else's clear will
+ * simply never show a PB again. Rooms are cheap and there are many; a file that rewrites its own
+ * history is not.
  */
 object RoomHistory {
     private val FILE = FabricLoader.getInstance().configDir.resolve("sighteaddons/history.jsonl")
@@ -132,21 +147,31 @@ object RoomHistory {
      * A room turned cleared.
      *
      * Announces who did it and how long they were in the room. Credit goes to whoever spent the most
-     * time there — with several players present, one readable line beats one line per player.
+     * time there — with several players present, one readable line beats one line per player. The
+     * announcement is informational and is not a record: it names whoever cleared the room whether
+     * or not that was you, and [Config.ownPbsOnly] is what governs how much of it you see.
+     *
+     * The **record** is a separate decision and a much stricter one — see [ownClear].
      */
     fun onRoomCleared(room: TrackedRoom) {
         val eligible = room.ticks.filterValues { it >= ContributionTracker.MIN_TICKS }
         val (topPlayer, topTicks) = eligible.maxByOrNull { it.value } ?: return
 
-        val ownTicks = Minecraft.getInstance().player?.name?.string?.let { room.ticks[it] } ?: 0
-        // Appended first and unconditionally: the chat settings below hide the message, never the
-        // record. A silenced chat that also stopped writing history would lose runs for good.
-        val pb = if (ownTicks >= ContributionTracker.MIN_TICKS) record(room, CLEAR, ownTicks) else null
+        val self = Minecraft.getInstance().player?.name?.string
+        val ownTicks = self?.let { room.ticks[it] } ?: 0
+        val mine = ownClear(room, self, topPlayer)
+        // Appended first and unconditionally *given the gate*: the chat settings below hide the
+        // message, never the record. A silenced chat that also stopped writing history would lose
+        // runs for good. The gate is not a chat setting — it is the question of whether there is a
+        // record here at all.
+        val pb = if (mine) record(room, CLEAR, ownTicks) else null
 
-        // Same bar the history uses, so the popup shows exactly the rooms that were just recorded —
+        // Same gate the history uses, so the popup shows exactly the rooms that were just recorded —
         // and it is independent of the chat settings, being a different channel with its own switch.
+        // ClearPopup's own KDoc promises the popup can never show a room the records will not have,
+        // and that promise is kept here rather than in ClearPopup: this is where the answer is known.
         val name = room.name
-        if (name != null && ownTicks >= ContributionTracker.MIN_TICKS) {
+        if (name != null && mine) {
             ClearPopup.show(name, secrets = false, ownTicks, pb != null)
         }
 
@@ -169,17 +194,20 @@ object RoomHistory {
     /**
      * The room's secret run finished: first secret to last, from [TrackedRoom.onSecret].
      *
-     * Unlike a clear this belongs to the room, not to one player — the clock runs from the first
+     * The *measurement* belongs to the room, not to one player — the clock runs from the first
      * secret to the last no matter whose hands took them, so the line names the room instead of
-     * crediting somebody this client cannot identify. What *is* known is how many of them were
-     * yours, and that rides along.
+     * crediting somebody this client cannot identify. The **record** does not follow it: a time the
+     * party set is not a time you set, and [ownSecretRun] is what decides. The announcement stays
+     * either way, and it carries both counts, so a run somebody else did most of is still shown —
+     * it is simply not filed.
      */
     fun onSecretRun(room: TrackedRoom) {
         val name = room.name ?: return
         val ticks = room.secretRunTicks ?: return
 
-        val pb = record(room, SECRETS, ticks)
-        ClearPopup.show(name, secrets = true, ticks, pb != null)
+        val mine = ownSecretRun(room)
+        val pb = if (mine) record(room, SECRETS, ticks) else null
+        if (mine) ClearPopup.show(name, secrets = true, ticks, pb != null)
 
         if (!Config.roomMessages) return
         if (Config.ownPbsOnly && pb == null) return
@@ -197,8 +225,76 @@ object RoomHistory {
     }
 
     /**
+     * Whether the clear of [room] is the local player's to record. Both halves are required, which
+     * is the user's decision of 2026-08-15 taken at its strict end rather than either half alone.
+     *
+     * 1. **You were the member with the most ticks in the room** — the same [topPlayer] the
+     *    announcement already credits. Being present is not the same as having done the room, and
+     *    the clear line has always named one person for exactly that reason; the record now agrees
+     *    with the line instead of quietly disagreeing with it.
+     * 2. **You were there from the start and had not left** — [TrackedRoom.presentFromStart] against
+     *    [TrackedRoom.clearedAtTick]. Without this, arriving as the checkmark lands writes a ~1.5 s
+     *    time that beats every honest record for that room, permanently, because the number recorded
+     *    is your ticks in the room and one second of them is all the old bar asked for. Reported by
+     *    the user, 2026-08-15: *"wenn ich 'verspätet' in einen Raum komme der bereits von jemand
+     *    anderem gecleart wird"*.
+     *
+     * Neither implies the other. You can be top of a room you walked into late — everyone else left
+     * before you arrived — and you can be there from the first tick and be third by time.
+     *
+     * The [ContributionTracker.MIN_TICKS] floor stays as well, so the predicate is total rather than
+     * relying on the caller having filtered [topPlayer] out of an already-eligible map.
+     *
+     * A null [self] is a `false`: the local player is not resolvable, so there is nobody to record
+     * for. A null [TrackedRoom.clearedAtTick] is a `false` too — this runs from the clear path where
+     * it has just been stamped, so a null means the room did not arrive here the way it is supposed
+     * to, and guessing is the one thing an append-only file cannot afford.
+     *
+     * **A tie is unchanged and still arbitrary.** [topPlayer] is `maxByOrNull` over a `HashMap`, so
+     * two members on exactly the same tick count resolve in hash order. That is pre-existing
+     * behaviour of the announcement, it is not made worse here, and pinning it would be a second
+     * decision the user has not been asked for. Recorded rather than silently inherited.
+     */
+    internal fun ownClear(room: TrackedRoom, self: String?, topPlayer: String): Boolean {
+        if (self == null || self != topPlayer) return false
+        if ((room.ticks[self] ?: 0) < ContributionTracker.MIN_TICKS) return false
+        val at = room.clearedAtTick ?: return false
+        return room.presentFromStart(self, at)
+    }
+
+    /**
+     * Whether the finished secret run of [room] is the local player's to record: **every secret in
+     * it was yours**. The user's decision of 2026-08-15, and they were told what it costs before
+     * making it.
+     *
+     * The old code recorded the run unconditionally and announced it as a PB, so a room where a
+     * teammate took eight of ten secrets filed the party's time as a personal best — reported by the
+     * user as *"wenn ich in einen Raum komme wo jemand secrets macht, und ich nur 1 oder 2 mache
+     * bekomme ich trotzdem die PB gutgeschrieben"*. [TrackedRoom.ownSecrets] was sitting one field
+     * away from the call and was never consulted.
+     *
+     * **What this costs, stated rather than discovered later: party secret records become rare.**
+     * [TrackedRoom.ownSecrets] is counted conservatively on purpose — an own click inside
+     * [SecretTracker.OWN_WINDOW], or the wither-essence chat line, and nothing else — so a secret
+     * that was genuinely yours but that neither signal caught reads as somebody else's and sinks the
+     * whole run. That direction is deliberate: the failure mode of the loose gate is a permanent
+     * wrong record, and the failure mode of the strict one is a missing one.
+     *
+     * The `> 0` guard is not decoration. `0 == 0` would be vacuously true, and this must never be
+     * the answer for a room where nothing was ever counted.
+     */
+    internal fun ownSecretRun(room: TrackedRoom): Boolean =
+        room.secretsFound > 0 && room.ownSecrets == room.secretsFound
+
+    /**
      * Appends one line for the local player and returns the chat suffix if it beat the record.
      * [ticks] is whatever [kind] measures: time in the room for a clear, the secret run for secrets.
+     *
+     * **Never widened, never redefined.** Both callers gate on ownership before reaching here and
+     * neither changes what it passes: a clear is still the local player's total ticks in the room, a
+     * secret run is still [TrackedRoom.secretRunTicks]. The file is append-only and old lines are
+     * still folded, so the meaning of a number inside one `kind` has to hold for every line the file
+     * has ever had.
      */
     private fun record(room: TrackedRoom, kind: String, ticks: Int): Component? {
         val roomName = room.name ?: return null

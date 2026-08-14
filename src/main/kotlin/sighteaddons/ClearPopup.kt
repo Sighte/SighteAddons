@@ -11,8 +11,13 @@ import java.util.Locale
  * when you choose to; this is a single event that has to land without you looking away from the
  * fight — so it is centred, drawn at double size, and gone again within three seconds.
  *
- * Only your own rooms trigger it, on the same one-second presence bar the history uses, so the
- * popup can never show a room the records will not have.
+ * Only your own rooms trigger it, on the same ownership gate the history uses, so the popup can
+ * never show a room the records will not have. That promise is kept by the caller and not here:
+ * [RoomHistory.onRoomCleared] and [RoomHistory.onSecretRun] each call [show] under exactly the
+ * condition under which they append a line ([RoomHistory.ownClear], [RoomHistory.ownSecretRun]),
+ * because that is where the room, the roster and the local player are all in hand. The bar used to
+ * be one second of presence for a clear and nothing at all for a secret run, which is how a popup
+ * came to flash for rooms somebody else had done.
  *
  * Timed in wall-clock milliseconds rather than run ticks: the last room of a run finishes right as
  * the tick counter stops, and a popup frozen on screen from then on would be the one you remember.

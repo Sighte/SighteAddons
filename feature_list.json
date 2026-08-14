@@ -848,6 +848,24 @@
       "blocked_reason": "",
       "evidence": [],
       "notes": "MEASURED, 2026-08-15, from three real M7 party runs on 0.10.0/0.11.0. 32 chat_unparsed events, and the sample is entirely PLAYER CHAT rather than unmatched Hypixel lines - e.g. '[p-bed304e3] p-3b5d9203 p-ae727fc2 p-347caa5c: I am p-3b5d9203 p-ae727fc2 p-347caa5c. I p-ad5d88b2 p-7c278c05'. Two defects in one line.\n\n(1) The near-miss log records lines a human typed. Those can never match a dungeon pattern, so they are noise in the one place built to diagnose a pattern that stopped matching - chat-001's own recorded purpose for it.\n\n(2) Pseudonym.row is applied to free chat text, so EVERY whitespace token becomes a pseudonym - 'I am ...' reads as three player ids. That is over-redaction rather than a leak, so it is not a privacy defect; but it makes the log unreadable for the diagnosis it exists for. Note this cuts both ways and the fix must not become an under-redaction: a player sentence can contain another player's name, which is exactly what Pseudonym exists to keep out of a permanent log.\n\nSHAPE: skip lines that carry a chat prefix (a speaker before a colon) before logging a near miss, or log only lines that reached a pattern and failed. Not paired - DebugLog bodies are never parsed by the receiver (ingest.py validates the filename only)."
+    },
+    {
+      "id": "recordowner-001",
+      "priority": 18,
+      "area": "records",
+      "title": "A record is only yours when the work was yours",
+      "user_visible_behavior": "Walking into a room somebody else is already working — a secret run in progress, or a clear that lands seconds after you arrive — no longer writes a personal best for you. A secret run is recorded only when every secret in it was yours; a clear only when you were there from the start and spent more time in the room than anybody else.",
+      "status": "in_progress",
+      "depends_on": [],
+      "verification_command": "./gradlew test --tests 'sighteaddons.SecretRunTest' --tests 'sighteaddons.RoomHistoryTest' --tests 'sighteaddons.ContributionTrackerTest'",
+      "verification_manual": [
+        "Join a party floor. Walk into a room a teammate has already opened one or two secrets in, take the rest yourself, and confirm no `secretrun` PB is announced and no line is appended to history.jsonl for that room.",
+        "Walk into a room as the checkmark lands and confirm no `clear` line is written and no popup shows.",
+        "Clear a room solo from the start and confirm both the popup and the history line still appear."
+      ],
+      "blocked_reason": "",
+      "evidence": [],
+      "notes": ""
     }
   ]
 }

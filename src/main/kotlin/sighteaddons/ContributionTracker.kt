@@ -59,6 +59,101 @@ class TrackedRoom(val type: RoomType, val mapSegments: Set<Pos>, val cells: Set<
 
     private val stays = HashMap<String, Stay>()
 
+    /**
+     * The room's secret counter the **first** time this client read a trusted action bar in it, or
+     * null before any reading. Trusted means the bar's own maximum matched the room database, which
+     * is the check [SecretTracker.onActionBar] already makes before believing a count belongs to
+     * this room at all.
+     *
+     * This is the only thing that can tell "the room was untouched when I got here" from "the room
+     * was untouched as far as I have seen", and the two are not the same question.
+     * [TrackedRoom.secretsFound] starts at 0 for every room whatever its real state, because it is
+     * *this client's* observation and not the server's — so walking into a room already at 3/10
+     * gives a first reading of `previous = 0, found = 3`, which reads exactly like a party that just
+     * took three secrets in front of you. See [onSecret].
+     */
+    var firstBarFound: Int? = null
+        private set
+
+    /**
+     * What one trusted action bar reading was: whether it was this room's [first] one, the counter
+     * as it stood before it ([previous]), and whether it [rose] — i.e. whether there is a secret
+     * here to attribute at all.
+     */
+    class BarReading(val first: Boolean, val previous: Int, val rose: Boolean)
+
+    /**
+     * One trusted action bar reading of this room's secret counter. Records it as [firstBarFound] if
+     * it is the first, advances [secretsFound] if it rose, and says which of those happened.
+     *
+     * **Both jobs are in here for one reason: the order between them.** They used to be two lines at
+     * the call site with the rise test between them, and in that shape the observation is one
+     * "tidy-up" away from being skipped for the reading that matters most. A genuine `0/10` first
+     * reading is *not* a rise — it is the only reading that can ever say the room was untouched when
+     * we walked in, and it is precisely the one an early return swallows. Get that ordering wrong
+     * and every secret run in the game is silently discarded, because the first reading recorded
+     * would be the `1/10` that follows and no room would ever look clean again. Written as one
+     * function on the room, the ordering is a property of a pure method that a test can drive
+     * ([SecretRunTest]), rather than of two statements in a method that needs a live client.
+     */
+    fun readBar(found: Int): BarReading {
+        val first = observeBar(found)
+        val previous = secretsFound
+        if (found <= previous) return BarReading(first, previous, rose = false)
+        secretsFound = found
+        return BarReading(first, previous, rose = true)
+    }
+
+    /**
+     * Records the first trusted reading of this room's counter. Returns whether *this* call was that
+     * first reading, so [readBar]'s caller can log it once.
+     *
+     * Private: the only way to observe a bar is [readBar], which is what keeps the observation and
+     * the rise test in the one order that works.
+     */
+    private fun observeBar(found: Int): Boolean {
+        if (firstBarFound != null) return false
+        firstBarFound = found
+        return true
+    }
+
+    /**
+     * Whether [player] was in this room from the moment its clock started and had not left by [at].
+     *
+     * This is the question a *record* asks, and it is not the question [ticks] answers. `ticks` is a
+     * total: forty ticks in a room says nothing about whether they were the first forty or the last
+     * forty, so a player who walks in as the checkmark lands still accumulates enough of them to
+     * have their arrival timed as a clear. "From the start" is the missing half.
+     *
+     * Both halves are required and each rules out a different arrival:
+     * - `stay.start <= enteredAtTick` — the stay was already running when the room's clock started.
+     *   [enteredAtTick] is the room's own anchor, the start of the first stay that counted as work,
+     *   so this is "you were here no later than whoever started it".
+     * - `at - stay.lastSeen - 1 <= MIN_TICKS` — that same stay was still current at [at]. Only the
+     *   most recent stay per player is kept, so without this a stay that ended two minutes ago and
+     *   was never replaced would still look like it began before the anchor. The tolerance is the
+     *   one [onPresence] continues a stay with, and deliberately the same one: a stay that this
+     *   predicate calls dead while [onPresence] would still extend it would be a second, quieter
+     *   notion of "still here".
+     *
+     * A null [enteredAtTick] is a `false`, on purpose. It means either a [preCleared] room — which
+     * never reaches a clear record at all, since it was already done when we arrived — or a room
+     * where no stay reached [ContributionTracker.MIN_TICKS] and none had begun within the last
+     * [ContributionTracker.MIN_TICKS] of the clear. In that second case the presence data is too
+     * thin to say the room even had a start, let alone that somebody was there for it, and a record
+     * file that is appended to forever is the wrong place to guess. An unrecorded room costs
+     * nothing; a bogus record is permanent.
+     *
+     * Takes [at] rather than reading [DungeonSession.runTicks], the same seam [onPresence] offers
+     * and for the same reason: the decision is then drivable from a test.
+     */
+    fun presentFromStart(player: String, at: Int): Boolean {
+        val anchor = enteredAtTick ?: return false
+        val stay = stays[player] ?: return false
+        if (stay.start > anchor) return false
+        return at - stay.lastSeen - 1 <= ContributionTracker.MIN_TICKS
+    }
+
     var clearedAtTick: Int? = null
     var secretsAtTick: Int? = null
     var pointsAwarded = false
@@ -190,15 +285,30 @@ class TrackedRoom(val type: RoomType, val mapSegments: Set<Pos>, val cells: Set<
      * the room — walking in, fighting, waiting for a teammate; this measures only the part that is
      * actually raced, from the first chest, lever, essence or pickup to the last secret.
      *
-     * A run that does not start at [previous] == 0 is somebody else's leftovers, and a room with a
+     * A run that does not start on an untouched room is somebody else's leftovers, and a room with a
      * single secret has no span between its ends. Both are discarded rather than recorded as very
      * fast runs — an unrecorded room costs nothing, a bogus record is permanent.
+     *
+     * **"Untouched" is [firstBarFound] == 0, not [previous] == 0, and the difference is the whole
+     * defect this guard used to have.** [previous] is [secretsFound], which is what *this client*
+     * has observed, and it is 0 until the client has read an action bar for this room. So a player
+     * walking into a room already at 3/10 produced `previous = 0, found = 3` on the very first
+     * reading, sailed through this check, and started a run on the spot — the remaining seven
+     * secrets were then timed and announced as the room's record. That is exactly the case the
+     * "somebody else's leftovers" sentence above was written for, and it was the one case it could
+     * not see. Reported by the user, 2026-08-15: *"wenn ich 'verspätet' in einen Raum komme der
+     * bereits von jemand anderem gecleart wird"*.
+     *
+     * A null [firstBarFound] is also a discard: no trusted bar reading has ever been taken for this
+     * room, so nothing can vouch for the state it was in when we arrived. [previous] == 0 is kept
+     * alongside it rather than replaced — it is a cheap guard on a different thing (that this really
+     * is the first rise we have processed), and the two agreeing is worth more than either alone.
      */
     fun onSecret(previous: Int, found: Int, max: Int, at: Int): SecretRun {
         if (secretRunTicks != null || secretRunDiscarded) return SecretRun.IGNORED
         val started = secretRunStart
         if (started == null) {
-            if (previous != 0 || max < 2) {
+            if (previous != 0 || firstBarFound != 0 || max < 2) {
                 secretRunDiscarded = true
                 return SecretRun.DISCARDED
             }

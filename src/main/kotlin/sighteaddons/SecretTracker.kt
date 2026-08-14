@@ -159,11 +159,26 @@ object SecretTracker {
             )
             return
         }
-        if (bar.found <= room.secretsFound) return
 
-        val previous = room.secretsFound
+        // One call rather than "note the first reading, then test for a rise, then advance the
+        // counter": the order between those is load-bearing and is now the room's own business.
+        // A plain `0/10` is not a rise, and it is the only reading that can ever say the room was
+        // untouched when we walked in — see TrackedRoom.readBar.
+        val reading = room.readBar(bar.found)
+        if (reading.first) {
+            DebugLog.event(
+                "secret_room_first_bar",
+                "room" to room.label(), "found" to bar.found, "max" to bar.max,
+                // Whether a secret-run record is possible in this room at all. Logged as its own
+                // fact so a real floor says how often a room is entered clean, rather than leaving
+                // the rate of discards to be inferred from their absence.
+                "untouched" to (bar.found == 0),
+            )
+        }
+        if (!reading.rose) return
+
+        val previous = reading.previous
         val delta = bar.found - previous
-        room.secretsFound = bar.found
 
         // Two answers to "was that one yours", and the fact beats the coincidence. `chat` is Hypixel
         // naming the finder; `clicked` is the 40-tick window this mod has always used. Where chat has
@@ -220,6 +235,10 @@ object SecretTracker {
                 DebugLog.event(
                     "secret_run_discarded",
                     "room" to room.label(), "previous" to previous, "found" to bar.found, "max" to bar.max,
+                    // Which of the three discard reasons fired. Without this a late entry and a
+                    // one-secret room look identical in the log, and the late entry is the one that
+                    // used to produce a record.
+                    "firstBar" to (room.firstBarFound ?: -1),
                 )
             TrackedRoom.SecretRun.RUNNING, TrackedRoom.SecretRun.IGNORED -> Unit
         }
