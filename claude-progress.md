@@ -15,13 +15,20 @@ new session reads.
   said `build` until session 006; `init.sh` was corrected at `c4c0c56` and prints `assemble check`,
   and session 004 below records that repair. `build` belongs to the release gate in `CLAUDE.md`, where
   refreshing that jar is the whole point.
-- Baseline status (last `./init.sh` run): **PASSING** — 116 tests in 12 classes, 0 failures,
-  0 skipped, 2026-08-14, at `13c9fb5` on branch `clearpoints-001` (off `main` at `1e27b42`),
-  `mod_version=0.9.0`
+- Baseline status (last `./init.sh` run): **PASSING** — 119 tests in 12 classes, 0 failures,
+  0 skipped, 2026-08-14, at `390399b` on branch `clearpoints-001` (off `main` at `1e27b42`),
+  `mod_version=0.9.0`. The branch carries **four** commits (`13c9fb5`, `0b6373f`, `ddfddc0`,
+  `390399b`) and is **not pushed and not merged** — earlier entries saying "one commit" were wrong.
 - Last feature completed: `clearpoints-001` — rooms are weighted rather than counted
   (`ContributionTracker.weightOf`), and `unattributed` is now a **count of rooms** rather than
   `roomsCleared` minus the points handed out. No schema change and no receiver change: `RUN_KEYS`
-  carries no points field, and the field's values are unchanged.
+  carries no points field, and the field's values are unchanged. Evaluated at 12/14 (**Revise**) and
+  the two docked items are closed in session 006; it wants a fresh evaluator pass, not more work.
+- **Exclusion coverage in `weightOf`, because an artifact got this wrong once already:** rarity and
+  "secrets from the database, not `secretsFound`" are pinned by tests. **The floor is argued only**
+  and cannot be pinned here — `weightOf` takes no floor, and `DungeonSession.floor` is `private set`
+  behind `inDungeon(Minecraft)`, so a floor factor reads null under test. Do not add a test that
+  claims to catch it; it would pass either way.
 - Current highest-priority unfinished feature: `chat-001` — read the events Hypixel puts in chat.
   Its test class `ChatEventsTest` does not exist yet; creating it is part of the feature.
 - Current blocker: none for `chat-001`. `records-001` is deferred by the user (a product decision,
@@ -37,6 +44,82 @@ new session reads.
 
 Rules: insert the newest session at the TOP of this section. Never edit or delete past session
 entries — they are the audit trail. Copy the template below for each new session.
+
+### Session 006 — `clearpoints-001`: guard the two exclusions that were only argued
+
+- Date: 2026-08-14
+- Branch `clearpoints-001`, continued at `073e125`. One code commit, `390399b`, plus this artifact
+  commit. **Not pushed and not merged.** Baseline before starting: `bash init.sh` → **PASSING**, so
+  no repair was owed and the feature work could start.
+- Scope: closing an evaluation, not opening work. `evaluator-rubric.md` scored `clearpoints-001`
+  **12/14, Revise** — Correctness, Regression, Scope and Handoff all 2, Verification and
+  Maintainability 1. Only the two docked items were touched. `records-001` was left alone: it is
+  `blocked` by the user's own product decision, not by anything technical.
+- **Item 1, the substantive one — a coverage overclaim in the file a session reads first.**
+  `session-handoff.md` said all three weighting exclusions had a test. Only rarity did. The evaluator
+  proved it rather than asserting it: adding `+ room.secretsFound * SECRET_POINTS` to `weightOf` —
+  the exact edit that constant's own KDoc spends a paragraph arguing against — left **all 116 tests
+  green**. Reproduced here before writing anything, and it is now 3 red.
+  - `the live secret counter is not what a room is worth` — a room the database says holds no secrets
+    but in which 8 were found is worth exactly a plain room, and strictly less than one the database
+    says holds 8. Two assertions because there are two plausible edits: adding the live counter, and
+    substituting it for `info.secrets`. The evaluator noted the substituting form was caught only by
+    the fixtures' accident (they set `info.secrets` and leave `secretsFound` at 0); it is now caught
+    on purpose. Mutation-checked in both forms: 3 failures and 6.
+  - `the credit is the whole room even though the checkmark lands mid-collection` — drives a real
+    room through `onCleared` with 2 of 5 secrets in hand and asserts the credit is the whole room.
+    This one pins the *reason* rather than a number: `award()` fires on the checkmark while the party
+    is still collecting, so the live counter at that instant is a race against when the last mob
+    happened to drop, and the same room would be worth different amounts run to run.
+  - `a room is worth the same however far the run has got` — four rooms cleared and credited, and the
+    room's own clear progress moved, and its weight does not budge. A run-progress factor probe
+    (`(1.0 + roomsCleared * 0.1) * BASE_POINTS`) fails this and **nothing else in the suite**, which
+    is what makes it a guard rather than padding.
+- **The floor exclusion is recorded as argument-only, and that is the honest answer rather than a
+  weaker one.** `weightOf` takes no floor, and `DungeonSession.floor` is `private set` written only
+  by `inDungeon(Minecraft)`, which no test here can build — so a floor factor reads null under test
+  and falls through whatever it would do in a real run. A test claiming to catch it would be a guard
+  in name only, which is the exact failure shape this project keeps removing. Said in `weightOf`'s
+  KDoc where the argument already lives, in `feature_list.json`, and in "Current Verified State"
+  above, with the note that a real guard needs a seam on `DungeonSession` and is therefore a feature.
+- **Item 2 — the released jar's rewrite instruction, in "Current Verified State".** Line 11 still read
+  that the full verification path is `./gradlew build`. It contradicted `init.sh` (corrected at
+  `c4c0c56`), `session-handoff.md`'s "Do Not Touch", and line 97 of this same file, and a session
+  following it deletes and rewrites `dist/sighteaddons-0.9.0.jar` — the released artifact. Now
+  `./gradlew assemble check`, with the reason inline. The rest of the file was swept for the same
+  claim as asked: the only other hits are the session 004 entry recording the repair (history, left
+  alone) and `README.md`'s Build section, which is a contributor build instruction, is accurate about
+  `copyToDist`, and was left alone — the handoff's "Do Not Touch" now names it so nobody follows it
+  mid-feature.
+- **The finding behind both, acted on rather than recorded again.** `evaluator-rubric.md` is
+  overwritten wholesale each pass, so findings there have a half-life of one review; two reviewers
+  had already hand-copied open items forward, and item 2 — fixed in `init.sh`, left live here — is
+  what that costs. The four still-open items are now notes on the features they belong to in
+  `feature_list.json`, which is where `CLAUDE.md` already sends discovered work: `settle`'s KDoc
+  arguing against the old clamp rather than the symmetric threshold that was the real alternative
+  (`residue-001`); and on `clear-001`, `stay.ticks` counting sightings rather than elapsed ticks, the
+  gap tolerance calibrated against a documented 10-20 tick worst case with zero margin, and
+  `anchorOnClear`'s unknown real-floor frequency. `ingame-001` now cross-references the two of those
+  that need a real run, plus the weight constants. The rubric itself was not restructured.
+- Verification, all at `390399b`:
+  - `./gradlew test --tests 'sighteaddons.ContributionTrackerTest' --tests 'sighteaddons.RoomDatabaseTest' --rerun-tasks`
+    → `BUILD SUCCESSFUL in 7s`; `ContributionTrackerTest tests=32 failures=0` (up from 29),
+    `RoomDatabaseTest tests=6 failures=0`
+  - `./gradlew test --rerun-tasks` → **119 tests / 12 classes / 0 failures / 0 skipped**, up from 116.
+    Strictly additive: no test removed, weakened or changed, and the only `src/main` change on this
+    commit is a comment block in `weightOf`'s KDoc.
+  - `./gradlew assemble check` → `BUILD SUCCESSFUL`; `git status --short dist/ gradle.properties`
+    empty; jar md5 still `b2ebc35ccfeb9cc96134eb3b18f0306f`; `RunReport.kt:66` `SCHEMA = 5`;
+    `mod_version=0.9.0`. The release gate did not fire.
+  - `bash init.sh` → `BASELINE: PASSING`
+  - Three mutation probes, each reverted immediately from a copy taken before the edit, each with
+    `git status --short` checked afterwards: 3 failures, 6 failures, 1 failure.
+- Still unverified, unchanged: the weight constants are judgement rather than measurement;
+  `ContributionTracker.tick`'s wiring to `onCleared`/`onPresence` needs a `Minecraft` and a
+  `MapItemSavedData` and is read rather than asserted; the floor exclusion has no guard by
+  construction. Nothing here ran against real Hypixel data, and nothing in this repository can.
+- `SighteAddonServerside` was not read and not written this session — nothing here goes near the
+  wire, and the schema diff was already done and recorded on this feature.
 
 ### Session 005 — `clearpoints-001`: weight rooms, and stop measuring rooms in points
 
