@@ -241,8 +241,28 @@
       "notes": "NOT a schema change and NOT paired with the receiver. Checked against its source rather than assumed, as CLAUDE.md requires before touching anything schema-shaped: (a) RUN_KEYS (ingest.py:137) and ROOM_KEYS (ingest.py:152) carry NO per-player points field at all — the breakdown never leaves the client, so weighting is invisible to the validator; (b) `unattributed` is validated as _real(x, 0, MAX_CLEARED) with MAX_CLEARED=200 (ingest.py:167,226), the same ceiling roomsCleared is bounded by, and no 400 is reachable from either the old or the new definition; (c) the values the field carries are unchanged, so nothing routes on `v` differently and RunReport.SCHEMA stays 5.\n\nWHAT THE WEIGHTING IS: ContributionTracker.weightOf(room) = BASE_POINTS 1.0, plus a kind bonus (PUZZLE 1.5; TRAP, CHAMPION/MINIBOSS and BLOOD 1.0 each), plus 0.25 per secret the room database says the room holds, plus 0.5 per segment beyond the first. The split over the members in the room is unchanged — proportional to time, MIN_TICKS filter, raw-presence fallback — so two players in one room are still separated only by time. THREE DELIBERATE EXCLUSIONS, each of which is the obvious next edit and each of which would measure the wrong thing: RARE gets nothing, because a rare room is unusual to draw rather than harder to clear and what makes it worth entering is its secret count, already paid for; secrets come from the database and not from room.secretsFound, because award() fires on the clear checkmark while the room's secrets are usually still being collected, so the live counter would weight most rooms at whatever they were part-way through; and the floor is NOT a multiplier, though DungeonSession.floorNumber is right there and the README listed it as an input — it is constant across every room of a run, so it scales every player's total equally and separates nobody, and points are only ever compared within one run because they are not in the run report at all. Revisit only if points ever become something the server stores. An unnamed room (chunk never streamed, info null) keeps its kind from the map colour and pays no secret bonus: worth less than it should be, never nothing.\n\nEXCLUSION COVERAGE, corrected in session 006 after the 12/14 evaluation, because an artifact said these were guarded when two of the three were not. RARITY: pinned, 'a rare room is not paid for being rare'. SECRETS FROM THE DATABASE: pinned as of 390399b, by 'the live secret counter is not what a room is worth' (both the additive and the substituting edit) and by 'the credit is the whole room even though the checkmark lands mid-collection', which pins the reason rather than a number — award() fires on the checkmark while the party is still collecting, so the live counter at that instant is a race and the same room would be worth different amounts depending only on when the last mob dropped. FLOOR: PINNED as of session 007, by 'a room is worth the same on every floor'. Sessions 005 and 006 recorded the opposite — that a floor guard was impossible here because DungeonSession.floor is 'private set' behind inDungeon(Minecraft), so a floor factor would read null under test and any such test would 'pass either way'. THAT WAS FALSE, and the second evaluator disproved it by construction: DungeonSession::class.java.getDeclaredField(\"floor\") with isAccessible = true reaches the object's backing field, and floorNumber then reads the real digit. The test checks three floors (F1 vs F7 catches a factor drawn from floorNumber; F7 vs M7 catches one drawn from the floor STRING, which is how a master-mode bonus would be written and which floorNumber cannot see; Entrance is the null reading every other test runs under) and asserts BOTH the weight and the credited points, since a floor factor could be applied in weightOf or between it and the split in award. Critically it asserts that the reflective write took — assertEquals(1, DungeonSession.floorNumber) — BEFORE it asserts the invariant, which is the whole difference between a guard and a guard in name only; neutering setFloor makes the case fail with 'the floor was not actually set'. THE COST, recorded rather than hidden: this is the only reflection in the suite, so a rename of DungeonSession.floor breaks the test at runtime rather than at compile time. Accepted deliberately over the alternative the earlier sessions proposed — a production seam on DungeonSession — because that is a shape src/main does not otherwise need, added purely for a test, and it is a bigger change than the exclusion is worth. WHAT THIS COST TO MISS: under a live floor multiplier all 119 tests at 72e0825 passed. The exclusion was guarded by nothing, while three artifacts said it was unguardable.\n\nTHE LOAD-BEARING HALF, and the reason this feature is not just a formula. `unattributed` was `roomsCleared - pointsByPlayer().values.sum()`. That expression was only ever correct because a room was worth exactly 1.0 point, which made a COUNT and a SCORE numerically interchangeable. Weighted, the score routinely exceeds the room count, the subtraction goes negative, and settle()'s clamp reports 0.0 on every run forever — no exception, no 400, no log line, a field that stops saying anything while looking perfect. Same failure shape this project has spent two sessions removing elsewhere. So the count is now COUNTED, in award(), at the one place the decision is made (ContributionTracker.unattributedRooms), and it stays in ROOMS: a heavy room nobody was in is one unattributed room, not five points of one. That is not a preference — the receiver reads this field RELATIVE to roomsCleared and it is its only diagnostic for a broken decoration->player mapping (its agent/AGENT-PROMPT.md line 62), and a ratio of a score to a count means nothing at either end. WHY NO SCHEMA BUMP IS OWED: under flat weighting every award credited either the full point or nothing, so the old subtraction already produced exactly this count (give or take the float residue residue-001 removed). Same meaning, same numbers, now by construction instead of by coincidence — which is the opposite of clear-001, where the key stayed and the meaning moved.\n\nNEW SEAM: ContributionTracker.onCleared(room) is internal and does roomsCleared++ then award(room). tick() calls it. This closes the gap session 002 recorded — 'unattributed()'s composition has no test, because roomsCleared and credited are private and only a real run fills them' — since onCleared needs a cleared room and nothing else, while tick() still needs a Minecraft and a MapItemSavedData. DebugLog.event was measured to be safe under the test runtime (it resolves Config and FabricLoader without throwing), which is what makes driving award() from a test possible at all.\n\nNOT SHIPPED: no version bump, no dist/ refresh, so this reaches no install until the next release, which is the user's decision. rooms.json was read and never written."
     },
     {
-      "id": "chat-001",
+      "id": "clearpoints-002",
       "priority": 4,
+      "area": "scoring",
+      "title": "Weight a room by how long it actually takes, not by what kind it is",
+      "user_visible_behavior": "A room is worth what it costs the party: 0.75 for clearing it, plus 0.25 per secret, plus or minus however far its measured clear time sits from the average room. A slow room scores higher than a fast one without anybody deciding that a puzzle is worth 1.5.",
+      "status": "blocked",
+      "depends_on": [
+        "clearpoints-001"
+      ],
+      "verification_command": "./gradlew test --tests 'sighteaddons.ContributionTrackerTest'",
+      "verification_manual": [
+        "Compare two rooms of the same kind with very different measured averages and confirm the slower one scores higher.",
+        "Confirm a room with no measured average scores exactly the 0.75 base plus its secrets, and is not silently treated as fast.",
+        "Play a floor and confirm the point spread still separates party members the way the flat count could not."
+      ],
+      "blocked_reason": "BLOCKED ON DATA, NOT ON CODE. The model needs per-room measured clear times and they barely exist yet: /srv/sighte/roomstats.json carries 83 rooms and only 9 have any clear sample at all, every one of them n=1. Weighting off a single observation is worse than the constants it replaces. Worse, those 9 samples were folded under the OLD first-sighting anchor, which is an upper bound a walk-through inflates - the stay-anchored `clearStay` block is empty (n=0) for all 83 rooms and stays that way until a schema 5 build is RELEASED, because every installed build still sends schema 4. So the chain is: release -> runs accumulate -> averages become real -> this feature becomes implementable. Nothing in the code blocks it.",
+      "evidence": [],
+      "notes": "THE USER'S DESIGN, 2026-08-14, and it replaces clearpoints-001's formula rather than extending it: '1 Secret EGAL welcher Raum = +0.25, alle anderen Raeume haben einen Base Score von 0.75, und abhaengig davon wie schnell der durchschnittliche Spieler diesen Raum cleart (KEINE SECRETS) geht dieser Wert hoch oder auch runter.'\n\nWHAT IT DELETES: PUZZLE_BONUS, TRAP_BONUS, MINIBOSS_BONUS, BLOOD_BONUS and SEGMENT_POINTS - five hand-picked constants. They become emergent instead of declared: a puzzle scores high because puzzles measure slow, a four-segment room scores high because crossing it takes time. That is the whole point and it is a better one than the constants, because a constant is an opinion and an average is a measurement. BASE_POINTS goes 1.0 -> 0.75. SECRET_POINTS stays 0.25 and stays keyed on the room database's secret count rather than secretsFound, for the reason clearpoints-001 already has a test on: award() fires on the checkmark while secrets are still being collected.\n\nWHICH NUMBER IS 'the average player clearing it, no secrets': roomstats.json's `clearStay` block, not `clear` and not `afterClear`. clearStay is the minimum-stay anchor clear-001 ships; afterClear is explicitly the post-checkmark secret hunt and is what 'KEINE SECRETS' excludes.\n\nTHE MECHANISM IS NOT DECIDED AND IT IS THE HARD PART. The mod is client-side; the averages live on the receiver. Three options: (a) ship a snapshot of roomstats.json inside the jar, regenerated at release time; (b) fetch it from the receiver at startup; (c) derive it from the player's own history.jsonl. RECOMMENDATION (a), for a reason that decides it rather than a preference: points are compared BETWEEN party members, so two clients that fetched at different times would score the same room differently and the standings would disagree about a run both of them watched. A snapshot pinned to the jar makes the weights reproducible per version, needs no network, adds no failure mode, and is regenerated by the same release step that already exists. (c) answers a different question - it weights by how fast YOU are, not the average player.\n\nTHE CURVE IS ALSO UNDECIDED. 'goes up or down' needs a shape: a ratio against the median room, clamped at both ends so one 36-second outlier cannot make a room worth ten. Pick it from the real distribution once there is one - choosing it now would be exactly the guesswork this feature removes."
+    },
+    {
+      "id": "chat-001",
+      "priority": 5,
       "area": "events",
       "title": "Read the events Hypixel puts in chat",
       "user_visible_behavior": "Secret clicks, wither doors, puzzle solvers and deaths are attributed as they happen rather than inferred.",
@@ -259,7 +279,7 @@
     },
     {
       "id": "records-001",
-      "priority": 5,
+      "priority": 6,
       "area": "history",
       "title": "Records per floor, not collapsed across them",
       "user_visible_behavior": "A room that is genuinely harder on F7 than on F5 shows two records instead of one blended number.",
@@ -276,7 +296,7 @@
     },
     {
       "id": "party-001",
-      "priority": 6,
+      "priority": 7,
       "area": "party",
       "title": "Party sync instead of the decoration-order heuristic",
       "user_visible_behavior": "Two players standing on one decoration are told apart, and secrets are attributed per player.",
@@ -293,7 +313,7 @@
     },
     {
       "id": "ingame-001",
-      "priority": 7,
+      "priority": 8,
       "area": "verification",
       "title": "Confirm calibration, decorations, checkmarks and core hashing against real Hypixel data",
       "user_visible_behavior": "Room names, checkmarks and timing are known to be right in a real dungeon, not only in unit tests.",
@@ -311,7 +331,7 @@
     },
     {
       "id": "runend-001",
-      "priority": 8,
+      "priority": 9,
       "area": "telemetry",
       "title": "run_end carries the field the receiver's analysis agent is told to read",
       "user_visible_behavior": "An analyst opening a debug session can read `unattributed` against `roomsCleared` in one event, the way the receiver's own runbook says to.",
