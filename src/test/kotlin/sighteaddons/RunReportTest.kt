@@ -20,7 +20,10 @@ class RunReportTest {
             this.name = name
             info = RoomInfo(name, "normal", "1x2", secrets = 4, crypts = 2)
             ticks.forEach { (player, t) -> this.ticks[player] = t }
-            enteredAtTick = 120
+            // The anchor is not assignable any more — schema 5 stamps it from a qualifying stay — so
+            // the fixture earns it the way a real room does: Sighte present from tick 120 for the
+            // minimum stay. Same 120 the assertions below have always expected.
+            repeat(ContributionTracker.MIN_TICKS) { onPresence("Sighte", 120 + it) }
             clearedAtTick = 400
             secretsFound = 3
             ownSecrets = 2
@@ -47,7 +50,7 @@ class RunReportTest {
     @Test
     fun `run context survives`() {
         val json = report()
-        assertEquals(4, json["v"].asInt)
+        assertEquals(5, json["v"].asInt)
         assertEquals("M5", json["floor"].asString)
         assertEquals(2, json["partySize"].asInt)
         assertEquals(1.25, json["unattributed"].asDouble)
@@ -158,6 +161,28 @@ class RunReportTest {
         val room = report()["rooms"].asJsonArray[0].asJsonObject
         assertEquals(120, room["enterTick"].asInt)
         assertEquals(400, room["clearTick"].asInt)
+    }
+
+    /**
+     * The one thing about this pair that no other check can catch. `enterTick` changed meaning
+     * without changing shape, so a build shipping the stay anchor under `v: 4` is accepted by the
+     * receiver, logs nothing, and folds a stay-anchored span into the sighting-anchored average it
+     * was created to replace — `roomstats.py` routes on `v` alone (`STAY_ANCHOR_SCHEMA = 5`).
+     * `profiles/` is append-only, so that average could never be cleaned afterwards.
+     *
+     * Written as a floor rather than as `== 5` on purpose: a later bump is fine and must not fail
+     * here, going back below 5 while the anchor is a stay is the thing that must never compile green.
+     */
+    @Test
+    fun `the stay anchor only ships under a schema that says so`() {
+        val json = report()
+        val room = json["rooms"].asJsonArray[0].asJsonObject
+        // The fixture's anchor came from onPresence, i.e. from a stay reaching MIN_TICKS.
+        assertEquals(120, room["enterTick"].asInt)
+        assertTrue(
+            json["v"].asInt >= 5,
+            "enterTick is stay-anchored, so v must be at least roomstats.py's STAY_ANCHOR_SCHEMA (5)",
+        )
     }
 
     @Test
