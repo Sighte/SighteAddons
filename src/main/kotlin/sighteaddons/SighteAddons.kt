@@ -89,6 +89,13 @@ class SighteAddons : ClientModInitializer {
         HudElementRegistry.attachElementAfter(VanillaHudElements.OVERLAY_MESSAGE, STANDINGS) { graphics, _ ->
             renderHud(graphics)
         }
+        // Both of these do their networking on their own daemon thread and neither may delay the
+        // game reaching a menu, let alone a tick.
+        //
+        // Asks the receiver for the current room weights. Nothing waits for the answer: the first
+        // room of the first run is minutes away, and if it arrives after that anyway, the run it
+        // would have changed keeps the numbers it started with.
+        RoomStats.start()
         // Ships the previous sessions' logs while nothing is happening yet. No-op without a config.
         TelemetryUpload.start()
     }

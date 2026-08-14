@@ -59,8 +59,15 @@ object TelemetryUpload {
      * reachable from outside any more, so an older jar with the plain-HTTP URL compiled in cannot
      * upload at all: it keeps its reports queued and retries at every launch, which is the one shape
      * of this change that loses nothing.
+     *
+     * Internal rather than private because [RoomStats] fetches the room scores from the same box —
+     * one host in one constant, so a move cannot leave half the mod talking to the old address. It
+     * is the *public* base on purpose there too: `/roomstats` needs no token and serves the same
+     * aggregate document to everybody, so the private tier's URL would only decide which box an
+     * install with an `upload.properties` reads its scores from, which is not a question that file
+     * is answering.
      */
-    private const val PUBLIC_URL = "https://217.160.51.229.sslip.io"
+    internal const val PUBLIC_URL = "https://217.160.51.229.sslip.io"
     private const val PUBLIC_TOKEN = "003c2cc7060f6029a94a4219ac7d7b5a9954eaf04cf89529"
 
     /** The receiver's own caps, mirrored so a file that cannot land is never put on the wire. */
