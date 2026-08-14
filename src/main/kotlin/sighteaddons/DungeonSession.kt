@@ -46,6 +46,10 @@ object DungeonSession {
         mapEntrance = null
         mapRoomSize = 0
         SighteAddons.summaryPrinted = false
+        // The next run gets to be reported: RunReport's guard is per run, and this is where a run
+        // ends. Before `runloss-001` the JOIN site did the guarding with `summaryPrinted` alone,
+        // which could not see a report written on the way out.
+        RunReport.reset()
         ContributionTracker.reset()
         PartyTracker.reset()
         SecretTracker.reset()

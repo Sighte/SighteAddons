@@ -51,12 +51,40 @@ class SighteAddons : ClientModInitializer {
             // of a floor mid-run lands here and nowhere else — the end-of-run headline never comes, so
             // without this the rooms that *were* cleared went nowhere. write() ignores a session with
             // no rooms, which is every ordinary hub hop.
-            // ponytail: quitting the game straight from a dungeon has no JOIN and still loses the run,
-            // the same gap DebugLog's sessions have. DISCONNECT is the upgrade path and needs the
-            // player to still be resolvable there, which is exactly what makes it not a one-liner.
-            if (!summaryPrinted) RunReport.write(complete = false)
+            //
+            // No `summaryPrinted` check any more: since `runloss-001` the once-per-run guard is
+            // RunReport's own, because it now has to hold across the DISCONNECT path below as well —
+            // and `summaryPrinted` never covered the pair that path introduces. See
+            // RunReport.reported.
+            RunReport.write(complete = false)
             DungeonSession.reset()
             uploadNotice()
+        }
+        // The other way out of a floor, and the one that cost a real M7 on 2026-08-14: quitting the
+        // game, or dropping to the title screen, from inside the dungeon. There is no headline and no
+        // subsequent JOIN, so before this the run was simply gone — ten cleared rooms that never
+        // reached the box (`docs/evidence/session-1786719912927/`).
+        //
+        // `complete = false` unconditionally. A run left this way did not reach its end by
+        // definition, and the headline remains the only thing allowed to claim that it did; if the
+        // headline *had* come, the report is already written and RunReport.reported makes this a
+        // no-op.
+        //
+        // No DungeonSession.reset() here, deliberately. This callback can arrive on a Netty
+        // event-loop thread (see RunReport.uploader), and reset() tears down ContributionTracker,
+        // PartyTracker and ClearPopup — state the client thread reads every frame in renderHud. A
+        // dropped connection must not turn into a ConcurrentModificationException in the render
+        // loop. The write itself only reads, and the next JOIN resets as it always did.
+        //
+        // Wrapped, because the caller is Netty's pipeline or a shutdown sequence: an exception
+        // escaping into either is a worse outcome than a missing report, and telemetry is never a
+        // reason for the game to misbehave.
+        ClientPlayConnectionEvents.DISCONNECT.register { _, _ ->
+            try {
+                RunReport.write(complete = false)
+            } catch (e: Exception) {
+                LOGGER.error("Could not write the run report on disconnect", e)
+            }
         }
         HudElementRegistry.attachElementAfter(VanillaHudElements.OVERLAY_MESSAGE, STANDINGS) { graphics, _ ->
             renderHud(graphics)

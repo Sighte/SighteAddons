@@ -530,17 +530,68 @@
       "area": "telemetry",
       "title": "A run quit straight from the dungeon is not thrown away",
       "user_visible_behavior": "Closing the game from inside a floor still writes the run report, so the floor you just played reaches the receiver instead of vanishing.",
-      "status": "not_started",
+      "status": "passing",
       "depends_on": [],
       "verification_command": "./gradlew test --tests 'sighteaddons.RunReportTest'",
       "verification_manual": [
-        "Play a floor, then quit the game to desktop from inside the dungeon rather than warping out.",
-        "Check config/sighteaddons/runs/ for a report file newer than the debug session file.",
-        "Confirm the debug session carries a run_end event."
+        "Play a floor, then quit the game to desktop from inside the dungeon rather than warping out. Dropping to the title screen from inside the floor exercises the same path.",
+        "config/sighteaddons/runs/ holds a run-<millis>-<installId>.json newer than the debug session file, and no run-*.json.part next to it.",
+        "The debug session carries a `run_report` event with \"complete\":false as its last line. That event is the observable this feature added; `run_end` still means the end-of-run headline came, which it does not on this path, so do not look for one.",
+        "Read the report: \"complete\" is false and \"rooms\" carries the rooms that were cleared.",
+        "At the next launch the file moves to runs/uploaded/ rather than runs/rejected/ - a truncated report is a 400 and is the failure this path was built to make impossible."
       ],
       "blocked_reason": "",
-      "evidence": [],
-      "notes": "MEASURED DATA LOSS, NOT A THEORETICAL ONE. Recorded 2026-08-14 by artifacts-001, which found it while reading the first real session file rather than while looking for it; recorded rather than fixed inline, per CLAUDE.md.\n\nWHAT HAPPENED. The user played a real M7 on 2026-08-14 (docs/evidence/session-1786719912927/) and quit the game straight from the dungeon. The session file carries NO `run_end` event, no run report was written, and runs/uploaded/'s newest file predates the run by a day, so the receiver got nothing. Ten cleared rooms, permanently gone from the box. readout.sh asserts run_end = 0.\n\nTHE CAUSE IS ALREADY DOCUMENTED IN SOURCE, at the `ponytail:` note at SighteAddons.kt:53-57. RunReport.write is reachable from exactly two places: SighteAddons.kt:160, on the end-of-run chat headline, and SighteAddons.kt:57, on ClientPlayConnectionEvents.JOIN. Quitting to desktop from inside a floor produces neither — the headline never comes, and there is no subsequent JOIN because the process is gone. The note already said so; what is new is that it has now cost a real run, which is the difference between a comment and a feature.\n\nWHAT SURVIVED, and it matters for scoping the fix. history.jsonl got 14 lines from that run (9 clears, 5 secret runs), because RoomHistory appends and flushes per line as each room finishes. So the LOCAL records are intact and only the REPORT — and therefore the receiver's copy, the profiles/ fold, and every clearStay sample the run would have contributed — is lost. Anyone fixing this should not assume the local history needs rescuing.\n\nWHY IT IS NOT A ONE-LINER, quoting the existing note rather than improving on it: 'DISCONNECT is the upgrade path and needs the player to still be resolvable there, which is exactly what makes it not a one-liner.' ClientPlayConnectionEvents.DISCONNECT fires on the way out, but the report needs the player identity and the run state, and it is worth measuring rather than assuming what is still readable at that point. A Minecraft shutdown hook is the other candidate and has its own ordering problem. Whoever takes this should measure which of the two can still build a report before writing one.\n\nNOT A SCHEMA CHANGE AND NOT PAIRED. This changes WHEN RunReport.write is called, not what it writes. RunReport.SCHEMA stays 5 and no field is added, removed or retyped, so nothing is owed to the receiver and the receiver does not go first. Confirm that against RunReport.kt before starting anyway — if the fix ends up marking these reports as incomplete in a new way, that IS a field and the order applies.\n\nRELATIONSHIP TO runend-001: different features, adjacent symptoms. runend-001 adds a FIELD to the run_end event. This one is about run_end and the report NOT HAPPENING AT ALL. Fixing runend-001 does nothing for a run that never reaches either code path.\n\nPRIORITY 10 IS ITS POSITION IN THE QUEUE, NOT ITS IMPORTANCE - the same caveat scores-fetch-001 carries. It was appended rather than inserted so that no existing entry's priority had to be renumbered by a pass that was only supposed to be recording things. On merit this is arguably the highest-value UNBLOCKED work in this repository: it is the only entry on the list that is known to have destroyed real data, it needs no receiver change and no real dungeon to verify the write path, and every clearStay sample the box is waiting for has to survive this code path to arrive at all - which makes it upstream of clearpoints-002's measured half and of scores-fetch-001 being worth anything."
+      "evidence": [
+        {
+          "date": "2026-08-14",
+          "command": "./gradlew test --tests 'sighteaddons.RunReportTest'",
+          "result": "BUILD SUCCESSFUL - build/test-results/test/TEST-sighteaddons.RunReportTest.xml: tests 30, failures 0, errors 0, skipped 0 (21 before this feature)",
+          "commit": "cd26786"
+        },
+        {
+          "date": "2026-08-14",
+          "command": "./gradlew test --rerun-tasks",
+          "result": "classes 14, tests 176, skipped 0, failures 0, errors 0. Baseline at d356ff2 was 167 in the same 14 classes; the difference is exactly RunReportTest 21 -> 30. No class added, none removed, none renamed.",
+          "commit": "cd26786"
+        },
+        {
+          "date": "2026-08-14",
+          "command": "./gradlew assemble check",
+          "result": "BUILD SUCCESSFUL. dist/sighteaddons-0.9.0.jar md5 b2ebc35ccfeb9cc96134eb3b18f0306f measured before and after; `git status --short dist/ gradle.properties` empty. mod_version 0.9.0 and RunReport.SCHEMA 5 unchanged.",
+          "commit": "cd26786"
+        },
+        {
+          "date": "2026-08-14",
+          "command": "python build/keydiff.py",
+          "result": "KEYDIFF: CLEAN - four empty sets. 17 run keys and 17 room keys, identical to the receiver's RUN_KEYS|RUN_OPTIONAL and ROOM_KEYS|ROOM_OPTIONAL. Run before and after the change; no field was added, removed or retyped, so this is NOT a paired feature and the receiver does not move first. SighteAddonServerside was read and never written.",
+          "commit": "cd26786"
+        },
+        {
+          "date": "2026-08-14",
+          "command": "bash docs/evidence/session-1786719912927/readout.sh",
+          "result": "READOUT: OK - the committed evidence of the loss is untouched, including `run_end events 0`.",
+          "commit": "cd26786"
+        },
+        {
+          "date": "2026-08-14",
+          "command": "javap -p -c -cp .gradle/loom-cache/minecraftMaven/net/minecraft/minecraft-merged-043a8b3edf/26.1.2/minecraft-merged-043a8b3edf-26.1.2.jar net.minecraft.client.Minecraft",
+          "result": "destroy() calls ClientLevel.disconnect(DEFAULT_QUIT_MESSAGE) at offset 36 and disconnectWithProgressScreen() at 40; disconnect(Screen,boolean,boolean) nulls `player` at offset 184. So the level disconnect - which is what raises the Fabric event - happens BEFORE the player field is cleared. This is the measurement the feature's design rests on.",
+          "commit": "cd26786"
+        },
+        {
+          "date": "2026-08-14",
+          "command": "javap -p -c -v net.fabricmc.fabric.mixin.networking.ConnectionMixin (fabric-networking-api-v1-6.3.1+554860db4c.jar)",
+          "result": "Two @Inject sites reach AbstractNetworkAddon.handleDisconnect: HEAD of Connection.channelInactive, and the PacketListener.onDisconnect INVOKE inside Connection.handleDisconnection. handleDisconnect CASes an AtomicBoolean, so DISCONNECT fires exactly once per connection - but invokeDisconnectEvent calls the event straight from the Netty callback with no hop to the client thread. That is why the report no longer reads Minecraft.player and why the DISCONNECT site does not call DungeonSession.reset().",
+          "commit": "cd26786"
+        },
+        {
+          "date": "2026-08-14",
+          "command": "mutation probes, all restored with `git checkout` after the feature was committed",
+          "result": "Four, all caught. (A) `uploader(live, captured) = live`, i.e. the pre-feature behaviour: fails 1. (B) delete the `reported.compareAndSet(false, true)` line from queue(): fails 2. (C) `queue` returns publish()'s result without giving the claim back: fails 1. (D) publish() calls Files.writeString(dir.resolve(name), body) instead of replace(): fails 1 - and did NOT fail before the torn-temporary test was added, which is why that test exists.",
+          "commit": "cd26786"
+        }
+      ],
+      "notes": "FIXED AT cd26786, ON BRANCH runloss-001, NOT MERGED AND NOT PUSHED. The history below is kept because it is the only record of what the defect cost; what changed is at the end.\n\nMEASURED DATA LOSS, NOT A THEORETICAL ONE. Recorded 2026-08-14 by artifacts-001, which found it while reading the first real session file rather than while looking for it.\n\nWHAT HAPPENED. The user played a real M7 on 2026-08-14 (docs/evidence/session-1786719912927/) and quit the game straight from the dungeon. The session file carries NO `run_end` event, no run report was written, and runs/uploaded/'s newest file predates the run by a day, so the receiver got nothing. Ten cleared rooms, permanently gone from the box. readout.sh asserts run_end = 0.\n\nWHAT SURVIVED. history.jsonl got 14 lines from that run, because RoomHistory appends and flushes per line. The local records were intact; only the REPORT was lost.\n\nWHAT THE FIX IS. ClientPlayConnectionEvents.DISCONNECT is now a third call site for RunReport.write, alongside the end-of-run headline and JOIN. Three things had to be settled first, and the ponytail note was right that none of them was a one-liner:\n\n1. THE PLAYER IS NOT RELIABLY RESOLVABLE THERE, AND THIS IS MEASURED. Minecraft.destroy() disconnects the level before disconnectWithProgressScreen(); Connection.disconnect is channel.close().awaitUninterruptibly(); Fabric raises DISCONNECT from a HEAD inject on Connection.channelInactive with no hop to the client thread; and Netty completes the close future before firing channelInactive, so the handler races `this.player = null` from another thread. The answer was to stop asking the client: PartyTracker.localName holds the name, captured every second of the run, and it is also the name every room's tick map is keyed by - so it is the more correct source, not a fallback. RunReport.uploader carries the whole measurement in its KDoc with the javap commands to recheck it.\n\n2. A HALF-WRITTEN REPORT IS WORSE THAN NONE. The write happens a few statements before System.exit(0). A truncated run-*.json still matches TelemetryUpload.RUN, is posted at the next launch, fails check_run with a 400 and lives in rejected/ for good. Reports now go through the same .part + atomic move restamp already used; `.part` is outside the uploader's pattern by construction.\n\n3. summaryPrinted WAS NOT ENOUGH. It is only ever set by the headline, so it cannot see the pair DISCONNECT introduces: dropping to the title screen from inside a floor writes the report, and joining any server afterwards reaches JOIN with nothing having reset in between - two reports for one run. The guard moved into RunReport, is claimed before the write, given back if the write fails, and cleared by DungeonSession.reset().\n\nWHAT IS STILL NOT COVERED, AND IS NOT IMPLIED TO BE. A hard kill (task manager, SIGKILL, power loss) runs nothing at all and loses the run exactly as before. A Java-level crash that still reaches Minecraft.destroy() is covered by the same disconnect, but that is read off destroy()'s bytecode and has never been observed. A JVM shutdown hook was considered and rejected: it cannot help with SIGKILL, DISCONNECT already fires before System.exit(0) on every path that reaches destroy(), and a second writer racing the first would buy nothing that RunReport.reported does not already have to arbitrate.\n\nWHAT IS UNVERIFIED. That the Fabric event fires at all on a real quit. The dev client cannot reach Hypixel and the event cannot be raised in a unit test, so the wiring rests on the disassembly above and on nothing else. verification_manual is the procedure that turns it into a measurement, and the new `run_report` debug event is what it looks for.\n\nNOT A SCHEMA CHANGE AND NOT PAIRED, confirmed rather than assumed: build/keydiff.py reports four empty sets both directions, before and after. RunReport.SCHEMA stays 5.\n\nRELATIONSHIP TO runend-001: unchanged. runend-001 adds a FIELD to the run_end event; this was about the report not happening at all."
     },
     {
       "id": "artifacts-001",

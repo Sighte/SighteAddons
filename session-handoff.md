@@ -3,6 +3,31 @@
 Overwrite this file at the end of every session — it describes the current state only. The
 historical record lives in `claude-progress.md`.
 
+## Read this first — three things below are out of date, and the merge is why
+
+This file was written by the `scores-fetch-001` session against `main` at `d356ff2`. `main` moved twice
+under it before the merge, so the numbers in the next section describe the branch and not the tree you
+are standing in. Corrected here rather than rewritten below, so the session's own measurements stay
+readable as what they were:
+
+- **The suite is 184 across 14 classes, 0 failures, 0 skipped** — 175 from this branch plus
+  `runloss-001`'s 9, measured after the merge. The arithmetic is exact and nothing was lost.
+- **`mod_version` is 0.10.0 and `dist/` holds `sighteaddons-0.10.0.jar`**, not 0.9.0. The jar md5 quoted
+  below (`b2ebc35c…`) is the *0.9.0* artifact and is now historical; `dist/` was legitimately rewritten
+  by the release gate, which is the one place `./gradlew build` is correct.
+- **0.10.0 is released** — tagged `v0.10.0`, published on GitHub and on Modrinth, all three copies
+  verified byte-identical by `sha1` and `cmp`. So installs now send **schema 5**, and `clearStay` on the
+  receiver can start filling for the first time. Every published room score is still exactly its seed
+  until runs from 0.10.0 arrive.
+- **`runloss-001` landed** (PR #41): a run quit from inside a dungeon is written on `DISCONNECT` instead
+  of being lost. Its one unobserved link is whether Fabric raises that event on a real Hypixel quit.
+
+One correction that outlives this merge: this file, `feature_list.json` and three others say
+`RoomStats.start()` cannot be observed because the dev client cannot log in. **That is wrong** —
+`start()` fires from `onInitializeClient`, before the main menu, with no server connection involved, so
+`./gradlew runClient` left at the title screen closes four of the entry's five manual steps. Only the
+fifth needs a dungeon.
+
 ## Verified Now
 
 - What is currently working: the build and the unit suite. **175 tests across 14 classes, 0 failures,
