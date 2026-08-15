@@ -61,6 +61,38 @@ scores above B.
 
 Newest entry first.
 
+### 2026-08-15 (session 017) — 0.12.0 released; no grade moved, and that is the point
+
+- Changes: **none to any source file.** This session ran the release gate only. `recordowner-001`
+  merged to `main` as `9aebd6d` (PR #48, zero conflicts), `mod_version` 0.11.0 -> 0.12.0, `dist/`
+  swapped to `sighteaddons-0.12.0.jar` (sha256
+  `378bec73a535c22ce52bfb5449ec0803242d5b773f1001c55af57c98e0f08c0b`), tag `v0.12.0`, GitHub release
+  published, and **Modrinth version `diMDvw5I` uploaded and verified** — the uploaded file's sha1
+  matched the local jar, so all three places serve the same bytes. Suite unchanged at 212 in 15.
+- **No schema change and no receiver change.** `RunReport.SCHEMA` stays 5, `RunReport.kt` is absent
+  from the release diff, `Sighte/skyblock-server` untouched. The release notes state this explicitly
+  under `## Not in the jar`, the one heading the Modrinth workflow strips, so the operator line stays
+  off a player's page.
+- **Domains promoted: none, deliberately, and the reason is worth stating because shipping is the
+  moment it is tempting.** Releasing a build changes who runs it, not what has been observed. Every
+  ceiling in the rows above is intact: neither of `recordowner-001`'s gates has run in a game, probes
+  S and T still measure that nothing in the suite guards the four wiring lines, and `history and
+  records` stays **B** for exactly the two reasons it was given — the unobserved wiring and the
+  measured cost of the strict gate. A jar on Modrinth is distribution, not evidence.
+- **What shipping did change is the exposure, and that belongs on the record.** The strict secret
+  gate now depends on the mod reading a trusted `0/N` action bar on entry. If Hypixel does not
+  deliver one for a room the mod has identified, secret records do not become rare — they stop
+  entirely, in players' installs rather than in a test. `secret_room_first_bar` and `firstBar` ship
+  in this build's debug log precisely so the first real floor answers that from data. Until such a
+  log is read, the `history and records` row's key gap is live rather than hypothetical.
+- One figure was corrected in the act of writing the notes rather than transcribed: the aggregate
+  "12 of 87 / 13.8%" quoted in the rows above is computed over a directory the user is still
+  appending to and moved 80 -> 87 -> 90 -> 91 within minutes (evaluator follow-up 2). The notes quote
+  the **frozen** committed floor instead — `docs/evidence/session-1786719912927/`, four of five
+  completed secret runs no longer record, recomputed from the excerpt. The rows above keep the
+  aggregate and it should be replaced with the frozen figure or the command the next time this table
+  is edited.
+
 ### 2026-08-15 (session 014)
 
 - Changes: `floorloss-001`. The floor is kept for the life of a run instead of being cleared by the
