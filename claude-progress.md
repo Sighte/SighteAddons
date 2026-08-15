@@ -9,6 +9,26 @@ new session reads.
 this section was written from were merged and the numbers it quotes describe neither tree. Corrected
 here rather than rewritten below, so each session's own measurements stay readable as what they were:
 
+- **`main` is at `8431597`** and this session's work is on branch `recordowner-001` off it. The
+  `floorloss-001` branch named at the top of the previous handoff was merged (#45), 0.11.0 was cut
+  and released (#46), and the chat-log findings landed (#47). Every "off `ec12a27`, not merged" line
+  below is the branch point speaking and is history now.
+- **`mod_version` is 0.11.0, `dist/` holds `sighteaddons-0.11.0.jar`** (md5
+  `e8cd7099034dd3475dbc8069be3c433e`). Every `0.9.0` and `0.10.0` filename below is a previous
+  artifact.
+- **Baseline: PASSING at 193 tests in 15 classes** on `main` at `8431597`, and **211 in the same 15**
+  on `recordowner-001` at `9a00325`. No class was added or removed by this session.
+- **Last feature completed: `recordowner-001` — a record is only yours when the work was yours.**
+  Three defects of one shape, two of them reported by the user: a secret run was recorded whatever
+  share of it was yours; a run *started* on a room already half-finished, because the "somebody
+  else's leftovers" guard read `room.secretsFound`, which is this client's own counter and is 0 until
+  a bar has been read; and a clear was recorded on one second of presence, so arriving as the
+  checkmark landed set a permanent ~1.5 s record. Both gates are pure predicates and ten mutation
+  probes measure that they can fail. **No schema change** — `RunReport.kt` is not touched by the
+  branch at all and `python build/keydiff.py` is CLEAN. **`history.jsonl` is not touched and no line
+  is reinterpreted**, so the bogus bests already in it stay records; that is the user's decision.
+  **Not merged, not pushed.**
+
 - **`main` is at `ec12a27`** — `runloss-001` (#41), `scores-fetch-001` (#43) and the `floorloss-001`
   diagnosis (#44) all merged. Every "off `d356ff2`, not merged" line below is the branch point
   speaking and is history now.
@@ -238,6 +258,91 @@ here rather than rewritten below, so each session's own measurements stay readab
 
 Rules: insert the newest session at the TOP of this section. Never edit or delete past session
 entries — they are the audit trail. Copy the template below for each new session.
+
+### Session 015 — `recordowner-001`: a record is only yours when the work was yours
+
+- Date: 2026-08-15
+- Branch `recordowner-001`, off `main` at `8431597`. **Not pushed and not merged.** For the commit
+  count run `git rev-list --count 8431597..HEAD` rather than reading one here.
+- Baseline at session start: `bash init.sh` → **BASELINE: PASSING**, 15 classes, 193 tests, 0
+  failures, 0 skipped, `mod_version=0.11.0`, `dist/sighteaddons-0.11.0.jar` md5
+  `e8cd7099034dd3475dbc8069be3c433e`. Re-run at the end: PASSING, 15 classes, 211 tests.
+- **The repository was on `main`, not on `floorloss-001` as the handoff's first paragraph said.**
+  That branch had been merged and 0.11.0 released since it was written. `git log --oneline -5` is
+  what settled it, which is why the delegation said to trust it over the prose.
+- **The feature did not exist in `feature_list.json` and was added by this session**, at priority 18,
+  the highest in use plus one. It came from two defects the user reported in German, both quoted
+  verbatim in the entry and in the KDoc of each gate.
+- **All three defects were confirmed in source before a line was written**, as delegated:
+  `RoomHistory.onSecretRun` called `record(room, SECRETS, ticks)` unconditionally with
+  `room.ownSecrets` one field away; `TrackedRoom.onSecret` tested `previous != 0` where `previous` is
+  `room.secretsFound`, this client's observation, 0 for every room until a bar has been read;
+  `RoomHistory.onRoomCleared` wrote a clear line on `ownTicks >= MIN_TICKS`, twenty ticks.
+- **THE PART THE DIAGNOSIS DID NOT NAME, AND IT IS THE ONE THAT MATTERED MOST.**
+  `SecretTracker.onActionBar` returns early on a non-rise, so a genuine `0/10` first reading never
+  reaches `onSecret`. That is not merely an obstacle to the fix — it is a trap *inside* it. A `0/10`
+  is the only reading that can ever say the room was untouched when we walked in. Observe it after
+  the rise test and the first reading on record becomes the `1/10` that follows, no room ever looks
+  clean, and **every secret run in the game is silently discarded** — strictly worse than the defect
+  being fixed. As two statements at a call site that ordering was unguardable, because
+  `onActionBar` needs a live client. So the observation, the rise test and the counter advance are
+  now one function on the room, `TrackedRoom.readBar`, returning a `BarReading(first, previous,
+  rose)`. The ordering became a property of a pure method a test can call. **Probe C — the
+  reordering, done exactly the way a tidy-up would do it — fails 5 tests, three of which predate this
+  feature.**
+- **The gates, which are the user's four decisions and were not re-litigated:**
+  `RoomHistory.ownSecretRun` is `ownSecrets == secretsFound` with a `secretsFound > 0` guard so
+  `0 == 0` is not a vacuous yes; `RoomHistory.ownClear` is "you are `topPlayer`" **and**
+  `TrackedRoom.presentFromStart`, both halves, neither implying the other.
+  `TrackedRoom.firstBarFound` is the first trusted bar reading and a run may start only from a room
+  that read 0. `ClearPopup.show` follows the same gate at both call sites, which is what makes its
+  KDoc's promise true again rather than left to rot.
+- **What was NOT changed, and it is the sharp constraint.** Because old lines stay and are still
+  folded, neither metric was redefined: a `clear` still carries `room.ticks[self]` and a `secretrun`
+  still carries `room.secretRunTicks`. Everything added gates *whether a line is written*, never what
+  the number in it means. `record()` itself is untouched and both callers hand it exactly what they
+  handed it before.
+- **`enteredAtTick == null` means no record, decided rather than inherited.** It is null for a
+  `preCleared` room (which cannot reach `onRoomCleared` anyway, so that half is belt and braces) and
+  for a room where nothing qualified — where the presence data cannot say the room even had a start.
+  An unrecorded room costs nothing; a bogus record is permanent.
+- **ONE MEASUREMENT THAT CHANGED THE WORK, and it is why the probes are worth running.** Probe H —
+  delete the `self != topPlayer` half of `ownClear` — **passed all 211 tests** on the first commit of
+  this feature (`5b670ca`). The case meant to guard that half used a fixture in which the local
+  player had *also* left the room, so `presentFromStart` refused it and the top-player check was
+  never under test: a guard in name only, the same shape `clearpoints-001`'s floor exclusion was
+  caught in twice. Rebuilt at `9a00325` so both members arrive on the same tick and are both still
+  present at the clear, differing only in tick totals, and the case now asserts `presentFromStart` is
+  **true for both** before asserting the gate refuses — so it cannot degrade back into testing the
+  other half. The failing probe run is kept in the evidence deliberately.
+- **All ten probes caught at `9a00325`**: A (the late-entry guard removed) 3, B (the fix done wrong,
+  `firstBarFound == null`) 2, C (observation after the rise test) 5, D (first reading overwritten) 2,
+  E (`ownSecrets > 0`, the softening the user refused) 1, F (the vacuous `0 == 0`) 1, G
+  (`presentFromStart` dropped) 2, H (`topPlayer` dropped) 1, I (staleness dropped) 1, J (null anchor
+  answers `true`) 1. Re-create from `build/recordprobe.py`, drive with `bash build/runprobes.sh`.
+- **No schema change, checked mechanically rather than asserted.** `git diff --name-only main` does
+  not list `RunReport.kt`; `python build/keydiff.py` is CLEAN at 17 run keys and 17 room keys with all
+  four set differences empty; `RunReport.SCHEMA` still 5. `SighteAddonServerside` was **read**
+  (`ingest.py`, for the key sets) and **never written**. `rooms.json` untouched.
+- **`build/keydiff.py` had been lost to a clean and was re-created, and the re-creation was wrong
+  twice.** It read only `addProperty` and so missed the two `JsonArray` fields `rooms` and `classes`;
+  widened to `.add(` it then counted `classes.add("${it.livingClass} …")` — an array *element* — as a
+  field. Both were caught by the output disagreeing with the 17/17 the previous session recorded,
+  which is the only reason that number was worth writing down. Anchored on `obj.add` it reproduces
+  it.
+- `mod_version` and `dist/` untouched: jar md5 `e8cd7099034dd3475dbc8069be3c433e` measured either
+  side of `./gradlew assemble check`, and `git status --short dist/ gradle.properties` empty. The
+  release gate did not fire.
+- **Test counts, additive and measured**: `SecretRunTest` 6 → 11, `RoomHistoryTest` 5 → 12,
+  `ContributionTrackerTest` 48 → 54; suite 193 → 211 in the same 15 classes. `git diff main` deletes
+  zero lines from two of the three test files; in `SecretRunTest` the only deletion is the one-line
+  `room()` helper, which now calls `readBar(0)` — the room walked into clean, which is what all six
+  existing cases already meant. Their assertions are unchanged.
+- **The ceiling, stated rather than implied: neither gate has run in a game.** The predicates are
+  driven directly; the four wiring lines that call them need a live `Minecraft` and the dev client
+  cannot log in. What a real floor would show, and what would falsify it, is written in the entry's
+  notes — the two new debug fields (`secret_room_first_bar`, and `firstBar` on
+  `secret_run_discarded`) exist so the log answers it instead of inference.
 
 ### Session 014 — `floorloss-001`: the check that asks destroyed the answer
 
