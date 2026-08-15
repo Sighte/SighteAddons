@@ -90,6 +90,11 @@ object PartyTracker {
         val rows = connection.onlinePlayers
             .sortedWith(PlayerTabOverlayAccessor.getOrdering())
             .map { it.tabListDisplayName?.string?.trim() }
+        // The five party rows below are five entries of roughly eighty. The rest of the list carries
+        // the floor's own totals, and the sort — not the parsing — is the expensive part, so the one
+        // reader that wants the whole list is handed the list this one already built rather than
+        // sorting it a second time each second. See DungeonTab for what it takes out of it.
+        DungeonTab.observe(rows)
         for (i in players.indices) {
             val previous = players[i]
             val match = rows.getOrNull(1 + i * 4)?.let { TAB.matchEntire(it) }

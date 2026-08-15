@@ -76,6 +76,7 @@ object DungeonSession {
         ContributionTracker.reset()
         PartyTracker.reset()
         SecretTracker.reset()
+        DungeonTab.reset()
         ClearPopup.reset()
     }
 
