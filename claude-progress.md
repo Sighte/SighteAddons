@@ -9,6 +9,18 @@ new session reads.
 this section was written from were merged and the numbers it quotes describe neither tree. Corrected
 here rather than rewritten below, so each session's own measurements stay readable as what they were:
 
+- **Session 016 supersedes two things session 015 wrote, and they are the reason a revision pass
+  happened at all.** (a) The cost of the strict secret gate is **12 of 87 completed secret runs
+  kept, 13.8%, and 2 of 23 on single-member sessions** — not "party secret records become rare";
+  measured with `python build/ownsecrets.py` over the real logs, and the cause is attribution rather
+  than shared work. The gate ships as written: the user was shown the numbers and reaffirmed it. The
+  weakness is `ownsecrets-001`, `not_started`. (b) **There are fifteen real session logs on this
+  machine, not one.** Several are party floors with deaths and revives, and three were already
+  analysed on `main` at `dc8d504`. Every "the one real run is solo and deathless" line below is
+  superseded by that.
+- **Baseline: PASSING at 212 tests in 15 classes** on `recordowner-001`. The mutation sweep is 21
+  probes (`bash build/runprobes.sh`, prints `SWEEP OK`), not the ten session 015 recorded.
+
 - **`main` is at `8431597`** and this session's work is on branch `recordowner-001` off it. The
   `floorloss-001` branch named at the top of the previous handoff was merged (#45), 0.11.0 was cut
   and released (#46), and the chat-log findings landed (#47). Every "off `ec12a27`, not merged" line
@@ -258,6 +270,85 @@ here rather than rewritten below, so each session's own measurements stay readab
 
 Rules: insert the newest session at the TOP of this section. Never edit or delete past session
 entries — they are the audit trail. Copy the template below for each new session.
+
+### Session 016 — `recordowner-001` revision: the cost was an adjective, and a second guard held nothing
+
+- Date: 2026-08-15
+- Branch `recordowner-001`, unchanged, off `main` at `8431597`. **Not pushed and not merged.** For
+  the commit count run `git rev-list --count 8431597..HEAD`. This is a revision pass on the same
+  feature, not a new one; the feature stays `passing`, which the evaluator argued for explicitly.
+- Baseline: `bash init.sh` → **BASELINE: PASSING** at start and end. Suite **211 → 212** in the same
+  15 classes, 0 failures, 0 skipped.
+- **A fresh evaluator graded the feature REVISE, 11/14** (Correctness 2, Verification 1, Regression
+  2, Scope 2, Reliability 2, Maintainability 1, Handoff 1). Its pass is committed verbatim at
+  `e5cf586` — by this session, unedited, because it was sitting uncommitted in the working tree and
+  would otherwise have been lost. **It reproduced every recorded number and all ten probes to the
+  failing test name.** Nothing was broken; two things were cheaply knowable and not known.
+- **THE COST OF THE STRICT SECRET GATE WAS WRONG IN EVERY ARTIFACT, AND IT IS THE FINDING THAT
+  MATTERS MOST because a release is written from these files.** Session 015 wrote it as "party secret
+  records become rare". Re-derived here rather than copied, with `python build/ownsecrets.py`, which
+  replays `ownSecretRun` over the `secret_run_done` events — that event has always carried exactly
+  the two numbers the gate compares, so it is a replay and not a reimplementation. **Of 87 completed
+  secret runs across the fifteen real logs, 12 survive — 13.8%.** By roster: **2 of 23 on
+  single-member sessions**, 10 of 64 on party sessions. On the committed floor, four of five go and
+  only `Chains 2/2` stays. **So the cause is attribution, not shared work**: on a solo floor every
+  secret was the local player's by construction, and one solo log carries `Big Red Flag 0/2` — a
+  room the player emptied alone and was credited with none of. The 87 is confirmed three ways with
+  zero unparseable lines.
+- **The gate does not move.** The user was shown these numbers and was offered the majority rule
+  `ownSecrets * 2 >= secretsFound` (which keeps four of the committed floor's five). They reaffirmed
+  `ownSecrets == secretsFound` and asked for it to ship as written. Not weakened, no escape hatch,
+  not made configurable. The underlying weakness is recorded as **`ownsecrets-001`, `not_started`** —
+  discovered work recorded rather than fixed inline, which is the operating loop's rule.
+- **A SECOND GUARD IN NAME ONLY, IN THE SAME PREDICATE, AND THE SWEEP THAT SHOULD HAVE FOUND IT.**
+  The evaluator's probe K — delete the `MIN_TICKS` floor from `ownClear` — passed all 211 tests.
+  **Reproduced here rather than transcribed**: `git checkout 4e2db23 -- RoomHistory.kt
+  RoomHistoryTest.kt`, apply probe K, `./gradlew test --rerun-tasks` → BUILD SUCCESSFUL, 211 tests,
+  0 failures. The case carrying the name gave the local player `min - 1` ticks from tick 1000 and
+  asked about 1080, so `presentFromStart`'s staleness half refused it 61 ticks out and the floor was
+  never under test, while the KDoc called the predicate "total". Same species as probe H, which
+  session 015 found and wrote up and then did not sweep for.
+- **Fixed as a property, not as one case.** The shape that genuinely reaches the floor is the fast
+  clear — a room anchored by `anchorOnClear` where six ticks of presence satisfy `presentFromStart`,
+  which is `Duncan` on the one real M7 (entered 2990, cleared 2996). Without the floor that room
+  writes a 0.3 s clear: defect C by another route. The new case asserts every *other* condition says
+  yes before asserting the gate says no. A second new case records why no fixture built from
+  `onRoomCleared` could ever reach it — `eligible` is filtered before `topPlayer` is taken from it —
+  so the honest half of the old totality claim is measured instead of asserted.
+- **THE SWEEP IS NOW A SWEEP: 21 probes, one per condition in every gate**, up from ten hand-picked.
+  `ownClear`'s conditions are one per line, because a compound condition cannot be probed alone. Each
+  probe declares whether it expects to be caught, and `bash build/runprobes.sh` prints `SWEEP OK`
+  only when every one meets its expectation — so a guard that rots and a ceiling that lifts are
+  equally visible. **18 caught; 3 expected-uncaught, each with its reason in the script**: `Q`
+  (`max < 2` alone) is redundant with `if (found >= max)` three lines below and is pre-existing; `S`
+  and `T` mutate the two wiring lines and are the feature's declared ceiling, now measured on every
+  run rather than asserted once.
+- **The handoff said there was one real session file. There are fifteen.** Counted in the directory
+  the handoff itself names, and they carry 30 `death`, 15 `revive`, 104 `roster_skew` and 49
+  `chat_secret` events — while `main`'s own `dc8d504` had already analysed three of them. That claim
+  had `Next Best Step` asking the user to play a party floor with a death for data partly already on
+  disk. Corrected. **A trap for anyone globbing for them**: the repository's own
+  `config/sighteaddons/debug/` holds ~145 files written by `./gradlew test` and contains no dungeon.
+- **One thing those logs already settle**, which session 015 listed as unobservable:
+  `session-1786567867893.jsonl` line 85, `t=137`, is
+  `{"e":"secret_room_mismatch","room":"Slime","barMax":7,"expected":5,"barFound":0}` — a real Hypixel
+  action bar reporting **zero** secrets. The room's max mismatched so it was not a *trusted* reading,
+  but it is direct evidence that Hypixel sends `0/N` at all, which is the assumption the whole
+  secret-run half rests on. What remains unobserved is narrower: a `0/N` on a bar whose max matches
+  the database, plus the four wiring lines.
+- **`onSecretRun`'s KDoc over-claimed on one path and is now qualified.** "The announcement stays
+  either way" is true on the defaults and false with `Config.ownPbsOnly` on, where a refused run has
+  a null `pb` and the line is suppressed. `ownPbsOnly` defaults to `false`.
+- **The quality table's *current* `scoring` row was the stale copy, and session 015 dated it.** It
+  read `RoomStatsTest` (9 cases) against an actual 17 and claimed layer 2 had never been read
+  "because nothing writes a cache yet", untrue since `scores-fetch-001` merged — while the accurate
+  row sat in the superseded block below. Promoted, with the reason recorded in the row so the next
+  session does not repeat the mistake.
+- **No behaviour changed in this revision** except `ownClear`'s conditions moving onto separate
+  lines, which is identical logic. `RunReport.kt` still absent from the branch diff, `SCHEMA` still
+  5, `keydiff` CLEAN, jar md5 `e8cd7099034dd3475dbc8069be3c433e` identical either side of
+  `assemble check`, `mod_version` and `dist/` untouched, `SighteAddonServerside` read and never
+  written, `evaluator-rubric.md` committed verbatim and not edited.
 
 ### Session 015 — `recordowner-001`: a record is only yours when the work was yours
 

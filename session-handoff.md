@@ -9,37 +9,47 @@ historical record lives in `claude-progress.md`.
   commits it carries, run `git rev-list --count 8431597..HEAD` and `git log --oneline 8431597..HEAD`
   for what each is. **Do not write the number into an artifact** — hand-transcribed counts have been
   found wrong three times, which is why it is derived.
-- **The suite is 211 across 15 classes, 0 failures, 0 skipped.** The branch point `8431597` carries
-  193 in the same 15; the difference is `SecretRunTest` 6 → 11, `RoomHistoryTest` 5 → 12,
-  `ContributionTrackerTest` 48 → 54. No class was added or removed, nothing renamed or weakened.
+- **The suite is 212 across 15 classes, 0 failures, 0 skipped.** The branch point `8431597` carries
+  193 in the same 15; the difference is `SecretRunTest` 6 → 11, `RoomHistoryTest` 5 → 13,
+  `ContributionTrackerTest` 48 → 54. No class was added or removed, nothing renamed or weakened. One
+  case was *replaced* in the revision pass — `the presence floor is enforced by the gate itself`,
+  whose fixture never reached the floor — by a stronger one plus a second new case; see the entry.
 - `mod_version` is **0.11.0** and `dist/sighteaddons-0.11.0.jar` is untouched — md5
   `e8cd7099034dd3475dbc8069be3c433e`, measured before and after `assemble check`.
   `RunReport.SCHEMA` still 5, and **`RunReport.kt` is not touched by this branch at all**.
-- What verification actually ran (exact commands), all at `9a00325` unless stated:
+- What verification actually ran (exact commands), all at `cc94b8e` unless stated:
   - `./gradlew test --tests 'sighteaddons.SecretRunTest' --tests 'sighteaddons.RoomHistoryTest'
-    --tests 'sighteaddons.ContributionTrackerTest' --rerun-tasks` → PASS. 11 / 12 / 54, 0 failures.
-    This is `recordowner-001`'s `verification_command`.
-  - `./gradlew test --rerun-tasks` → `classes 15, tests 211, skipped 0, failures 0, errors 0`
+    --tests 'sighteaddons.ContributionTrackerTest' --rerun-tasks` → PASS. 11 / 13 / 54, 0 failures.
+    This is `recordowner-001`'s `verification_command`, unchanged in text across both passes.
+  - `./gradlew test --rerun-tasks` → `classes 15, tests 212, skipped 0, failures 0, errors 0`
   - `./gradlew assemble check` → `BUILD SUCCESSFUL`, jar md5 identical either side, and
     `git status --short dist/ gradle.properties` empty
-  - `bash init.sh` → `BASELINE: PASSING` (at session start on `8431597`, 193 tests, and again at the
-    end on `9a00325`, 211)
+  - `bash init.sh` → `BASELINE: PASSING` (at session start on `8431597`, 193 tests; at the end of
+    the implementing pass on `9a00325`, 211; and at the end of the revision pass on `cc94b8e`, 212)
   - **The paired-feature check, mechanically.** `python build/keydiff.py` → `KEYDIFF: CLEAN`, four
     empty sets both directions, 17 run keys and 17 room keys, `SCHEMA` 5. `SighteAddonServerside`
     was **read** (`ingest.py`) and **never written**.
-  - **Ten mutation probes, all caught**, all restored with `git checkout` after the feature was
-    committed. Re-create from `build/recordprobe.py`, drive all ten with `bash build/runprobes.sh`.
-    A (drop `|| firstBarFound != 0`, the defect verbatim) fails 3. B (`firstBarFound == null`, the
-    fix done wrong) fails 2. C (observe the bar after the rise test) fails 5. D (first reading
-    overwritten) fails 2. E (`ownSecrets > 0`) fails 1. F (drop `secretsFound > 0`) fails 1.
-    G (drop `presentFromStart`) fails 2. H (drop `self != topPlayer`) fails 1. I (drop the staleness
-    half) fails 1. J (null anchor answers `true`) fails 1.
+  - **The mutation sweep: 21 probes, `bash build/runprobes.sh` → `SWEEP OK`.** One per condition
+    in every gate this feature added, deleted or inverted independently, each declaring whether it
+    expects to be caught. **18 caught. 3 expected-uncaught, and each declares why in the script so a
+    silent pass is impossible**: `Q` (`max < 2` alone) is redundant with `if (found >= max)` three
+    lines below it and is pre-existing; `S` and `T` mutate `onRoomCleared` and `onSecretRun` to
+    ignore their own gates and are this feature's declared ceiling. `SWEEP OK` prints only when
+    every probe meets its expectation, so a guard that rots and a ceiling that lifts are equally
+    visible. Re-create from `build/recordprobe.py`; `python build/recordprobe.py --list` prints the
+    roster. `git status --porcelain src/` is empty after all 21 restores.
+  - **The cost of the strict secret gate, measured**: `python build/ownsecrets.py` → 15 real session
+    logs, **87 completed secret runs, 12 kept (13.8%)**, 2 of 23 on single-member sessions, 10 of 64
+    on party sessions. Reads only.
 
 ## Changed This Session
 
-`recordowner-001` — **a record is only yours when the work was yours.** The feature did not exist in
-`feature_list.json`; it was added by this session at priority 18 out of two defects the user reported
-in German, both quoted verbatim in the entry. A third of the same shape was found while reading them.
+`recordowner-001` — **a record is only yours when the work was yours**, plus a revision pass
+answering the first evaluator grading (REVISE, 11/14, committed verbatim at `e5cf586`). The feature
+did not exist in `feature_list.json`; it was added at priority 18 out of two defects the user
+reported in German, both quoted verbatim in the entry. A third of the same shape was found while
+reading them. **The evaluator reproduced every number and all ten of the original probes**; the
+revision answers the two things it found that the implementing session had not.
 
 - **A secret run is recorded only when every secret in it was yours.** `RoomHistory.ownSecretRun` is
   `ownSecrets == secretsFound`, with a `secretsFound > 0` guard so `0 == 0` is not a vacuous yes.
@@ -58,6 +68,23 @@ in German, both quoted verbatim in the entry. A third of the same shape was foun
 - **`ClearPopup.show` follows the same gate at both call sites**, so its KDoc's promise is true again.
 - **No report field, no schema change**, verified with the key diff rather than assumed.
 
+The revision pass, and none of it changes behaviour except `ownClear`'s conditions moving onto
+separate lines (identical logic):
+
+- **The cost of the strict secret gate was wrong in every artifact and is now measured.** "Party
+  secret records become rare" → **12 of 87 completed secret runs kept, 13.8%, and 2 of 23 on
+  single-member sessions**. Solo is hit as hard as party, so the cause is **attribution, not shared
+  work** — one solo log carries `Big Red Flag 0/2`. **The gate does not move**: the user was shown
+  these numbers, was offered the majority rule `ownSecrets * 2 >= secretsFound`, and reaffirmed the
+  strict rule. The weakness underneath is **`ownsecrets-001`, `not_started`**.
+- **The `MIN_TICKS` floor in `ownClear` was a guard in name only** — deleting it passed all 211
+  tests, reproduced here rather than transcribed. Now isolated by a fixture built on the fast-clear
+  shape (`anchorOnClear`, six ticks of presence, `Duncan` on the real M7), with a second case
+  recording why no fixture built from `onRoomCleared` could ever have reached it.
+- **The sweep went from ten hand-picked probes to 21, one per condition in every gate.**
+- **`onSecretRun`'s KDoc no longer claims the announcement always stays** — it does not with
+  `Config.ownPbsOnly` on, which defaults to `false`.
+
 ## Broken Or Unverified
 
 - **Unverified, and it is this feature's ceiling: neither gate has run in a game.** The predicates
@@ -72,6 +99,12 @@ in German, both quoted verbatim in the entry. A third of the same shape was foun
   before. **What would falsify it:** `secret_room_first_bar` never appearing, or always carrying
   `untouched=false` even for rooms entered clean — either would mean the strict gate has closed the
   door on every record rather than on the wrong ones.
+- **The strict secret gate keeps ~1 record in 7 that the old code did, and that is the intended
+  behaviour rather than a defect.** `ownSecrets == secretsFound` is the user's decision, reaffirmed
+  after being shown the measurement. What is genuinely open is the attribution gap underneath it —
+  `ownsecrets-001`, `not_started` — whose first task needs no dungeon: the `secret` events in the
+  fifteen logs carry `attributedBy` and `mine`, so the ratio of unattributed rises with no
+  `own_interaction` near them is measurable from disk today.
 - **A tie in `topPlayer` is arbitrary and was left that way.** `maxByOrNull` over a `HashMap`, so two
   members on exactly the same tick count resolve in hash order and the record follows the chat line
   wherever that lands. Pre-existing, not made worse, and pinning it is a decision the user has not
@@ -93,35 +126,47 @@ in German, both quoted verbatim in the entry. A third of the same shape was foun
   `party-001` should be closed rather than carried**); the wiring of `positions()`; that Hypixel
   actually sends `chat-001`'s strings; the party half of everything (the one real run is solo and
   deathless, so `clear-001`'s zero-margin gap tolerance is open and the death path has never been
-  exercised); the `RED` checkmark path and every pixel of the `/sa` screen; the three write paths of
-  `floorloss-001`; and the cross-repo reading that `unattributed` is only ever consumed as a ratio
-  against `roomsCleared`.
+  exercised **by any analysis so far — but see the fifteen logs below, which contain party floors
+  with deaths and may well close it without anybody playing**); the `RED` checkmark path and every
+  pixel of the `/sa` screen; the three write paths of `floorloss-001`; and the cross-repo reading
+  that `unattributed` is only ever consumed as a ratio against `roomsCleared`.
 - Regressions found: none. `./gradlew test --rerun-tasks` ran over everything. `git diff main`
-  deletes zero lines from `ContributionTrackerTest` and `RoomHistoryTest`; in `SecretRunTest` the only
-  deletion is the one-line `room()` helper, which now calls `readBar(0)` — the room walked into
-  clean, which is what all six existing cases already meant, and their assertions are unchanged.
+  deletes zero lines from `ContributionTrackerTest`; in `SecretRunTest` the only deletion is the
+  one-line `room()` helper, which now calls `readBar(0)` — the room walked into clean, which is what
+  all six existing cases already meant, and their assertions are unchanged. **In `RoomHistoryTest`
+  the revision pass replaced one case**, `the presence floor is enforced by the gate itself`, whose
+  fixture was refused by a different half of the gate and so never tested the floor it named. Its
+  replacement is strictly stronger — it asserts three preconditions the old one never established —
+  and a second case was added alongside it. Nothing was removed to make anything pass.
 - Risk for the next session: **ten features exist in source only.** 0.11.0 is released and carries
   none of `recordowner-001`. Nothing breaks meanwhile; nothing reaches a player either.
 
 ## Next Best Step
 
-- **First, a fresh evaluator pass on `recordowner-001`.** It claims `passing` on two gates no real
-  client has executed. The argument is that the decisions and the defects are both entirely on the
-  testable side of the seam — pure predicates on `TrackedRoom` and `RoomHistory`, ten probes
-  measuring that the cases can fail, and the unobserved wiring named as unobserved rather than folded
-  into the grade (history and records deliberately stayed B, and its row now says the earlier B was
-  over-generous). Re-run: the `verification_command`, the whole suite (expect 211 in 15),
-  `assemble check` with the jar md5 either side, `python build/keydiff.py`, and
-  `bash build/runprobes.sh`. **The evaluator must not be the session that implemented it.**
+- **A second evaluator pass on `recordowner-001`**, answering the first (REVISE, 11/14, at
+  `e5cf586`). Its two findings are addressed and both were **reproduced rather than transcribed**:
+  the cost figure was re-derived independently, and probe K was re-run against `4e2db23` to confirm
+  it really did pass 211 tests. Re-run: the `verification_command`, the whole suite (expect **212**
+  in 15), `assemble check` with the jar md5 either side, `python build/keydiff.py`,
+  `bash build/runprobes.sh` (expect **`SWEEP OK`**, 18 caught and 3 expected-uncaught), and
+  `python build/ownsecrets.py`. **The evaluator must not be the session that implemented it.**
 - **Then the branch needs the user's decision, not another feature.** `recordowner-001` is off
   `8431597` and is not merged.
-- **If the user offers a run, the ask has grown and it is now the highest-value input on the board by
-  a wide margin: a PARTY floor with at least one death, in which somebody else opens a secret in a
-  room before you do, and in which you walk into one room as its checkmark lands.** That single floor
-  would move `recordowner-001`'s whole unobserved half, `party-001`, `deconame-001`, `clear-001`'s
-  last open note, the rest of `ingame-001` and all three of `chat-001`'s unverified halves at once.
-  A solo floor still verifies `floorloss-001`'s three write paths and `runloss-001` end to end if it
-  is quit from inside.
+- **MINE THE FIFTEEN LOGS BEFORE ASKING THE USER TO PLAY ANYTHING.** This section used to ask for a
+  party floor with a death as the highest-value input on the board; **several are already on disk**
+  and three were analysed on `main` at `dc8d504`. Across them: 30 `death`, 15 `revive`, 104
+  `roster_skew`, 49 `chat_secret`, 6 `puzzle_solved`, 11 `run_report`. Candidates they may settle
+  without a client: `clear-001`'s zero-margin gap tolerance (the `roster_skew` blackout width is
+  observable), `deconame-001` (whether `MapDecoration.name()` ever carries anything), the death path
+  of `party-001` and `chat-001`, and `ownsecrets-001`'s first task. `python build/ownsecrets.py` is
+  the worked example of how to replay a decision against them.
+- **What a live client is still genuinely needed for, and it is narrower than it was**: a `0/N`
+  action bar on a room whose max *matches* the database (a real `barFound: 0` exists at
+  `session-1786567867893.jsonl:85` but on a mismatched room, so it proves Hypixel sends `0/N`
+  without proving the trusted path); the four wiring lines (probes S and T); `floorloss-001`'s three
+  write paths; `RoomStats.start()`; and every pixel of `/sa`. A floor played with a teammate opening
+  a secret before you, and one room walked into as its checkmark lands, closes
+  `recordowner-001`'s half of that.
 - **`floorname-001` is the cheapest entry on the board** and its decision is already argued in the
   entry: map `Entrance` → `E` on this side, which needs no receiver change and no pairing.
 - **Then `runend-001`.** Cheap, and its open question is already answered: write the run-level count,
@@ -143,11 +188,22 @@ in German, both quoted verbatim in the entry. A third of the same shape was foun
   fails 5, three of them pre-existing.
 - **`TrackedRoom.observeBar` must stay private and must stay once-only.** `readBar` is the only way
   in. Measured: probe D.
-- **`RoomHistory.ownClear` needs both halves.** `self == topPlayer` and `presentFromStart`. Neither
-  implies the other and each was probed separately (H and G). The fixture for the top-player half
-  asserts `presentFromStart` is **true for both members** before asserting the gate refuses — that
-  assertion is what stops the case degrading into a test of the other half, which is exactly what it
-  did on the first commit, where probe H passed all 211 tests.
+- **`RoomHistory.ownClear`'s five conditions stay five separate lines**, and every one of them is
+  swept. A compound condition is a condition that cannot be probed alone, and this predicate has
+  already produced **two** guards in name only — `self != topPlayer` (probe H) and the `MIN_TICKS`
+  floor (probe K), each of which passed the entire suite while a test name and a KDoc claimed
+  otherwise. Both fixtures now assert that every *other* condition says yes before asserting the gate
+  says no; that assertion is the whole difference between a guard and a guard in name only.
+- **The `MIN_TICKS` floor in `ownClear` stays even though `onRoomCleared` cannot reach it.** The
+  caller filters `eligible` before taking `topPlayer` from it, so `self == topPlayer` implies the
+  floor there — but the predicate is `internal` and directly callable, and the fast-clear shape
+  (`anchorOnClear`, six ticks, `Duncan`) reaches it. Without the floor that room writes a 0.3 s
+  record. Do not "simplify" it away on the grounds that the caller covers it; the KDoc says both
+  halves of that and a test holds each.
+- **`ownSecrets == secretsFound` must not be softened, made configurable, or given an escape hatch.**
+  The user was shown the measured cost — 12 of 87 records kept — was offered the majority rule
+  `ownSecrets * 2 >= secretsFound`, and reaffirmed the strict rule twice. The right response to the
+  cost is `ownsecrets-001`, which fixes the number the gate reads, not the comparison.
 - **`RoomHistory.ownSecretRun` keeps its `secretsFound > 0` guard.** `0 == 0` is true and must never
   be the answer. Measured: probe F.
 - **`TrackedRoom.presentFromStart`'s staleness check uses the same tolerance `onPresence` continues a
@@ -206,12 +262,14 @@ in German, both quoted verbatim in the entry. A third of the same shape was foun
 
 ## Environment Quirks
 
-- **`build/` is gitignored, so scripts written there do not survive a clean.** This session's are
-  `build/recordprobe.py` (the ten mutation probes), `build/runprobes.sh` (drives all ten and reports
-  which tests each fails), `build/keydiff.py` (the `RunReport` ↔ `ingest.py` key diff, re-created
-  this session), `build/edit_features_record.py` (a byte-safe `feature_list.json` writer that asserts
-  its round trip before writing), `build/quality.py` and `build/progress.py`. Re-create rather than
-  hunt for them.
+- **`build/` is gitignored, so scripts written there do not survive a clean.** The ones that matter:
+  `build/recordprobe.py` (the 21-probe sweep; `--list` prints the roster and each probe's declared
+  expectation), `build/runprobes.sh` (drives the sweep, prints `SWEEP OK`), `build/ownsecrets.py`
+  (replays `ownSecretRun` over the real logs — reads only, writes nothing), `build/keydiff.py` (the
+  `RunReport` ↔ `ingest.py` key diff), `build/edit_features_record.py` (a byte-safe
+  `feature_list.json` writer that asserts its round trip before writing). Re-create rather than hunt
+  for them. **This is five sessions old as a complaint and is the evaluator's carried follow-up 6**:
+  either give probe scripts a tracked home or stop recording them as re-runnable evidence.
 - **`build/keydiff.py` must anchor on `obj.add` / `obj.addProperty`, not on either alone.**
   `addProperty` alone misses `rooms` and `classes`, which are `JsonArray`s added with `add`; a bare
   `.add(` then matches `classes.add("${it.livingClass} …")`, which is an array *element*, not a
@@ -265,10 +323,20 @@ in German, both quoted verbatim in the entry. A third of the same shape was foun
   `.gradle/loom-cache/minecraftMaven/net/minecraft/minecraft-merged-043a8b3edf/26.1.2/minecraft-merged-043a8b3edf-26.1.2.jar`.
 - **`gh api repos/<owner>/<repo>/contents/<path> --jq .content | base64 -d` is the way to read a
   cited mod's source.** **`gh search code` is rate limited to 10 requests per minute.**
-- **The real session file lives outside this repository** and only an excerpt is committed. The
-  original is at
-  `%APPDATA%\PrismLauncher\instances\Skyblock 26.1.2 Modpack\minecraft\config\sighteaddons\debug\session-1786719912927.jsonl`.
-  Treat it as read-only.
+- **THERE ARE FIFTEEN REAL SESSION LOGS ON THIS MACHINE, NOT ONE.** This entry said "there is
+  exactly one in the repository" until 2026-08-15 and that misdirected `Next Best Step` into asking
+  the user for data already on disk. They are at
+  `%APPDATA%\PrismLauncher\instances\Skyblock 26.1.2 Modpack\minecraft\config\sighteaddons\debug\session-*.jsonl`,
+  **read-only**, and `docs/evidence/session-1786719912927/session-excerpt.jsonl` is a committed
+  excerpt of one of them. Several are party floors: 30 `death`, 15 `revive`, 104 `roster_skew`, 49
+  `chat_secret`, 6 `puzzle_solved`, 11 `run_report` across the set, and `main`'s `dc8d504` already
+  analysed three for `chat-001`.
+- **The event key is `e`, not `event`**, and a roster size is best taken from the distinct
+  `tab_slot.parsed` names in a session. `build/ownsecrets.py` is the worked example of replaying a
+  decision against these files.
+- **Do not glob the repository's own `config/sighteaddons/debug/` for real data.** It holds ~145
+  files written by `./gradlew test` and contains no dungeon at all. It is gitignored and it will
+  drown a measurement in test noise.
 - **`*.jsonl` is pinned to LF in `.gitattributes`.**
 - **Windows Python cannot execute `./gradlew`** — `WinError 193`. Drive Gradle from bash.
 - **Windows Python resolves `/tmp/x` as `C:\tmp\x`**, Git Bash resolves it elsewhere. Use `/c/tmp/...`
@@ -307,10 +375,13 @@ in German, both quoted verbatim in the entry. A third of the same shape was foun
   `copyToDist` step that rewrites the released jar
 - `recordowner-001`: `./gradlew test --tests 'sighteaddons.SecretRunTest'
   --tests 'sighteaddons.RoomHistoryTest' --tests 'sighteaddons.ContributionTrackerTest'`
-- Mutation probes for this feature: `bash build/runprobes.sh` (or
-  `python build/recordprobe.py <A..J>`, then `./gradlew test --rerun-tasks`, then
-  `git checkout src/main/kotlin/sighteaddons/ContributionTracker.kt
-  src/main/kotlin/sighteaddons/RoomHistory.kt`)
+- The mutation sweep for this feature: `bash build/runprobes.sh` — expect `SWEEP OK`, 18 caught
+  and 3 expected-uncaught. `python build/recordprobe.py --list` prints the 21 probes and each one's
+  declared expectation; to drive one by hand, `python build/recordprobe.py <id>`, then
+  `./gradlew test --rerun-tasks`, then `git checkout
+  src/main/kotlin/sighteaddons/ContributionTracker.kt src/main/kotlin/sighteaddons/RoomHistory.kt`
+- The measured cost of the strict secret gate: `python build/ownsecrets.py` — replays
+  `ownSecretRun` over the fifteen real session logs. Reads only, writes nothing.
 - `floorloss-001`: `./gradlew test --tests 'sighteaddons.DungeonSessionTest'
   --tests 'sighteaddons.RunReportTest'`
 - `scores-fetch-001`: `./gradlew test --tests 'sighteaddons.RoomStatsTest'`
