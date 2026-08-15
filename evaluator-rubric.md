@@ -15,141 +15,126 @@ read the recorded evidence.
 
 ---
 
-**Evaluated:** `scores-fetch-001` — "Fetch the measured room scores instead of waiting for somebody
-to drop the file in".
-**Branch:** `scores-fetch-001` at `1509835`, code at `74e6859`, off `main` at `d356ff2`. Not pushed,
-not merged. For the commit count run `git rev-list --count d356ff2..1509835` — deliberately not
-transcribed, and that discipline has now held across six features.
-**Evaluated on:** 2026-08-14/15, by a session that implemented none of this work, in a detached
-worktree at `1509835` (`git worktree add --detach ../fetch-wt 1509835`), per the handoff's own
-recipe. This is the **first** grading of `scores-fetch-001`.
+**Evaluated:** `recordowner-001` — "A record is only yours when the work was yours".
+**Branch:** `recordowner-001` at `4e2db23`, code at `9a00325`, off `main` at `8431597`. Not pushed,
+not merged. For the commit count run `git rev-list --count 8431597..4e2db23` — deliberately not
+transcribed, and that discipline has now held across seven features.
+**Evaluated on:** 2026-08-15, by a session that implemented none of this work, in the main checkout
+(tree clean, no other session running, per the delegation). This is the **first** grading of
+`recordowner-001`.
 
-**What is being graded is layer 1 of a three-layer resolution** — fetched → cached → seeds — whose
-one real path, a game actually starting, the session records as never observed. So the pass attacked
-the two things that decides: whether failure really is the ordinary case it is claimed to be, and
-whether "unobserved" is the same as "unobservable". **On the first, it holds on every shape I could
-build, including one the suite does not have. On the second, it does not** — see finding 1, which is
-the most useful thing in this document.
+**Every number the entry records reproduced, and all ten of its mutation probes reproduced to the
+exact failing test name.** The implementation matches the user's four decisions of 2026-08-15
+literally, including the one that is easiest to violate quietly — neither metric moved, `record()`
+is untouched and both callers hand it exactly what they handed it before.
+
+**Two things this pass found that the session did not, and they are why the verdict is not Accept:**
+
+1. **The cost of decision 1 is measurable today, from a file committed in this repository, and it is
+   not what the artifacts say it is.** Every artifact states the cost as "party secret records become
+   rare". Replayed against `docs/evidence/session-1786719912927/session-excerpt.jsonl` — the one real
+   floor in this repository, **solo and deathless** — `ownSecretRun` drops **4 of that floor's 5
+   secret-run records**. See finding 1. This does not make the code wrong; it makes the sentence the
+   user consented to wrong, and a release is queued behind this verdict.
+2. **A second guard-in-name-only survived, in the same predicate as probe H.** Deleting the
+   `MIN_TICKS` floor from `ownClear` fails **zero** of the 211 tests, and the test whose name claims
+   to cover it (`the presence floor is enforced by the gate itself`) is refused by a different half
+   of the gate. See finding 2. The session found this species once, wrote it up as the measurement
+   that changed the work, and did not sweep for the rest of it.
 
 ### Commands re-run, and what they actually printed
 
 | Command | Result |
 | --- | --- |
-| `bash init.sh` (cold, fresh detached worktree) | `==> BASELINE: PASSING`, exit 0 |
-| `./gradlew test --tests 'sighteaddons.RoomStatsTest'` (the feature's own `verification_command`, verbatim) | `BUILD SUCCESSFUL`. **`RoomStatsTest` 17 tests, 0 failures, 0 errors, 0 skipped**, from `build/test-results/test/TEST-sighteaddons.RoomStatsTest.xml`. Matches the recorded 17 |
-| Whole suite, summing `build/test-results/test/TEST-*.xml` | **`classes 14 tests 175 failures 0 errors 0 skipped 0`.** Matches. Per class: ChatEvents 11, ContributionTracker 48, DebugLog 2, DungeonGrid 4, PartyTracker 14, Pseudonym 8, RecordTable 9, RoomDatabase 8, RoomHistory 5, **RoomStats 17**, RunReport 21, SecretRun 6, SecretTracker 8, TelemetryUpload 14 |
-| `./gradlew assemble check`; `md5sum dist/*.jar` before and after | `BUILD SUCCESSFUL`; md5 **`b2ebc35ccfeb9cc96134eb3b18f0306f` identical both sides**; `git status --short dist/ gradle.properties` **empty**; `mod_version=0.9.0`; `RunReport.kt:66 SCHEMA = 5` |
-| `git diff d356ff2..1509835 -- src/main/kotlin/sighteaddons/RunReport.kt \| wc -l` | **`0`.** `RunReport.kt`, `rooms.json`, `dist/` and `gradle.properties` are absent from the branch. Files touched: `claude-progress.md`, `feature_list.json`, `quality-document.md`, `session-handoff.md`, `RoomStats.kt`, `SighteAddons.kt`, `TelemetryUpload.kt`, `RoomStatsTest.kt` — **eight, and no others** |
-| Key diff, **rebuilt from scratch** as `build/keydiff_eval.py` rather than re-created from the session's | `run written 17, known 17`; `room written 17, known 17`; **four empty sets, both directions, both objects**; `SCHEMA in source: 5`. **And the regex correction verified rather than the conclusion**: my script prints what a comma-less pattern would additionally have swept in, and it is exactly `${it.livingClass} ${it.livingLevel}` — `classes.add(...)` at `RunReport.kt:254`, a `JsonArray` **value**, not a key. The correction is right, and it was a script bug rather than a real 18th field |
-| Live contract, from outside the box | `GET /roomstats` → **`200`, `107362` bytes, 0.20 s**, `Etag: "1061f09569a719d98820e421664c9afe"` — **the exact tag in the recorded evidence**. `If-None-Match` with it → **`304`**; with a bogus tag → `200`. `/roomstats.json`, `/roomstats/`, `/roomstats?v=1` and `POST /roomstats` → **`404`, all four**. `HEAD` → **`501`**. Every clause of the recorded contract reproduced |
-| **Probe A** — `if (resolved != null) return false` → `if (false) return false` in `adopt` | **fails exactly 1**: `a fetch that arrives after the session resolved is cached and not adopted` |
-| **Probe B** — `replace(dir.resolve(FILE_NAME), body)` → `Files.writeString(...)` in `store` | **fails exactly 1**: `a torn write never becomes the cache` |
-| **Probe C** — `if (!Files.isRegularFile(dir.resolve(FILE_NAME))) {` → `if (false) {` in `cachedEtag` | **fails exactly 1**: `an ETag with no document behind it is never sent` |
-| **Probe D** — the `scores == null -> Fetched.Failed("unreadable document")` branch → `Fetched.Fresh(body!!, null, RoomScores.NONE)` | **fails exactly 1**: `every way the fetch can fail keeps the last cache and throws nothing` |
-| **Probe E** — `if (etag != null) header("If-None-Match", etag)` → `if (false) ...` | **fails exactly 1**: `an unchanged document is a 304 and the cache is left exactly as it was` |
-| Probe hygiene | Anchors were **rebuilt from the source I read, not copied from the evidence**. `build/probe_eval.py` refuses to write unless the anchor matches **exactly once**, re-reads the file to confirm the mutation landed, and reports the EOL census; every probe printed `APPLIED … anchor matched exactly once … CRLF 493 bare-LF 0`, and `git diff --numstat` showed `1 1` each time before the tests ran. `git status --porcelain src/` **empty** after all five `git checkout` restores. **No probe silently failed to apply** |
-| Deletion / loosening check | `git diff d356ff2..1509835 -- src/test/ \| grep -E '^-[^-]'` returns **one line, and it is a KDoc line** (`* Layer 2 of [RoomStats]: the cached scores file on disk.`). **`0`** `@Test` lines removed, **`0`** assertion lines removed anywhere under `src/`. `@Test` count in `RoomStatsTest` `9` → `17`, derived from `git show d356ff2:` rather than from the record |
+| `bash init.sh` | `==> BASELINE: PASSING`, exit 0 |
+| `./gradlew test --tests 'sighteaddons.SecretRunTest' --tests 'sighteaddons.RoomHistoryTest' --tests 'sighteaddons.ContributionTrackerTest' --rerun-tasks` (the feature's own `verification_command`, verbatim) | `BUILD SUCCESSFUL in 8s`. **SecretRunTest 11 / RoomHistoryTest 12 / ContributionTrackerTest 54, 0 failures, 0 errors, 0 skipped**, read from `build/test-results/test/TEST-*.xml`. Matches the record exactly |
+| `./gradlew test --rerun-tasks`, summing `build/test-results/test/TEST-*.xml` | **`classes 15 tests 211 failures 0 errors 0 skipped 0`.** Per class: ChatEvents 11, ContributionTracker 54, DebugLog 2, DungeonGrid 4, DungeonSession 7, PartyTracker 14, Pseudonym 8, RecordTable 9, RoomDatabase 8, RoomHistory 12, RoomStats 17, RunReport 32, SecretRun 11, SecretTracker 8, TelemetryUpload 14 |
+| Branch-point count, **derived rather than transcribed**: `git show main:<file> \| grep -c '@Test'` over all 15 test files | `main` at `8431597` sums to **193** in the same 15 classes. The delta is **exactly** `SecretRunTest` 6→11, `RoomHistoryTest` 5→12, `ContributionTrackerTest` 48→54. No class added, none removed, none renamed |
+| `md5sum dist/*.jar; ./gradlew assemble check; md5sum dist/*.jar` | `BUILD SUCCESSFUL in 5s`; md5 **`e8cd7099034dd3475dbc8069be3c433e` identical both sides**; `git status --short dist/ gradle.properties` **empty**; `mod_version=0.11.0`; `RunReport.kt:67 SCHEMA = 5`. `./gradlew build` was **not** run |
+| `python build/keydiff.py` | `SCHEMA 5`, `run keys written 17`, `room keys written 17`, **four empty sets, both directions, both objects**, `KEYDIFF: CLEAN`. I read the script: it parses `RUN_KEYS`/`RUN_OPTIONAL`/`ROOM_KEYS`/`ROOM_OPTIONAL` out of `SighteAddonServerside/ingest.py` and `obj.add(Property)?("…"` out of `RunReport.kt`, and writes nothing |
+| The stronger form of the same check | `git diff main..HEAD --name-only` is **11 files** and `RunReport.kt` is **not among them**. `rooms.json`, `gradle.properties`, `dist/`, `evaluator-rubric.md` likewise absent. `SighteAddonServerside` is on `master` at `018cee5` with `git status --short` **empty** — read, not written |
+| `bash build/runprobes.sh` — the session's ten probes | **All ten caught, every failure count as recorded**, and the failing test names are the ones that name the property. A 3, B 2, C 5, D 2, E 1, F 1, G 2, H 1, I 1, J 1. `git status --porcelain src/` **empty** after the ten `git checkout` restores |
+| **Probe H specifically**, the one the session reports as having passed all 211 tests at `5b670ca` | Now **caught**, failing exactly `RoomHistoryTest > being there from the start is not enough if somebody else did the room`. The rebuild at `9a00325` is real |
+| **Ten more probes I wrote myself** (`build/evalprobe.py`, anchors rebuilt from the source at `4e2db23`, each asserting its anchor matched exactly once **and** re-reading the file to confirm the mutation landed) | Eight caught, two not, and one of the two is a real hole — see the next section |
+| Deletion / loosening check | `git diff main..HEAD -- src/test/ \| grep -E '^-[^-]'` returns **one line**, the one-line `room()` helper, replaced by a documented `room(firstBar: Int = 0)`. **`0`** `@Test` lines removed and **`0`** assertion lines removed anywhere under `src/`. The six pre-existing `SecretRunTest` cases keep their bodies verbatim |
+| Feature-status diff, `main` vs `HEAD` | **Only `recordowner-001` moved**, and it moved by being added (absent → `passing`). Nothing downgraded, removed or quietly reworded |
 
-### The failure table, re-attacked — and one shape the suite does not have
+### The ten probes I added, and the one hole they found
 
-`clearpoints-002`'s evaluator drove ten broken shapes through the *reader*; the question here was
-whether any regressed now that something writes the cache. **None did**, and the reason is
-structural rather than lucky: the layer-2 cases are untouched (one KDoc line is the whole delta in
-that file), and layer 1 adds nine more shapes driven through the real `HttpClient` against a
-loopback server — `503`, `404`, `500`, an HTML `502` page under a `200`, half a document, an empty
-body, an array, a body that stops halfway, and a dead port. Every one asserts four things, not one:
-`Failed`, the cache byte-identical, the tag intact, and no `.part` left behind.
+The orchestrator's instruction was the right one: *a gate whose two conditions are never tested
+independently is a gate with one condition*. The session probed ten mutations; probes G and H
+between them do not isolate every half of `ownClear`, and I and J do not isolate every half of
+`presentFromStart`. So I deleted each remaining half separately.
 
-**The gap is a host that accepts the connection and then says nothing**, which is the case
-`RoomStats.start()`'s own KDoc singles out as the worst one. It is not in the table. I measured it
-with a throwaway probe (a loopback context that sleeps 120 s), and it behaves:
+| Probe | Mutation | Result |
+| --- | --- | --- |
+| **K** | `ownClear`'s `MIN_TICKS` floor deleted | **NOT CAUGHT — 211 pass.** See finding 2 |
+| L | `room.clearedAtTick ?: return false` → `?: 0` (the half probe G conflates with M) | caught, 1 |
+| M | `return room.presentFromStart(self, at)` → `return true`, **alone** | caught, 1 |
+| N | `stays[player] ?: return false` → `?: return true` | caught, 1 |
+| O | `if (stay.start > anchor) return false` deleted (the arrival half, alone) | caught, 3 |
+| P | the pre-existing `previous != 0` half of `onSecret`'s guard deleted | caught, 1 |
+| Q | the `max < 2` half deleted | **NOT CAUGHT** — benign: `if (found >= max)` three lines below catches the single-secret room, so the clause is redundant. Pre-existing, not this feature's |
+| R | `readBar`'s rise test deleted | caught, 2 |
+| **S** | `onRoomCleared` ignores its own gate (`val mine = true`) | **NOT CAUGHT — as declared.** Corroborates the ceiling |
+| **T** | `onSecretRun` ignores its own gate (`val mine = true`) | **NOT CAUGHT — as declared.** Corroborates the ceiling |
 
-```
-EVALPROBE hang: outcome=Failed reason=HttpTimeoutException: request timed out tookMs=30015
-EVALPROBE hang: cache written = false
-EVALPROBE hang: stray .part = []
-```
+S and T are not deductions — they are the session's own stated ceiling, **measured**. The wiring
+really is unguarded and the entry says so in as many words rather than implying otherwise. That is
+the honest shape, and it is worth more than a claim.
 
-30 s is `REQUEST_TIMEOUT` exactly, on a daemon thread, and nothing throws. **Correct, and unpinned**
-— see follow-up 4.
+### The four decisions, checked one at a time against the source
 
-### "Never block game start" — measured, not read
+1. **`ownSecrets == secretsFound`.** `RoomHistory.ownSecretRun` is
+   `room.secretsFound > 0 && room.ownSecrets == room.secretsFound`. Both halves probed (E, F), each
+   failing exactly one named case. Implemented at the user's strict end, not softened.
+2. **Present from the anchor AND top by ticks, both.** `ownClear` requires `self == topPlayer`,
+   `ticks >= MIN_TICKS`, a non-null `clearedAtTick`, and `presentFromStart`. Probes H, G, and my M
+   and L take the halves apart; the `MIN_TICKS` half is the one nothing guards (finding 2).
+   `presentFromStart`'s staleness tolerance really is `onPresence`'s: `onPresence` starts a new stay
+   at `at - stay.lastSeen - 1 > MIN_TICKS` and `presentFromStart` accepts at `<= MIN_TICKS`. Exactly
+   complementary — I read both, they are not two notions of "still here".
+3. **`history.jsonl` untouched, nothing reinterpreted.** No new `kind` (`CLEAR = "clear"`,
+   `SECRETS = "secretrun"`, both unchanged), no version field, no rewrite path, no migration. The
+   file's line schema is not in the diff at all.
+4. **Neither metric redefined — this is the one I attacked hardest and it holds.** `record()` is
+   byte-identical to `main`. `onRoomCleared` still passes `ownTicks`, which is still
+   `room.ticks[self]`; `onSecretRun` still passes `ticks`, which is still `room.secretRunTicks`.
+   Every line the branch adds is a `Boolean` in front of a call, never inside one. Old and new lines
+   of one `kind` stay comparable.
 
-`Config.load()` is the **first** line of `onInitializeClient`, so the `Config.upload` read in
-`start()` is a field read and not a file read; everything expensive, `HttpClient.newBuilder()`
-included, is inside the thread. The shape is `TelemetryUpload.start()`'s, verbatim: named daemon
-thread, whole body in a `try/catch`. Placed *before* `TelemetryUpload.start()`, which is the point of
-having its own thread at all. Measured rather than argued:
+Also checked and clean: `RunReport.SCHEMA` still 5, no report field added, renamed or removed,
+`rooms.json` untouched, `mod_version` untouched, `dist/` untouched, receiver read and never written.
+**No Correctness-0 condition is met**, and I established that mechanically rather than inheriting it.
 
-```
-EVALPROBE start(): returned in 4.3472 ms; Config.upload=true
-EVALPROBE start(): thread=[sighteaddons-roomstats daemon=true]
-```
+### `readBar`, and whether the ordering is guarded by a test rather than by argument
 
-**And that probe did more than time the call.** It ran `RoomStats.start()` end to end against the
-live receiver, and the worktree's gitignored `config/sighteaddons/` came back holding
-`roomstats.json` at **107362 bytes** with `roomstats.etag` beside it — the recorded cold-fetch result,
-reproduced through `start()` itself rather than through `refresh()`. The probe was deleted and
-`git status --porcelain` is empty. So the thread body is no longer read-only evidence. What is still
-unobserved is one link: Fabric actually calling `onInitializeClient` in a running client. See
-finding 1, because that link is far cheaper to close than the artifacts say.
+It is. `SecretRunTest > an untouched room is observed even though nothing rose` asserts
+`reading.first == true` **and** `reading.rose == false` on a `0/10`, which is precisely the assertion
+a rise-first ordering cannot satisfy — and probe C, the reordering written the way a tidy-up would
+write it, fails **5** tests, three of which predate this feature. The design change from two
+statements to one function is therefore not merely argued, it is the reason a test can hold the
+ordering at all.
 
-### The ETag wedge and the write ordering — the guard holds, including the case nobody wrote down
+**A genuine run starting at `0/10` still records**, checked at both levels: the predicate seam
+(`readBar(0)` → `readBar(1)` → `onSecret(previous = 0, found = 1, …)` → `STARTED`, asserted in that
+same case), and by reading `SecretTracker.onActionBar`, where the `0/10` returns at `if (!reading.rose)`
+after the observation has already landed. `readBar` is also the **only** writer of `secretsFound` in
+`src/main/` — I grepped; the other writes are all in tests.
 
-`store` writes the document, *then* the tag (`RoomStats.kt:448-452`); `cachedEtag` returns null
-unless `Files.isRegularFile(dir.resolve(FILE_NAME))` (`:422`). Probes B and C measure both halves.
-I also walked the crash-between-the-two-writes case the KDoc claims to cover and one it does not
-mention: if the document write succeeds and the tag write throws, the cache holds document *N+1*
-while the tag names document *N*. That is not a wedge — the receiver answers `200` on a tag it no
-longer holds (I checked: a bogus `If-None-Match` returns `200`, not `304`), and in the one case it
-would answer `304` the cached bytes are *newer* than the tag claims. Falls the safe way. **The only
-shape that could wedge an install permanently is the one that is guarded at both ends.**
-
-`install` calls `store` before `adopt` deliberately, so a cache that could not be written still
-yields this session its numbers. Correct, argued at the site, and it is why probe B fails on the
-observable half rather than on the outcome.
-
-### The two judgements the session referred up, and my read on each
-
-**1. Gating the fetch on the `/sa` upload switch: keep the `if`, fix the label.** The conservative
-reading is the right one, but the artifacts that describe the switch have not caught up with it.
-`Config.upload` defaults to `true`, so this only ever bites someone who deliberately switched
-uploading off — and for that person the ungated alternative means the mod still emits an
-IP-revealing request to the analysis server at every launch after they turned everything off. That
-is the failure that is hard to defend afterwards; "your weights stopped improving" is not, and the
-session already priced it correctly (`clearpoints-002`'s shrinkage makes two members on different
-weightings a decimal apart, not a ranking apart, and an install with upload off was on seeds before
-this feature existed anyway). **But the switch now does more than anything a player reads says it
-does.** `SettingsScreen.kt:288` labels it `upload run reports`; the one-time notice says the mod
-"sends a report of each dungeon run … Turn it off … with /sa → debug". Both describe *sending*.
-Neither promises no contact, and neither mentions that turning it off also stops the mod receiving
-its weights. The defect is not the `if` — it is one string. Follow-up 2.
-
-**2. Deleting `LiveScoresProbe`: defensible, but it is the weaker of two options and this repository
-already owns the proof of the better one.** The stated reason — "a test that needs the box up would
-make `init.sh` depend on the box being up" — is true *only because it was written as a JUnit class
-under `src/test/`, which Gradle's `test` task collects by default*. That is a property of where it
-was put, not of what it does. The receiver's `probe_readonly.py` is the counter-example the
-orchestrator names, and it is worth being precise about why: it is committed, it has a `__main__`,
-and **`grep` finds it in no `init.sh` and no test module** — it is referenced only from two docstrings
-in `test_metrics.py` and `test_roomstats.py` as the end-to-end version of a property the suite covers
-narrowly. So the third option is real and proven here: **commit the probe, keep it out of the default
-task.** The cost of not doing so is not hypothetical — `build/keydiff.py` lives in gitignored `build/`
-and has now been re-created from scratch by four sessions running, mine included. `LiveScoresProbe`
-is that same failure one iteration earlier. Follow-up 6; not a deduction, because the evidence entry
-records enough to rebuild it and I rebuilt an equivalent in minutes.
+### Category scores
 
 | Category | Question | Score (0-2) | Notes |
 | --- | --- | --- | --- |
-| Correctness | Does the implemented behavior match the requested feature? | 2 | **No Correctness-0 condition is met and I established that rather than inheriting it.** `git diff -- RunReport.kt` is **0 lines**, `SCHEMA` is 5, `mod_version` 0.9.0, `dist/` and `gradle.properties` absent from the branch. No schema change landed, so none could have landed ahead of the receiver; the key diff is four empty sets **from a script I wrote from scratch**, and I verified the *correction* the session made to its own regex rather than its conclusion — a comma-less pattern sweeps in `classes.add("${it.livingClass} …")` at `RunReport.kt:254`, which is a `JsonArray` value and never was a key. `SighteAddonServerside` was read and not written. **The behaviour matches the entry**: three layers, fetched → cached → seeds, with the fetch adding no field and changing no format because `RoomScores.parse` already read the receiver's document verbatim. **Failure really is the ordinary case** — nine broken shapes through the real `HttpClient`, each asserting `Failed` *and* the cache byte-identical *and* the tag intact *and* no `.part`, none regressed from `clearpoints-002`'s ten; and I added the tenth the suite lacks, a host that accepts and hangs, which returns `Failed` at exactly `REQUEST_TIMEOUT` with nothing written. **Start-up cannot be delayed**: `Config.load()` runs first so the gate is a field read, `start()` returned in **4.3 ms** onto a named daemon thread, and the whole body is wrapped. **The write ordering holds**, document before tag with `cachedEtag` refusing a tag for absent bytes — and the crash-between-writes case the KDoc does not name falls the safe way too, which I checked against the live receiver's actual `If-None-Match` behaviour. **The late-document refusal is real** and probe A is the one case that names it. Reservations are follow-ups 2-5, none of which is a behaviour defect. |
-| Verification | Did the required checks actually run, with evidence? | 2 | **Every recorded number reproduced, and all five mutation probes reproduced to the exact failing test name.** `verification_command` verbatim: 17/0/0/0. Whole suite: 14 classes / 175 tests / 0/0/0. `assemble check` green with the jar md5 **`b2ebc35ccfeb9cc96134eb3b18f0306f`** identical either side and `git status --short dist/ gradle.properties` empty. `init.sh` `BASELINE: PASSING` cold in a fresh worktree. The live contract reproduced clause by clause including the **exact ETag** in the record, the `304`, all four `404`s and the `501`. **Probe discipline was the thing this pass was warned about and it was enforced mechanically**: anchors rebuilt from the source rather than copied, every probe asserting its anchor matched **exactly once**, re-reading the file to confirm the mutation reached disk, printing an EOL census (`CRLF 493 bare-LF 0` every time), and `git diff --numstat` showing `1 1` before any test ran — so none of the five is a mutation that quietly failed to apply. All five fail **exactly 1** test and it is the predicted one. **Nothing was removed, deleted or loosened**: the entire `src/test/` diff contains **one** removed line and it is a KDoc line, with `0` `@Test` lines and `0` assertions removed anywhere under `src/`, so the Verification-0 condition does not apply. **The unverified paths are named rather than implied** — the entry's notes, `session-handoff.md`, `quality-document.md`'s scoring row and the progress log all say plainly that no real client has run this and that the served document is still `sampled 0`. Held at 2 rather than 1 because every check the entry required ran and reproduced, and the session invited exactly the challenge in finding 1 rather than hiding from it — but finding 1 is a real defect in the *reasoning about what could not be checked*, and it should be actioned before anything else here. |
-| Regression | Are previously passing features still passing? | 2 | Whole suite green in a fresh detached worktree: `classes 14 tests 175 failures 0 errors 0 skipped 0`. `main` at `d356ff2` is 167 in the same 14 classes, and the delta is **exactly `RoomStatsTest` 9 → 17** — derived from `git show d356ff2:` and the diff, not from the recorded figure. No class added, none removed, none renamed. **Strictly additive is not a claim here, it is a diff**: one removed line in all of `src/test/`, and it is prose. `assemble check` `BUILD SUCCESSFUL` with the jar byte-identical either side and no version bump, so the release gate never engaged. Feature statuses diffed against `d356ff2`: only `scores-fetch-001` moved, `not_started` → `passing`; nothing downgraded, removed or quietly reworded. **The one behaviour genuinely at risk is the weighting**, because `RoomStats.scores` is now writable from a second thread — and the mitigation is tested rather than asserted: `ContributionTrackerTest` (48) and `RoomDatabaseTest` (8) pin `RoomStats.use(RoomScores.NONE)` in `@BeforeEach`, `RoomStatsTest` now clears the resolution in `@AfterEach` too, and probe A measures that a late document cannot move a weight mid-run. |
-| Scope discipline | Did the session stay inside the chosen feature scope? | 2 | Two commits, eight files, four of them under `src/`. `RunReport.kt`, `rooms.json`, `dist/` and `gradle.properties` are all absent from the branch; no version bump; the receiver read and never written; no bundled snapshot of `roomstats.json` committed anywhere. **The boundary held twice where crossing it would have looked like tidiness.** First: `replace()` is a deliberate copy of `RunReport.replace` rather than a shared helper, *because `RunReport.kt` was under evaluation on `runloss-001` at the time* — the duplication is annotated at the site with the reason and an unify-once-both-land note, and given the two branches really are open simultaneously that is the correct call rather than the lazy one. Second: the receiver's `scores-002` notes ask the mod to "prefer the served `score` over the one it computes", and this feature deliberately did **not**, keeping `clearpoints-002`'s model on the client and raising the design question for the user instead of quietly answering it. The `TelemetryUpload.PUBLIC_URL` visibility change is one word and is the minimum that keeps one host in one constant. The `/sa` gating decision was likewise referred up rather than settled. |
-| Reliability | Does the result survive restart or rerun without repair? | 2 | Reconstructed cold by a session with no prior context, in a detached worktree at a bare sha, baseline green on the first attempt with **no repair and no environment fixing beyond what `session-handoff.md` documents**. Five mutations applied and restored with `git checkout`, `git status --porcelain src/` empty after each. A throwaway JUnit probe added, run and deleted, tree clean afterwards. **The handoff's quirks are load-bearing and every one I used held exactly as written**: the `git worktree add --detach <path> <sha>` recipe; "commit the feature first, then probe"; applying probes from Python with `io.open(..., newline='')` so CRLF survives (the file is uniformly CRLF, 493/0 — no mixed-EOL trap here); counts from `build/test-results/test/*.xml` and not the console; `python` resolves and `python3` does not; `assemble check` and never `build`. The one soft spot is unchanged and is now four sessions old: `build/keydiff.py` does not exist in a clean checkout, so I wrote my own — which happened to be the better outcome this time, since an independent implementation is what made the regex correction checkable at all. |
-| Maintainability | Is the code and documentation clear enough for the next session? | 2 | **The pattern this repository is good at is present throughout: every decision that looks over-cautious is argued at the site, and each of the four load-bearing ones has both a named test and a mutation probe** — the late-document refusal, the `.part` + rename, the two halves of the ETag guard, and "only a body that parses may become the cache". The `Do Not Touch` list names all four with the measured consequence of removing each, which is what makes them survive a future simplification. `Fetched` as a three-case sealed interface with "every one of the three is an ordinary outcome" in its KDoc is the right shape for a feature whose thesis is that failure is not exceptional. The duplication of `replace` is annotated with its reason and its expiry. Three precision gaps, none of which misleads a reader about a risk: the `/sa` label under-describes what the switch now does (follow-up 2), `install`'s KDoc is exactly right that a client thread never waits on the *network* and silent that it can wait on a 107 KB disk write under the same monitor (follow-up 3), and `verification_manual` has no gated case (follow-up 5). Held at 2 rather than 1 because the one artifact-level mismatch is the downstream consequence of a decision the session **deliberately did not make and recorded as undecided**, rather than one it settled and then documented wrongly. |
-| Handoff readiness | Can a fresh session continue work from repo artifacts only? | 2 | I reconstructed the whole state from the artifacts alone: branch and head, what each of the two commits is for, every command, all five probes precisely enough to rebuild them from the prose and hit identical failure counts **and identical failing test names**, the live contract, the key diff including the correction to the script itself, why the quality grade did not move, and every unverified path. The commit count is derived rather than transcribed and was correct (2). **"Next Best Step" asked for exactly this pass, named the judgement worth a second pair of eyes, and stated the alternative status if the evaluator disagreed** — which is the right way to use an evaluator and is why finding 1 was findable at all. The branch-point artefacts (`runloss-001` shown `not_started`, no session 012) are correctly explained as the branch point speaking rather than a claim, and I confirmed that against `d356ff2`. Held at 2 because nothing blocked reconstruction; follow-up 7 is recorded against this file rather than against the session. |
+| Correctness | Does the implemented behavior match the requested feature? | 2 | **All four of the user's decisions are implemented literally, including the one most likely to be violated quietly.** Decision 4 is the sharp one and it holds mechanically: `record()` is unchanged, `ownTicks` is still `room.ticks[self]`, `ticks` is still `room.secretRunTicks`, and every line added is a `Boolean` in front of a call rather than inside one — so no `clear` and no `secretrun` line changes what its number means, and old lines stay comparable with new ones. Decision 3 holds: no new `kind`, no version field, no rewrite, no migration; the file's schema is not in the diff. Decision 1 is `secretsFound > 0 && ownSecrets == secretsFound`, both halves probed. Decision 2 is all four conditions, and `presentFromStart`'s tolerance is provably `onPresence`'s complement rather than a second quieter notion. **No Correctness-0 condition is met and I established it rather than inheriting it**: `RunReport.kt` is absent from `git diff --name-only main..HEAD`, `SCHEMA` is 5, `keydiff` is CLEAN at 17/17 with four empty sets, and the receiver is on `master` at `018cee5` with an empty `git status`. The two remaining unknowns are consequences of the spec rather than deviations from it, and both are conservative in direction — a missing record, never a wrong one — but finding 1 puts a measured number on one of them that the user has not seen. |
+| Verification | Did the required checks actually run, with evidence? | 1 | **Every recorded number reproduced** — 11/12/54 on the `verification_command`, 211 in 15 classes with 0/0/0, jar md5 `e8cd7099034dd3475dbc8069be3c433e` identical either side of `assemble check`, `KEYDIFF: CLEAN` 17/17, `BASELINE: PASSING`, and **all ten probes to the exact failing test name and the exact failure count**, including probe H, which the record says passed at `5b670ca` and which is now caught. **Nothing was deleted or loosened**: one removed line in all of `src/test/`, a helper, and `0` `@Test` and `0` assertion lines removed anywhere — so the Verification-0 condition does not apply. **Held at 1 for two reasons, both of the same species.** (a) Probe K: the `MIN_TICKS` half of `ownClear` is guarded by **nothing** — deleting it passes 211 — while a test named `the presence floor is enforced by the gate itself` and a KDoc claiming the predicate is "total" both say otherwise. The session identified exactly this failure as the measurement that changed its work, and then did not sweep the same predicate for more of it. (b) The headline cost the entry states — "party secret records become rare" — was checkable against a **committed repository artifact** and is wrong in scope by that artifact's own numbers (finding 1). The unverified *paths* are named honestly and probes S and T confirm the ceiling is real; what was not verified is a claim the session made about its own consequence, in the one place a release note will repeat it. |
+| Regression | Are previously passing features still passing? | 2 | Whole suite green: `classes 15 tests 211 failures 0 errors 0 skipped 0`, `--rerun-tasks`. `main` at `8431597` is **193 in the same 15**, derived by counting `@Test` out of `git show main:<file>` rather than read from the record, and the delta is exactly the three named classes. No class added, removed or renamed. **Strictly additive is a diff here, not a claim**: one removed line in `src/test/`, and it is the `room()` helper whose replacement `room(firstBar: Int = 0)` supplies `readBar(0)` — the state all six pre-existing cases already meant, with their bodies unchanged, which I confirmed by reading them. `assemble check` `BUILD SUCCESSFUL` with the jar byte-identical either side and no version bump, so the release gate never engaged. Feature statuses diffed against `main`: **only `recordowner-001` moved**, by being added; nothing downgraded, removed or reworded. `SecretTracker.onActionBar`'s rewrite is the one place a regression could hide, and the mismatch guard, the trusted-max check and the attribution block below it are untouched — the three replaced statements are `readBar`'s body verbatim, in the one order the tests pin. |
+| Scope discipline | Did the session stay inside the chosen feature scope? | 2 | Eleven files, four under `src/main/`, three under `src/test/`, four artifacts. `RunReport.kt`, `rooms.json`, `gradle.properties`, `dist/` and `evaluator-rubric.md` are all absent from the branch; no version bump; `./gradlew build` never run; the receiver read and never written. **The boundary held where crossing it would have looked like completeness.** The tie in `topPlayer` is left arbitrary and *recorded* as a decision the user has not been asked for, rather than pinned as a fifth decision. The bogus records already in `history.jsonl` are left alone, which is decision 3 taken at its word. The informational chat line and `Config.ownPbsOnly` are untouched. `ClearPopup.show` was in scope by the delegation and the change is two `if`s at the call sites plus a KDoc correction, not a rewrite. Discovered-but-not-fixed work (`floorname-001`) is recorded as an entry rather than fixed inline, which is the operating loop's rule. |
+| Reliability | Does the result survive restart or rerun without repair? | 2 | Reconstructed by a session with no prior context: `init.sh` green first attempt, no environment repair beyond what `session-handoff.md` documents. Twenty mutations applied and restored — the session's ten and my ten — with `git status --porcelain src/` **empty** after every one, and no probe silently failed to apply (the session's script asserts its anchor matches exactly once; mine asserts that **and** re-reads the file). **The handoff's quirks are load-bearing and every one I used held as written**: `python` resolves and `python3` does not; CRLF anchors need `\r\n` translation and `encoding="utf-8"` or the read throws on the em dashes; counts come from `build/test-results/test/*.xml` and not the console; `assemble check` and never `build`; commit the feature before probing so `git checkout` restores from the index. `build/` is gitignored and this time the scripts had survived — that is luck, not design, and it is follow-up 6, now five sessions old. |
+| Maintainability | Is the code and documentation clear enough for the next session? | 1 | **The code and its KDocs are the best in this repository.** Every decision that looks over-cautious is argued where it is made, with the user's words quoted at the two gates that answer them; `readBar`'s KDoc states the ordering trap and why the function exists; `record`'s new paragraph states the append-only constraint at the exact place a future session would violate it; and the `Do Not Touch` list names each load-bearing property with the measured consequence of removing it. **Held at 1 for four documentation inaccuracies, one of them the species this feature was written to eliminate.** (a) `RoomHistoryTest > the presence floor is enforced by the gate itself` does not test the presence floor — the fixture is refused by `presentFromStart`'s staleness half, and deleting the floor passes 211 tests. A name that claims a guard is worse than no test. (b) The cost of decision 1 is stated as "party secret records become rare" in the entry, the KDoc, the handoff, the progress log and the quality table; the committed solo floor says otherwise (finding 1). (c) `onSecretRun`'s KDoc says "The announcement stays either way" — true on the default, false when `Config.ownPbsOnly` is on, where a party run that used to be announced because it beat the record is now silent. (d) `quality-document.md`'s **current** `scoring` row was updated from the superseded copy rather than the current one, so it now reads `RoomStatsTest` (9 cases) against an actual 17 and "layer 2 has never been read on a real install, because nothing writes a cache yet" — both untrue since `scores-fetch-001` merged, and the accurate row is sitting in the superseded block below it. |
+| Handoff readiness | Can a fresh session continue work from repo artifacts only? | 1 | I reconstructed the whole state from the artifacts: branch and head, what each of the three commits is for, every command, all ten probes precisely enough to rebuild them, the key diff, why the quality grade did not move, and every unverified path. The commit count is derived rather than transcribed. The failed probe-H run is kept in the evidence rather than tidied away, which is the single best thing in this handover — it is what let me check that the rebuild is real rather than asserted. **Held at 1 because the handoff misdescribes the one resource that would close this feature's ceiling.** `Environment Quirks` says "A `session-<millis>.jsonl` from a real install is the only source of real data, and there is exactly one in the repository" and names `session-1786719912927.jsonl` as "the original"; the directory it names holds **sixteen**, several of them party floors carrying `death`, `revive`, `roster_skew` and `chat_secret` events. `Broken Or Unverified` reasserts "the one real run is solo and deathless… the death path has never been exercised" — which `main`'s own `dc8d504`, *"Record what three real party floors said about chat"*, already contradicts. Nothing here blocked my reconstruction, so this is not a 0; but a next session reading it will not go looking for the fifteen other floors, and those floors are how three of this pass's findings were settled without playing anything. |
 
-**Total: 14 / 14.**
+**Total: 11 / 14.**
 
 ## Verdict
 
@@ -160,276 +145,199 @@ Derived from the scores — do not override without written justification:
 - **Revise**: no category scored 0, but the Accept bar is not met.
 - **Block**: any category scored 0, or evidence could not be reproduced.
 
-Verdict: **ACCEPT** — 14/14, no category 0, and Correctness, Verification and Regression all 2. Not
+Verdict: **REVISE** — 11/14, no category 0, but Verification is 1, so the Accept bar is not met. Not
 overridden.
 
-**Every recorded number reproduced**, and the ones that mattered were the ones that could have been
-quietly wrong: 17 on the `verification_command`, 175 in 14 classes, jar md5
-`b2ebc35ccfeb9cc96134eb3b18f0306f` unchanged either side of `assemble check`, `SCHEMA` 5,
-`mod_version` 0.9.0, `RunReport.kt` diff empty, four empty key sets from an independently written
-script, the live endpoint's exact `ETag`, and all five probes to the exact failing test name with
-every anchor asserted to match exactly once before it was applied.
+**Nothing here is broken and no evidence failed to reproduce.** Every recorded number came back
+exactly, all ten probes came back to the failing test name, and the four decisions are implemented
+literally including the one that is easiest to violate quietly. On the code alone this is Accept
+work. It is Revise because a release is queued behind the verdict and two things should be in front
+of the user before the jar is cut, both of them cheap:
 
-**`passing` is the right status, narrowly, and finding 1 is why it is only narrow.** The bar
-`CLAUDE.md` sets is that a feature depending on a real *dungeon run* is `blocked` — and this one does
-not depend on a dungeon. It depends on a game *launching*. Every function in layer 1 is exercised
-against a real socket, nine failure shapes plus the tenth I added all fall to the seeds without
-throwing, and `start()` itself ran end to end against the live receiver during this pass and produced
-the recorded 107,362-byte cache with its `ETag`. That is a great deal more than "read rather than
-observed". But the session's stated ceiling — that the dev client cannot log in, therefore no launch
-can be observed — **conflates reaching Hypixel with starting the client**, and those are not the same
-thing for a hook that fires in `onInitializeClient`. The entry stays `passing`; the ceiling it claims
-is not the one it actually has.
+**On `passing` versus `in_progress` or `blocked`: `passing` is the right status, and I want to be
+precise about why, because the reasoning is not the one the entry gives.** `CLAUDE.md`'s bar is that
+a feature depending on a real *dungeon run* is `blocked`. This feature's *decisions* do not — they
+are pure predicates on `TrackedRoom` and `RoomHistory`, driven directly, with twenty mutations
+between the session's ten and mine measuring that they can fail. Its *wiring* does, genuinely and
+unlike `scores-fetch-001`, whose ceiling the previous evaluator correctly demolished: `onRoomCleared`,
+`onSecretRun` and `onActionBar` need a calibrated dungeon, a resolved room and a live `Minecraft`,
+and `./gradlew runClient` at a title screen reaches none of them. Probes S and T confirm that wiring
+is guarded by nothing, which is what the entry already says. That matches the `runloss-001` and
+`floorloss-001` precedent, both `passing`, and the entry names the unverified lines individually
+rather than implying they were tested. **Keep `passing`. Do not move it to `blocked`** — the status is
+not what is wrong here.
 
-**On gating the fetch on `/sa`: keep the `if`.** It is the reading that cannot surprise the only
-person it affects, its cost is bounded and already correctly priced by `clearpoints-002`'s shrinkage
-argument, and referring it up rather than deciding it silently was right. The thing to change is the
-label, not the branch — follow-up 2.
+**What is wrong is that the ceiling is smaller than the entry believes, and the cost is larger.**
+Both are settled below without playing a floor.
 
-**On deleting `LiveScoresProbe`: defensible, and still the weaker option.** The dichotomy it was
-resolved under is false: `probe_readonly.py` on the receiver is committed and reaches neither
-`init.sh` nor any test module. Follow-up 6.
-
-**No receiver change is owed and this feature is genuinely not paired** — no field, no key, no schema
-move, verified mechanically in both directions rather than asserted.
+**On the release: this feature does not owe the receiver anything** — no field, no key, no schema
+move, verified mechanically in both directions. It owes the release notes the lines the handoff
+already lists, **plus the number in finding 1**.
 
 ## Required Follow-Up
 
-Nothing here blocks acceptance. No receiver change is owed. Items 1-7 are new this pass; 8-20 are
-carried, each re-checked at `1509835` by opening the file rather than by trusting the previous
-rubric.
+Findings 1-4 are new this pass. 5-12 are carried and were re-checked at `4e2db23` by opening the file
+rather than by trusting the previous rubric; 13-22 are carried without re-verification and are marked
+as such. **Turning any of these into work is the orchestrator's call, not mine.**
 
 ### New this pass
 
-1. **The feature's stated ceiling is wrong, and the path it calls unobservable is a ten-minute
-   check.** Five artifacts — the entry's notes, `session-handoff.md` ("**Unverified, and it is this
-   feature's ceiling**"), `quality-document.md`'s scoring row, the progress log and the
-   `Broken Or Unverified` section — all give the same reason: "the dev client cannot log in, so no
-   real launch has fetched, cached and adopted". **Logging in is not what this path needs.**
-   `RoomStats.start()` is called from `onInitializeClient` (`SighteAddons.kt`), which Fabric runs
-   during client initialisation, before the main menu and long before any server connection. There is
-   no Hypixel in this path at all. `./gradlew runClient` — the repository's own documented startup
-   command — left at the title screen for ten seconds would produce exactly what
-   `verification_manual` steps 1, 2, 3 and 5 ask for: the `room_scores_fetch` line, the following
-   `room_scores` line with `source "fetch"`, `config/sighteaddons/roomstats.json` and
-   `roomstats.etag` on disk, a `304` on the second launch, and the game reaching a menu without
-   waiting. Steps 1-3 and 5 of that manual are **all** closeable without a dungeon and without
-   Hypixel. Only step 4's `generatedTs`-on-award half needs a run. **This is the highest-value item
-   in this document**: it converts the feature's headline unknown into a task, and I found it only
-   because the handoff was honest enough to ask whether the evidence carried the claim. Partial
-   support already exists — my probe drove `start()` end to end against the live box and it produced
-   the recorded cache — so the single remaining unobserved link is Fabric invoking the initializer.
-   Correct the reason in all five artifacts; do not simply delete the caveat.
+1. **The cost of decision 1 is 4 records in 5 on a solo floor, not "party records become rare" — and
+   the file that says so is committed in this repository.** `ownSecretRun` is
+   `ownSecrets == secretsFound`, and `secret_run_done` in the debug log carries exactly those two
+   numbers (`"secrets" to bar.max`, `"own" to room.ownSecrets`, and at `DONE` `secretsFound == max`),
+   so the gate can be replayed against real data with one command. Against
+   `docs/evidence/session-1786719912927/session-excerpt.jsonl` — **solo, deathless, the floor this
+   repository already treats as its ground truth** — the five completed runs are `Atlas 4/6`,
+   `New Trap 2/3`, `Slime 2/5`, `Chains 2/2`, `Pipes 5/7`. **Only `Chains` survives the gate.** Four
+   of five records disappear on a floor where, by construction, every secret *was* the local
+   player's; what fails is not ownership but attribution — `ownSecrets` counts a click inside
+   `OWN_WINDOW` or a wither-essence chat line and nothing else. Corroborated, and worse, on the
+   sixteen real session logs in the directory `session-handoff.md` names: **9 of 80 completed secret
+   runs have `own == secrets`**, and split by roster it is **2 of 23 on single-member sessions** and
+   7 of 57 on party sessions. (Both figures are *upper* bounds on what survives — some of those runs
+   would not start at all under the new `firstBarFound` gate.) The user was shown a trade-off scoped
+   to parties and priced as "rare"; the measured effect is roughly nine in ten records gone, solo
+   included. **The code is not wrong — decision 1 is the user's and this implements it exactly.** The
+   fix is to put the number in front of them before the jar is cut, and to correct the sentence in
+   the entry's notes, `ownSecretRun`'s KDoc, `session-handoff.md`, `claude-progress.md` and the
+   `history and records` quality row. If the user then wants the softer gate they refused, that is a
+   new decision made on real numbers rather than a re-litigation of the old one. **This is the
+   highest-value item in this document and it costs one `python` one-liner.**
 
-2. **The `/sa` switch now does more than its label, its help text and its one-time disclosure say it
-   does.** `SettingsScreen.kt:288` reads `Row("upload run reports", …)`, and `uploadNotice()` tells
-   the player the mod "sends a report of each dungeon run to the mod's analysis server … Turn it off
-   … with /sa → debug". Both describe *sending*. Since `74e6859` the same flag also decides whether
-   the mod **receives** its room weights, and nothing a player can read says so. I judge the gate
-   itself correct (see the verdict), which is exactly why this matters: a control whose label
-   under-describes it is worse than one whose behaviour is arguable, because the player cannot
-   discover the trade. One string in `SettingsScreen.kt`, and one clause in the notice. The entry's
-   notes and the handoff both document the decision honestly — the gap is only in what reaches the
-   player.
+2. **A second guard in name only, in the same predicate as probe H.** Delete
+   `if ((room.ticks[self] ?: 0) < ContributionTracker.MIN_TICKS) return false` from
+   `RoomHistory.ownClear` and **all 211 tests pass** (my probe K). The case that carries the name,
+   `RoomHistoryTest > the presence floor is enforced by the gate itself`, gives the local player
+   `min - 1` ticks starting at tick 1000 and asks about tick 1080 — so `presentFromStart`'s staleness
+   half refuses it 61 ticks out and the floor is never the thing under test. `ownClear`'s KDoc claims
+   the opposite in as many words: *"The `MIN_TICKS` floor stays as well, so the predicate is total
+   rather than relying on the caller having filtered `topPlayer` out of an already-eligible map."*
+   **No behaviour is wrong today** — `onRoomCleared` filters `eligible` before computing `topPlayer`,
+   so `self == topPlayer` already implies eligibility, which is exactly why the floor is invisible to
+   every fixture. But the claim of totality is the reason the floor is there, and nothing holds it.
+   Either build a fixture that isolates it (self is `topPlayer`, `presentFromStart` true, ticks below
+   the floor — reachable via `anchorOnClear`), or delete the line and say in the KDoc that the caller
+   owns the floor. Do not leave a test whose name asserts a guard it does not apply; that is the
+   failure this whole feature was written to remove, and the session's own probe-H write-up is the
+   argument for fixing it.
 
-3. **`install` holds the `RoomStats` monitor across a 107 KB disk write and a `DebugLog` event, and
-   the client thread can be waiting on that monitor.** `install` is `@Synchronized` and calls
-   `store` then `adopt` (which calls `announce` → `DebugLog.event`); the `scores` getter is
-   `@Synchronized`; and `ContributionTracker.kt:625` reads `RoomStats.scores` on the client thread
-   when a room is cleared. The KDoc at the site is precisely right that "the lock is taken *after*
-   the request … a client thread asking for a room's weight must never wait on a network" — and
-   silent that it can wait on two file writes. **Materially small**: bounded by a local write, not a
-   network, and the window is one launch wide because `adopt` refuses afterwards. But this
-   repository's rule is "nothing on the client thread", the KDoc is otherwise exact, and a reader
-   would take its silence for coverage. One clause naming the disk, or move the `store` outside the
-   monitor and keep only `adopt` inside it.
+3. **The feature's ceiling is real but smaller than stated, and sixteen real floors are sitting on
+   this machine.** `session-handoff.md`'s `Environment Quirks` says *"A `session-<millis>.jsonl` from
+   a real install is the only source of real data, and there is exactly one in the repository"* and
+   names `session-1786719912927.jsonl` as "the original". The directory it gives holds **sixteen**
+   session files — including party floors with `death`, `revive`, `roster_skew`, `chat_secret`,
+   `puzzle_solved` and `run_report` events — and `main`'s own `dc8d504` already analysed three of
+   them for `chat-001`. Meanwhile `Broken Or Unverified` still says *"the one real run is solo and
+   deathless… the death path has never been exercised"*, and `Next Best Step` asks the user for a
+   party floor with a death as the highest-value input on the board. **Some of what is being asked
+   for has already been played.** Concretely, one thing this feature calls unobservable is partly
+   answered there already: `session-1786567867893.jsonl` at `t=137` carries
+   `secret_room_mismatch … barFound: 0`, which is a real Hypixel action bar reporting **zero**
+   secrets found — evidence that the `firstBarFound == 0` path is reachable at all, which is the
+   assumption the entire secret-run half rests on and which the entry lists as its falsification
+   criterion. Correct the two handoff paragraphs, and mine the existing logs before asking for
+   another floor. What genuinely still needs a live client is narrower: `secret_room_first_bar` on a
+   *trusted* bar, and the four wiring lines (probes S and T).
 
-4. **A host that accepts and then says nothing is the failure the KDoc singles out, and it is the one
-   shape the nine-case table does not have.** `start()`'s KDoc says "the worst case here, a host that
-   accepts a connection and then says nothing, costs a parked daemon thread and the seeds". The table
-   covers a refused connection and a truncated read; it has no hang. I measured it and the KDoc is
-   right — `Failed("HttpTimeoutException: request timed out")` at 30,015 ms, no cache written, no
-   stray `.part` — but nothing pins it, so a future change to `REQUEST_TIMEOUT`, or dropping
-   `.timeout()` from the request builder in favour of the connect timeout alone, would be caught by
-   nothing. A tenth row in `failing(...)` backed by a context that sleeps, with a shortened timeout
-   so the case does not cost the suite 30 s.
+4. **`onSecretRun`'s KDoc over-claims on one path.** *"The announcement stays either way, and it
+   carries both counts, so a run somebody else did most of is still shown — it is simply not filed."*
+   With `Config.ownPbsOnly` on, `pb` is now `null` for every run the gate refuses, so
+   `if (Config.ownPbsOnly && pb == null) return` suppresses the announcement that previously appeared
+   whenever the party's run beat the stored record. The default is `false`, so most installs are
+   unaffected and the narrowing is arguably what "own PBs only" should have meant — but the sentence
+   is unqualified and a reader will take it for coverage. One clause. The same applies, more mildly,
+   to `onRoomCleared`'s "`Config.ownPbsOnly` is what governs how much of it you see", which is
+   accurate but no longer complete.
 
-5. **`verification_manual` has no case for the switch being off**, which is now a behaviour and not an
-   absence. With `Config.upload = false` there is no fetch, **no `room_scores_fetch` event at all**
-   (the return is before the thread), and only a log line — so a player checking the debug log for
-   evidence the gate worked finds nothing there, which is indistinguishable from the feature being
-   broken. One step: "turn off *upload run reports* in `/sa`, relaunch, and confirm the log says
-   `Room scores: not fetching, telemetry is off in /sa` and the session file carries no
-   `room_scores_fetch` line." Cheap, and it becomes runnable the moment finding 1 is actioned.
+### Carried forward — re-verified still open at `4e2db23`
 
-6. **`LiveScoresProbe` was deleted when the option that keeps it was already proven in the sibling
-   repository.** The reason given — a suite that needs the box up would make `init.sh` depend on the
-   box — holds only for a JUnit class under `src/test/`, which Gradle collects by default. The
-   receiver's `probe_readonly.py` resolves the same trade by being committed with a `__main__` and
-   wired into neither `init.sh` nor any test module; it is referenced only from docstrings in
-   `test_metrics.py` and `test_roomstats.py`. The mod has no equivalent home for an opt-in probe
-   today, which is the actual gap. The cost of prose-only probes is measured, not theoretical:
-   `build/keydiff.py` has now been re-created from scratch by four consecutive sessions, and
-   `LiveScoresProbe` is that failure one iteration earlier. Either give the mod a committed,
-   not-collected probe (a `probe/` source set, or a script driving the same calls) or stop recording
-   deleted probes as though they were re-runnable evidence.
+5. **`quality-document.md`'s current `scoring` row was updated from the stale copy.** The top block is
+   the current block by the handoff's own convention, and its `scoring` row now reads
+   `RoomStatsTest` (9 cases) against an actual 17, and *"layer 2 has never been read on a real
+   install, because nothing writes a cache yet"* — untrue since `scores-fetch-001` merged. The
+   accurate row, with 17 cases and the layer-1 description, is in the **superseded** block below it.
+   This session inherited the mis-ordering and then dated the stale row 2026-08-14 while bumping
+   `ContributionTrackerTest` 48 → 54 in it, which makes it look current. Copy the right row up.
 
-7. **This rubric is overwritten every pass, and two branches are now writing it in parallel — five
-   findings were about to be lost and are rescued below.** `runloss-001`'s evaluator wrote its rubric
-   at `1845a6b`, on a branch that does not exist in this one's history; that pass carried the previous
-   thirteen forward correctly and added five of its own. Because `scores-fetch-001` branched from
-   `d356ff2`, **this file rewrites a copy that never saw them**, and merging the two branches will
-   resolve `evaluator-rubric.md` as a conflict where the naive resolution silently drops one side.
-   Items 16-20 below are those five, reproduced so the merge cannot lose them. **I could not re-verify
-   them here** — they concern `RunReport.kt` and `SighteAddons.kt` changes that are not on this branch
-   — and they are marked as such. The structural fix is the same one this file keeps asking for:
-   findings that must survive belong in `feature_list.json` notes or `claude-progress.md`, not only
-   in a document whose contract is that it is overwritten.
+6. **Previous follow-ups 3/6/10 are one problem and it is now five sessions old.**
+   `git ls-files | grep -c keydiff` → **`0`**; `build/` is gitignored. `build/keydiff.py`,
+   `build/recordprobe.py` and `build/runprobes.sh` all happened to survive into this pass, which is
+   luck — the previous evaluator had to rewrite `keydiff.py` from scratch, as did four sessions
+   before it. Either give the repository a committed, not-collected home for probe scripts (a
+   `probe/` source set, or `build/`-equivalent scripts tracked under `tools/`) or stop recording
+   probe scripts as re-runnable evidence. The receiver's `probe_readonly.py` is the proven shape.
 
-### Carried forward — still open, verified still open at `1509835` rather than assumed
+7. **Previous follow-up 2 is still open.** The `/sa` switch labelled `upload run reports`
+   (`SettingsScreen.kt:288`) also decides whether the mod *receives* its room weights, and nothing a
+   player can read says so. Unchanged by this branch.
 
-8. **Previous follow-up 1 is still open.** The `assign` KDoc at `PartyTracker.kt:162,173` still says
-   "NoammAddons" without naming which repository, and there are two — `Noamm9/NoammAddons-Legacy`
-   (`DungeonUtils.kt:250-260`) and the current `Noamm9/NoammAddons` (`map/handlers/MapUpdater.kt`),
-   which makes the identical choice. The `Do Not Touch` entry promises the finding "can be rechecked
-   in one `javap`"; the mod citation is the half that cannot be checked from the jar, and it is the
-   half that is unnamed.
+8. **Previous follow-up 8/1 is still open.** `PartyTracker.kt:183,194` still cites "NoammAddons"
+   without naming which of the two repositories, and the mod citation is the half that cannot be
+   rechecked from a jar.
 
-9. **Previous follow-up 2 is still open.** `PartyTracker.kt:225` snapshots `map.decorations.toList()`
-   where the old code read the live view twice, and `party-001`'s `notes` still do not mention it —
-   I checked the field, and `snapshot`, `live view` and `toList` are all absent. "Behaviour is
-   unchanged" is stated flatly in three artifacts with this one deliberate, strictly-safer exception
-   unrecorded.
+9. **Previous follow-up 9/2 is still open.** `party-001`'s `notes` still do not mention the
+   `map.decorations.toList()` snapshot — `snapshot`, `live view` and `toList` are all absent from the
+   field, checked.
 
-10. **Previous follow-up 3 is still open, fourth pass running.** `build/keydiff.py` does not exist in
-    a clean checkout (`git ls-files | grep -c keydiff` → `0`) and `build/` is gitignored. Four
-    sessions have now written it from scratch. See follow-up 6 — these are one problem.
+10. **Previous follow-up 11/4 is still open.** `deconame-001`'s `verification_command` is still
+    `./gradlew test --tests 'sighteaddons.DebugLogTest'`, vacuously green. Defused only by the entry
+    being `not_started`.
 
-11. **Previous follow-up 4 is still open.** `deconame-001`'s `verification_command` is still
-    `./gradlew test --tests 'sighteaddons.DebugLogTest'`, 2 tests, neither able to reach a field added
-    inside `PartyTracker.positions`. Vacuously green today and vacuously green after the feature is
-    built. Still defused by the entry being `not_started` and saying so in its own notes.
+11. **Previous follow-up 13/6 is still open.** `chat-001`'s `verification_command` widening still has
+    no durable trace: `grep -ni widen claude-progress.md` returns two hits and **neither is about
+    `chat-001`** (one is this session's `keydiff` regex note, one is `floorname-001`'s).
 
-12. **Previous follow-up 5 is still open.** `PartyTrackerTest.kt:188`, `two teammates in one room
-    resolve to one cell whichever way round they are`, still never calls `assign`. Cosmetic.
+12. **Previous follow-ups 14/7 and 17/10 are still open.** `ChatEvents.kt:129` still says
+    `DungeonChatFilter` "has no other `found a` shape". `ContributionTracker.kt:370` still has
+    `MIN_TICKS = 20` against a documented worst-case roster-skew blackout of 20 — `clear-001`'s
+    zero-margin note, which **the sixteen real logs may now be able to close**: several carry
+    `roster_skew` events (up to 26 in one session). See finding 3.
 
-13. **Previous follow-up 6 is still open and has decayed a further step.** `chat-001`'s
-    `verification_command` widening has no durable trace anywhere: `grep -ci widen claude-progress.md`
-    → `0`, and `chat-001`'s own `notes` do not mention it. The only artifact that recorded it was a
-    `session-handoff.md` overwritten two sessions ago. One line in the progress log or in the entry's
-    notes.
+### Carried without re-verification this pass
 
-14. **Previous follow-up 7 is still open.** `ChatEvents.kt:129` still reads that `DungeonChatFilter`
-    "has no other `found a` shape". It has two, the `DUNGEON BUFF! … found a Blessing of …` pair. The
-    substantive negative survives; the sentence is disproved by a grep of the file it cites.
+13-22. Previous follow-ups 5, 12, 15, 16, 18, 19, 20 and the five rescued from `runloss-001`'s rubric
+(the `disconnect` bytecode offset off by two; `RunReport.uploader`'s "very next thing"; the DISCONNECT
+cross-thread read of `visitedRooms()`; `runloss-001`'s `verification_manual` step 3; the third case
+where old and new differ). `runloss-001` has since merged into `main`, so these are now checkable
+against this tree — I did not check them, because they are outside this feature's diff and this pass
+spent its budget on the two findings above. **Reproduced here so the `evaluator-rubric.md` overwrite
+cannot drop them**, which is the structural problem the previous pass raised as its follow-up 7 and
+which this file has now demonstrated twice: findings that must survive belong in `feature_list.json`
+notes or `claude-progress.md`, not only in a document whose contract is that it is overwritten.
 
-15. **Previous follow-up 8 is still open.** `ContributionTracker.kt:457` still says "a dead player
-    cannot die again without being revived first" — true of the game, not of this mod's knowledge of
-    it, since `onRevive` is the only thing that clears `deathAt` and the `Revived` pattern is itself
-    unverified.
+### Remaining unverified paths — all named by the session, none a deduction
 
-16. **Previous follow-up 9 is still open.** `ContributionTracker.kt:712`, `residue-001`'s `settle`
-    KDoc, still reads "the clamp this replaces only ever caught the negative half" when the
-    alternative a reader would propose is a symmetric threshold-to-zero. Behaviour is right and
-    tested; only the justification aims at a weaker option.
-
-17. **Previous follow-up 10 is still open.** `clear-001` note (2), the zero-margin gap tolerance:
-    `ContributionTracker.kt:260` still has `MIN_TICKS = 20` against a documented worst-case
-    roster-skew blackout of 20. The note still reads "**STILL OPEN, AND THE REAL RUN DID NOT CLOSE
-    IT**", with (1) and (3) still `MEASURED AND CLOSED`. Needs a party floor.
-
-18. **Previous follow-up 11 is still open.** `ContributionTrackerTest.kt:868` still sanity-checks
-    `weightOf(expensive) > 2 * weightOf(plain())`, a bound of 1.5 against a fixture worth 3.50.
-    Optional.
-
-19. **Previous follow-up 12 is still open.** `readout.sh:47` still calls the input "a per-tick
-    decoration stream", and the evidence `README.md:17` still says "Every figure quoted below is
-    asserted in that script" when the 220-line census cannot be. Both cosmetic, both verified present.
-
-20. **Previous follow-up 13, carried as context.** `ContributionTrackerTest.kt:342`, `size and kind
-    are no longer paid for directly`, is still the one test standing between the tree and a
-    reintroduced size/kind bonus. Unchanged.
-
-### Rescued from `runloss-001`'s rubric at `1845a6b` — NOT re-verified here
-
-These five were raised against a branch this one predates and concern files not in this diff
-(`RunReport.kt`, `SighteAddons.kt`). **I could not check them at `1509835` and make no claim that
-they are still open** — they are reproduced so the `evaluator-rubric.md` merge conflict cannot drop
-them. Whoever merges should re-verify each against the merged tree.
-
-21. A recorded bytecode offset in `runloss-001`'s evidence is wrong by two:
-    `Minecraft.disconnect(Screen, boolean, boolean)` nulls `player` at `185: aconst_null` /
-    `186: putfield`, not offset 184. Substance untouched; cosmetic, but this repository's convention
-    is that a named constant can be re-established in one command.
-22. `RunReport.uploader`'s KDoc says nulling `player` is "the very next thing" `disconnect` does; it
-    is not — `singleplayerServer`, `gameMode`, `level` and `updateLevelInEngines` come first. The
-    load-bearing claim (the field is nulled during a client-thread teardown while the DISCONNECT
-    handler runs on a Netty thread) is correct. The `Do Not Touch` entry forbids softening this KDoc,
-    so the correction must name the offset rather than hedge.
-23. The DISCONNECT write reads run state off the client thread — `visitedRooms()` over a plain
-    `HashMap` while the client thread may be in `tick`/`ticks.merge`. Defused by the site's
-    `try/catch` (worst case a lost report, the pre-feature outcome), but the mitigation currently
-    reads as belt-and-braces rather than as the thing that makes an unsynchronised cross-thread read
-    acceptable.
-24. `runloss-001`'s `verification_manual` step 3 asks for `run_report` "as its last line", which holds
-    only for quit-to-desktop and not for the drop-to-title variant step 1 explicitly invites. Should
-    be "the session's only `run_report` line, with `"complete":false`".
-25. "The two cases where old and new differ both end in an early return" omits a third: a failed
-    end-of-run headline write leaves `reported` given back and `summaryPrinted` true, where the old
-    JOIN site lost the run and the new one rescues it — as `complete = false` for a run that did
-    complete, which is the conservative direction and currently unstated.
-
-### Remaining unverified paths, all named by the session, none a deduction
-
-- **`RoomStats.start()` has never run inside a game.** Named everywhere — but see finding 1, because
-  the reason given is wrong and the check is cheap. What *is* now observed: `start()` returning in
-  4.3 ms onto a named daemon thread, and the whole of layer 1 driven against the live receiver
-  through the mod's own code, producing the recorded 107,362-byte cache and its `ETag`.
-- **The atomicity of the rename is a property of the code, not an observation.** The suite asserts
-  the observable half — a stale `.part` is consumed by the next successful write — and probe B
-  measures that a direct `Files.writeString` is caught. Same shape `runloss-001` records.
-- **The measured half of the scoring model is still inert, and fetching did not change that.** The
-  served document has 105 rooms and `sampled 0`; every `clearStay` is `n = 0` because no schema 5
-  build has been *released*. Every score in it is seed plus secrets. What this feature removes is the
-  jar release from the loop for every *later* improvement.
-- **Not built, and a decision rather than an omission**: the receiver's `scores-002` notes ask the mod
-  to "prefer the served `score` over the one it computes". The client keeps `clearpoints-002`'s model.
-  **Raise it with the user**; it is deliberately not recorded as a feature.
-- **The weights against a real run**, **whether the order heuristic is correct at all**, **whether
-  `roster_skew` ever fires**, **whether `MapDecoration.name()` carries anything**, **the wiring of
-  `positions()`**, **that Hypixel sends `chat-001`'s strings**, **the party half of everything**
-  (the one real run is solo and deathless, so the death path has never been exercised), **the `RED`
-  checkmark path and every pixel of `/sa`**, and **the cross-repo reading that `unattributed` is only
-  consumed as a ratio against `roomsCleared`**. All unchanged by this feature.
-- **The dev client still cannot reach Hypixel**, and every artifact that could imply otherwise says
-  so. That remains true; it is simply not the constraint on *this* feature.
-- **The schema is 5 in source and 4 in every install**, and eight features now exist in source only.
-  Nothing breaks meanwhile and nothing reaches a player either, until somebody bumps the version and
-  takes the release gate — the user's decision.
+- **Neither gate has run in a game.** The four wiring lines (`onRoomCleared` → `ownClear`,
+  `onSecretRun` → `ownSecretRun`, `ClearPopup.show` under the same answer, `onActionBar` → `readBar`)
+  need a live `Minecraft`. **Measured, not assumed**: my probes S and T mutate two of those lines and
+  no test notices. The entry names all four.
+- **Whether a *trusted* `0/N` bar is ever read.** The strict form of the secret-run gate rests on it,
+  and a real `barFound: 0` exists in the logs but on a *mismatched* room (finding 3). If the answer
+  is no, every secret run in the game is discarded — the same catastrophe the reordering would cause,
+  reached by another route. The entry names this as its falsification criterion and added
+  `secret_room_first_bar` with `untouched` so one floor answers it. Direction of failure is
+  conservative.
+- **A tie in `topPlayer`** is arbitrary and left that way, recorded rather than inherited silently.
+- **The bogus records already in `history.jsonl`** are not repaired, by decision 3.
+- Everything carried unchanged: `RoomStats.start()` inside a game; the atomic rename; the weights
+  against a real run; `deconame-001`; the wiring of `positions()`; the `RED` checkmark path and every
+  pixel of `/sa`; `floorname-001`'s value-domain mismatch, which `keydiff.py` compares key *sets* and
+  cannot see.
 
 ### Next review trigger
 
-**Finding 1 first, and it is not a feature — it is `./gradlew runClient` and ten seconds at the title
-screen.** It closes four of this entry's five `verification_manual` steps and corrects a wrong
-sentence in five artifacts. Nothing else here costs so little.
+**Finding 1 first, and it is not a feature — it is one `python` one-liner over a committed file and a
+sentence in front of the user.** It changes what the release note says and possibly what the user
+wants the gate to be. Nothing else here costs so little or matters so much, and a release is queued.
 
-**Then the two open branches need the user's decision rather than another feature.** `runloss-001`
-and `scores-fetch-001` are both off `d356ff2`, neither is merged, and the union resolution is
-described in this branch's handoff. Note that `evaluator-rubric.md` is now itself a conflicted file
-in that merge — see follow-up 7, and take the union there too.
+**Then finding 3, before asking the user for another floor.** Sixteen real sessions are on this
+machine and the handoff says there is one. Mining them may close `clear-001`'s zero-margin note,
+`deconame-001`, the death path and part of `party-001` without anybody playing anything.
 
-**If the user offers a run, a party floor with a death in it remains the single highest-value input**
-this repository can receive: it moves `party-001`, `deconame-001`, `clear-001`'s last open note, the
-rest of `ingame-001` and all three of `chat-001`'s unverified halves at once. Any launch at all now
-also exercises this feature's real path.
+**Then finding 2**, which is fifteen minutes and removes a test that lies.
 
-Then `runend-001`, whose open question is already answered (write the run-level count, not the event
-count). Do **not** start `chatfields-001` by editing `RunReport.kt` — its first move is a feature in
-`Sighte/skyblock-server`. `records-001` is deferred by the user.
-
-`scores-fetch-001` is accepted at `1509835` as a **passing** feature. It sits on a branch, unpushed
-and unmerged; merging and releasing remain the user's decisions and take the release gate at the top
-of `CLAUDE.md` with them. **It adds one line to the release notes' outstanding list** — the mod now
-fetches its room weights from the analysis server at game start: a `GET`, no token, gated on the
-`/sa` upload switch, never blocking the game, and **the first outbound request this mod makes that is
-not an upload** — which belongs on both the GitHub and the Modrinth notes.
+`recordowner-001` is graded at `4e2db23` as a **passing** feature whose acceptance is held at
+**Revise** — not because the work is wrong, but because two facts about it are cheaply knowable and
+are not yet known. It sits on a branch, unpushed and unmerged; merging and releasing remain the
+user's decisions and take the release gate at the top of `CLAUDE.md` with them.
