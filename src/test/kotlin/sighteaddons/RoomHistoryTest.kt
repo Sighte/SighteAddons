@@ -1,11 +1,23 @@
 package sighteaddons
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
  * The records table in `/sa` is derived from the history file, never stored — so the fold from lines
  * to records is what has to be right.
+ *
+ * The second half of this class is the other question the file asks: not what a line means, but
+ * **whether a line gets written at all**. [RoomHistory.onRoomCleared] and [RoomHistory.onSecretRun]
+ * both need a live `Minecraft` to find out who the local player is and so cannot be driven from
+ * here; the decisions they make cannot — [RoomHistory.ownClear] and [RoomHistory.ownSecretRun] take
+ * the room and the names and read no clock and no client, the same seam `onPresence` and `onSecret`
+ * are tested through. What is *not* covered here is the wiring: that `onRoomCleared` calls
+ * `ownClear` with the top player it just computed and the name of the player holding the mouse, and
+ * that `ClearPopup.show` fires under the same answer. No command in this repository can observe it.
  */
 class RoomHistoryTest {
     private fun line(room: String, kind: String, ticks: Int, ts: Long) =
@@ -97,5 +109,196 @@ class RoomHistoryTest {
         assertEquals(1, records.byKey.size)
         assertEquals(1, records.entries)
         assertEquals(2, records.malformed) // the blank line is skipped, not counted
+    }
+
+    // --- whose record is it? (recordowner-001) ---
+
+    private val min = ContributionTracker.MIN_TICKS
+
+    /** A room, with [player] present on every tick of `[from, from + count)`, as `tick` sees them. */
+    private fun room(): TrackedRoom = TrackedRoom(RoomType.ROOM, setOf(Pos(0, 0)), setOf(Pos(0, 0)))
+
+    private fun TrackedRoom.stay(player: String, from: Int, count: Int) {
+        repeat(count) {
+            ticks.merge(player, 1, Int::plus)
+            onPresence(player, from + it)
+        }
+    }
+
+    /**
+     * The happy path, and the one thing this change must not cost: a room you were in from the
+     * start and did more of than anybody still writes its line.
+     */
+    @Test
+    fun `a room you were in from the start and did the most of is yours`() {
+        val room = room()
+        room.stay("Me", from = 1000, count = min * 4)
+        room.stay("Mate", from = 1000 + min, count = min)
+        room.clearedAtTick = 1000 + min * 4
+
+        assertTrue(RoomHistory.ownClear(room, self = "Me", topPlayer = "Me"))
+    }
+
+    /**
+     * Defect C, reported by the user: arriving as the checkmark lands used to write a ~1.5 s clear
+     * that beats every honest record for that room, permanently — the old bar was one second of
+     * presence and nothing else.
+     */
+    @Test
+    fun `walking in as the checkmark lands is not a record`() {
+        val room = room()
+        room.stay("Mate", from = 1000, count = min * 5)
+        room.stay("Me", from = 1000 + min * 4, count = min)
+        room.clearedAtTick = 1000 + min * 5
+
+        // Both halves refuse it independently, which is why they are two conditions and not one:
+        // the mate is top by time, and this client was not there when the room's clock started.
+        assertFalse(RoomHistory.ownClear(room, self = "Me", topPlayer = "Mate"))
+        // Even if hash order had handed the late arrival the top slot, it is still not from the
+        // start — so the second half is not decoration on the first.
+        assertFalse(RoomHistory.ownClear(room, self = "Me", topPlayer = "Me"))
+    }
+
+    /**
+     * The other direction, and the reason "most ticks" is required as well as "from the start".
+     *
+     * The fixture is built so that **only** the top-player half can refuse it: both members arrive
+     * on the same tick and both are still in the room when the checkmark lands, so
+     * `presentFromStart` says yes to each of them — the local player simply did less of the room.
+     * That is not a contrived shape: presence comes from map decorations, so stepping into a doorway
+     * for half a second stops the sightings without ending the stay, and the ticks diverge while the
+     * arrival does not.
+     *
+     * A fixture where the local player had also left would pass this test with the top-player check
+     * deleted, which is exactly what the first version of it did — measured, not feared. See probe H.
+     */
+    @Test
+    fun `being there from the start is not enough if somebody else did the room`() {
+        val room = room()
+        room.stay("Mate", from = 1000, count = min * 4) // 80 ticks, every one of them
+        room.stay("Me", from = 1000, count = min) // arrives with them
+        // Out of sight for half a second — inside the gap tolerance, so it is the same stay — then
+        // back until the clear.
+        room.stay("Me", from = 1000 + min + min / 2, count = min * 2 + min / 2)
+        room.clearedAtTick = 1000 + min * 4
+
+        val clearedAt = room.clearedAtTick!!
+        assertTrue(room.presentFromStart("Me", clearedAt), "the other half of the gate says yes")
+        assertTrue(room.presentFromStart("Mate", clearedAt))
+        assertTrue((room.ticks["Me"] ?: 0) < (room.ticks["Mate"] ?: 0), "and this is the only difference")
+
+        assertFalse(RoomHistory.ownClear(room, self = "Me", topPlayer = "Mate"))
+        assertTrue(RoomHistory.ownClear(room, self = "Mate", topPlayer = "Mate"))
+    }
+
+    /**
+     * The three ways the question has no answer at all. Each returns `false` rather than falling
+     * through to a record, because the file is append-only and a wrong line in it is forever.
+     */
+    @Test
+    fun `an unanswerable clear is not a record`() {
+        val anchored = room()
+        anchored.stay("Me", from = 1000, count = min * 2)
+        anchored.clearedAtTick = 1000 + min * 2
+
+        // The local player could not be resolved.
+        assertFalse(RoomHistory.ownClear(anchored, self = null, topPlayer = "Me"))
+
+        // The room never anchored: nothing says when its clock started, so nothing can say who was
+        // there for it. A pre-cleared room is this case too — it keeps a null anchor for its life.
+        val unanchored = room()
+        unanchored.stay("Me", from = 1000, count = min / 2)
+        unanchored.clearedAtTick = 1000 + min
+        assertNull(unanchored.enteredAtTick)
+        assertFalse(RoomHistory.ownClear(unanchored, self = "Me", topPlayer = "Me"))
+
+        // No clear tick, so there is no moment to ask "were you still here" about.
+        val unstamped = room()
+        unstamped.stay("Me", from = 1000, count = min * 2)
+        assertFalse(RoomHistory.ownClear(unstamped, self = "Me", topPlayer = "Me"))
+    }
+
+    /**
+     * The presence floor, isolated — and it took a second pass to isolate it.
+     *
+     * The first version of this case gave the local player `min - 1` ticks from tick 1000 and asked
+     * about tick 1080, so `presentFromStart`'s staleness half refused it 61 ticks out and the floor
+     * was never the thing under test. **Deleting the floor passed all 211 tests** while `ownClear`'s
+     * KDoc called the predicate total — the same guard-in-name-only species as probe H, found by the
+     * evaluator's probe K. A test whose name claims a guard it does not apply is worse than no test.
+     *
+     * The shape that genuinely reaches the floor is the fast clear: a room that goes green inside a
+     * second, where no stay reaches [ContributionTracker.MIN_TICKS] and
+     * [TrackedRoom.anchorOnClear] anchors on the arrival instead. `Duncan` on the one real M7 is
+     * exactly this — entered at 2990, cleared at 2996 — and there the local player satisfies
+     * `presentFromStart` on six ticks of presence. Without the floor that room writes a 0.3 s clear,
+     * which is defect C by another route.
+     *
+     * The three assertions before the gate are the case: every *other* condition says yes, and only
+     * the floor says no.
+     */
+    @Test
+    fun `the presence floor is the one thing wrong with a room that cleared in six ticks`() {
+        val room = room()
+        room.stay("Me", from = 2990, count = 6)
+        assertNull(room.enteredAtTick, "six ticks is not a qualifying stay")
+        assertTrue(room.anchorOnClear(2996), "so the fallback anchors it on the arrival")
+        room.clearedAtTick = 2996
+
+        assertTrue(room.presentFromStart("Me", 2996), "the from-the-start half says yes")
+        assertTrue((room.ticks["Me"] ?: 0) < min, "and the floor is the only thing left")
+        assertFalse(RoomHistory.ownClear(room, self = "Me", topPlayer = "Me"))
+    }
+
+    /**
+     * The floor is unreachable through `onRoomCleared`, which is why no fixture built from that path
+     * could ever have exercised it — recorded as a property rather than left as folklore.
+     * `eligible` is filtered to members at or above the floor *before* `topPlayer` is taken from it,
+     * so `self == topPlayer` implies the floor there. The predicate is `internal` and directly
+     * callable, so it keeps the check anyway; the case above is what holds it.
+     */
+    @Test
+    fun `the caller cannot produce a top player below the floor`() {
+        val room = room()
+        room.stay("Me", from = 1000, count = min - 1)
+        room.stay("Mate", from = 1000, count = min * 4)
+        room.clearedAtTick = 1000 + min * 4
+
+        val eligible = room.ticks.filterValues { it >= ContributionTracker.MIN_TICKS }
+        assertEquals("Mate", eligible.maxByOrNull { it.value }?.key, "onRoomCleared's own computation")
+        assertFalse(eligible.containsKey("Me"), "a member below the floor never reaches topPlayer")
+        assertFalse(RoomHistory.ownClear(room, self = "Me", topPlayer = "Mate"))
+    }
+
+    /**
+     * Defect A, reported by the user: *"wenn ich in einen Raum komme wo jemand secrets macht, und
+     * ich nur 1 oder 2 mache bekomme ich trotzdem die PB gutgeschrieben"*. `onSecretRun` recorded
+     * the run unconditionally with [TrackedRoom.ownSecrets] sitting one field away, so a party-wide
+     * measurement was filed as a personal best.
+     *
+     * The user chose the strict end knowing what it costs: `ownSecrets` is counted conservatively —
+     * an own click or the wither-essence chat line, nothing else — so party records become rare.
+     */
+    @Test
+    fun `a secret run is yours only when every secret in it was`() {
+        val all = room().also { it.secretsFound = 5; it.ownSecrets = 5 }
+        assertTrue(RoomHistory.ownSecretRun(all))
+
+        // One short is not "mostly yours", it is somebody else's run with your name on it.
+        val almost = room().also { it.secretsFound = 5; it.ownSecrets = 4 }
+        assertFalse(RoomHistory.ownSecretRun(almost))
+
+        val theirs = room().also { it.secretsFound = 5; it.ownSecrets = 1 }
+        assertFalse(RoomHistory.ownSecretRun(theirs))
+    }
+
+    /**
+     * `0 == 0` is true and must not be the answer here. A room where nothing was ever counted has no
+     * run to own, and a vacuous truth is exactly the shape of bug this whole feature is removing.
+     */
+    @Test
+    fun `a room where nothing was counted owns nothing`() {
+        assertFalse(RoomHistory.ownSecretRun(room()))
+        assertFalse(RoomHistory.ownSecretRun(room().also { it.ownSecrets = 3 }))
     }
 }

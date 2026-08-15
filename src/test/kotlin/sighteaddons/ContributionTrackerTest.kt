@@ -1027,4 +1027,109 @@ class ContributionTrackerTest {
         assertTrue(ContributionTracker.onDeath("Alice", 100, ContributionTracker.DeathSource.CHAT))
         assertEquals(1, ContributionTracker.deaths)
     }
+
+    // --- was I here for this? (recordowner-001) ---
+
+    /**
+     * [TrackedRoom.presentFromStart] is the half [TrackedRoom.ticks] cannot supply. A tick total is
+     * a quantity with no position in it: forty ticks says nothing about *which* forty, so the player
+     * who walks in as the checkmark lands accumulates them exactly as fast as the player who was
+     * there from the first swing.
+     *
+     * This is the seam the clear record hangs off, so the cases below are about arrivals rather than
+     * about totals.
+     */
+    @Test
+    fun `a member who was there before the room's clock started was there from the start`() {
+        val room = room()
+        room.stay("Fighter", from = 1000, count = min * 3)
+        assertEquals(1000, room.enteredAtTick)
+
+        assertTrue(room.presentFromStart("Fighter", at = 1000 + min * 3))
+    }
+
+    /**
+     * The user's second report: *"wenn ich 'verspätet' in einen Raum komme der bereits von jemand
+     * anderem gecleart wird"*. The latecomer has more than the one second the old bar asked for and
+     * is still not the person who did the room.
+     */
+    @Test
+    fun `a member who arrived after the clock started was not there from the start`() {
+        val room = room()
+        room.stay("Fighter", from = 1000, count = min * 5)
+        // Walks in near the end and stays past the threshold — enough ticks, wrong ticks.
+        room.stay("Latecomer", from = 1000 + min * 4, count = min)
+        assertEquals(1000, room.enteredAtTick, "the room's clock is still the fighter's arrival")
+
+        val clearedAt = 1000 + min * 5
+        assertTrue(room.presentFromStart("Fighter", clearedAt))
+        assertFalse(room.presentFromStart("Latecomer", clearedAt))
+        // And it is not a tick-count problem: the latecomer is well past the eligibility bar.
+        assertTrue((room.ticks["Latecomer"] ?: 0) >= min)
+    }
+
+    /**
+     * "From the start" is not a fact about the past alone — the stay has to still be running when
+     * the checkmark lands. Only the most recent stay per member is kept, so a member who arrived
+     * first, left, and never came back would otherwise keep looking like the person who was here for
+     * it. The tolerance is the one `onPresence` continues a stay with, deliberately: a second,
+     * quieter notion of "still here" is how two guards start disagreeing.
+     */
+    @Test
+    fun `a member who left before the checkmark was not there for it`() {
+        val room = room()
+        room.stay("Fighter", from = 1000, count = min * 2)
+        assertEquals(1000, room.enteredAtTick)
+        val lastSeen = 1000 + min * 2 - 1
+
+        // Inside the tolerance the stay is still the same stay — this is the roster-skew blind spot
+        // around a death, not somebody leaving.
+        assertTrue(room.presentFromStart("Fighter", at = lastSeen + 1 + min))
+        // One tick further and `onPresence` would have begun a new stay, so this must agree.
+        assertFalse(room.presentFromStart("Fighter", at = lastSeen + 2 + min))
+    }
+
+    /**
+     * Coming back is a new stay, and a new stay begins after the room's clock did. The member did
+     * more of the room than anyone, and still did not do it from the start — which is the case the
+     * two halves of the gate are separate for.
+     */
+    @Test
+    fun `a member who came back is measured from the return, not the first visit`() {
+        val room = room()
+        room.stay("Wanderer", from = 100, count = min / 2) // a walk-through, anchors nothing
+        room.stay("Fighter", from = 1000, count = min * 4)
+        room.stay("Wanderer", from = 1000 + min * 2, count = min * 2)
+        assertEquals(1000, room.enteredAtTick)
+
+        val clearedAt = 1000 + min * 4
+        assertFalse(room.presentFromStart("Wanderer", clearedAt))
+        assertTrue(room.presentFromStart("Fighter", clearedAt))
+    }
+
+    /**
+     * A room with no anchor answers `false` for everybody, and that is a decision rather than a
+     * fallthrough. A null [TrackedRoom.enteredAtTick] means either a pre-cleared room — already done
+     * when we arrived, so there is no clear of ours to time — or a room where no stay reached the
+     * threshold and none had begun inside the fallback window. In the second case the presence data
+     * is too thin to say the room had a start at all, let alone who was there for it, and history is
+     * append-only: an unrecorded room costs nothing, a bogus record is permanent.
+     */
+    @Test
+    fun `a room that never anchored gives nobody a record`() {
+        val room = room()
+        room.stay("Passerby", from = 100, count = min / 2)
+        assertNull(room.enteredAtTick)
+
+        assertFalse(room.presentFromStart("Passerby", at = 200))
+        assertFalse(room.presentFromStart("Nobody", at = 200))
+    }
+
+    /** A member never seen in the room is not "from the start" by absence of evidence. */
+    @Test
+    fun `a member with no stay at all was not there from the start`() {
+        val room = room()
+        room.stay("Fighter", from = 1000, count = min * 2)
+        assertFalse(room.presentFromStart("Ghost", at = 1000 + min * 2))
+    }
 }
