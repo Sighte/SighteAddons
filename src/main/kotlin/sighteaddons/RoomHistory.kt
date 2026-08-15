@@ -197,9 +197,16 @@ object RoomHistory {
      * The *measurement* belongs to the room, not to one player — the clock runs from the first
      * secret to the last no matter whose hands took them, so the line names the room instead of
      * crediting somebody this client cannot identify. The **record** does not follow it: a time the
-     * party set is not a time you set, and [ownSecretRun] is what decides. The announcement stays
-     * either way, and it carries both counts, so a run somebody else did most of is still shown —
-     * it is simply not filed.
+     * party set is not a time you set, and [ownSecretRun] is what decides.
+     *
+     * **On the default settings the announcement stays either way** and carries both counts, so a
+     * run somebody else did most of is still shown — it is simply not filed. **With
+     * [Config.ownPbsOnly] on it does not**, and that is a real narrowing rather than an oversight:
+     * a refused run has a null `pb`, so `ownPbsOnly` now suppresses a line it used to print whenever
+     * the party's run beat the stored record. `ownPbsOnly` defaults to `false`, so most installs see
+     * no change, and on the installs that turn it on the new behaviour is arguably what the switch
+     * always meant. Stated rather than left for a reader to discover, because the unqualified
+     * version of this sentence read as coverage.
      */
     fun onSecretRun(room: TrackedRoom) {
         val name = room.name ?: return
@@ -242,13 +249,28 @@ object RoomHistory {
      * Neither implies the other. You can be top of a room you walked into late — everyone else left
      * before you arrived — and you can be there from the first tick and be third by time.
      *
-     * The [ContributionTracker.MIN_TICKS] floor stays as well, so the predicate is total rather than
-     * relying on the caller having filtered [topPlayer] out of an already-eligible map.
+     * **The [ContributionTracker.MIN_TICKS] floor is unreachable through the only caller there is,
+     * and it stays, and the reason is precise rather than "totality" in the abstract.**
+     * [onRoomCleared] filters `eligible` to members at or above the floor *before* it computes
+     * [topPlayer], so `self == topPlayer` already implies the floor there — which is exactly why no
+     * fixture built from that path can exercise it, and why deleting the line passed all 211 tests
+     * on 2026-08-15 while this paragraph claimed the predicate was total. That claim was the same
+     * species of defect this whole feature removes: a guard nothing holds, described as if something
+     * did. The line is kept because this is `internal` and directly callable, and the shape that
+     * reaches it is real — a room cleared inside a second, anchored by
+     * [TrackedRoom.anchorOnClear], where a member can satisfy [TrackedRoom.presentFromStart] on six
+     * ticks of presence. Without the floor that room records a 0.3 s clear, which is defect C by
+     * another route. It is now exercised by exactly that fixture ('the presence floor is the one
+     * thing wrong with a room that cleared in six ticks'), so the claim is held by a test and not by
+     * this sentence.
      *
      * A null [self] is a `false`: the local player is not resolvable, so there is nobody to record
      * for. A null [TrackedRoom.clearedAtTick] is a `false` too — this runs from the clear path where
      * it has just been stamped, so a null means the room did not arrive here the way it is supposed
      * to, and guessing is the one thing an append-only file cannot afford.
+     *
+     * Each condition is on its own line on purpose: the sweep in `build/recordprobe.py` deletes them
+     * one at a time, and a compound condition is a condition that cannot be probed alone.
      *
      * **A tie is unchanged and still arbitrary.** [topPlayer] is `maxByOrNull` over a `HashMap`, so
      * two members on exactly the same tick count resolve in hash order. That is pre-existing
@@ -256,7 +278,8 @@ object RoomHistory {
      * decision the user has not been asked for. Recorded rather than silently inherited.
      */
     internal fun ownClear(room: TrackedRoom, self: String?, topPlayer: String): Boolean {
-        if (self == null || self != topPlayer) return false
+        if (self == null) return false
+        if (self != topPlayer) return false
         if ((room.ticks[self] ?: 0) < ContributionTracker.MIN_TICKS) return false
         val at = room.clearedAtTick ?: return false
         return room.presentFromStart(self, at)
@@ -273,12 +296,29 @@ object RoomHistory {
      * bekomme ich trotzdem die PB gutgeschrieben"*. [TrackedRoom.ownSecrets] was sitting one field
      * away from the call and was never consulted.
      *
-     * **What this costs, stated rather than discovered later: party secret records become rare.**
-     * [TrackedRoom.ownSecrets] is counted conservatively on purpose — an own click inside
-     * [SecretTracker.OWN_WINDOW], or the wither-essence chat line, and nothing else — so a secret
-     * that was genuinely yours but that neither signal caught reads as somebody else's and sinks the
-     * whole run. That direction is deliberate: the failure mode of the loose gate is a permanent
-     * wrong record, and the failure mode of the strict one is a missing one.
+     * **WHAT THIS COSTS, MEASURED. Roughly nine records in ten, solo included — not "party records
+     * become rare", which is what this paragraph said until 2026-08-15 and which was wrong about
+     * both the size and the cause.** Replayed over the fifteen real session logs on this machine
+     * with `python build/ownsecrets.py`: of **87** completed secret runs (`secret_run_done`, which
+     * carries exactly the two numbers this compares), **12 survive this gate — 13.8%**. Split by
+     * roster it is **2 of 23** on single-member sessions and **10 of 64** on party sessions, so a
+     * solo floor is hit as hard as a party one. On the committed floor
+     * (`docs/evidence/session-1786719912927/`) four of five runs go: `Atlas 4/6`, `New Trap 2/3`,
+     * `Slime 2/5`, `Pipes 5/7`, and only `Chains 2/2` stays.
+     *
+     * **So the cause is not shared work, it is attribution.** On a solo floor every secret *was* the
+     * local player's by construction, and one of those logs records `Big Red Flag 0/2` — a room
+     * where the client credited itself with none of them. [TrackedRoom.ownSecrets] counts an own
+     * click inside [SecretTracker.OWN_WINDOW] plus the wither-essence chat line and nothing else, so
+     * a secret picked up by walking onto it, or by a click the 40-tick window missed, reads as
+     * somebody else's and sinks the whole run. That gap is real work and is recorded as
+     * `ownsecrets-001`; it is deliberately **not** fixed here, and this gate is deliberately not
+     * softened to compensate for it — the user was shown these numbers on 2026-08-15, was offered
+     * the majority rule `ownSecrets * 2 >= secretsFound`, and reaffirmed the strict rule.
+     *
+     * The direction remains the argument for it: the failure mode of the loose gate is a permanent
+     * wrong record, and the failure mode of the strict one is a missing one. What changed is that
+     * the price is now a number rather than an adjective.
      *
      * The `> 0` guard is not decoration. `0 == 0` would be vacuously true, and this must never be
      * the answer for a room where nothing was ever counted.

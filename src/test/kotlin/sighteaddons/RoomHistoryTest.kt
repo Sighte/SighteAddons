@@ -218,15 +218,56 @@ class RoomHistoryTest {
         assertFalse(RoomHistory.ownClear(unstamped, self = "Me", topPlayer = "Me"))
     }
 
-    /** Below the one-second bar the predicate refuses on its own, without help from the caller. */
+    /**
+     * The presence floor, isolated — and it took a second pass to isolate it.
+     *
+     * The first version of this case gave the local player `min - 1` ticks from tick 1000 and asked
+     * about tick 1080, so `presentFromStart`'s staleness half refused it 61 ticks out and the floor
+     * was never the thing under test. **Deleting the floor passed all 211 tests** while `ownClear`'s
+     * KDoc called the predicate total — the same guard-in-name-only species as probe H, found by the
+     * evaluator's probe K. A test whose name claims a guard it does not apply is worse than no test.
+     *
+     * The shape that genuinely reaches the floor is the fast clear: a room that goes green inside a
+     * second, where no stay reaches [ContributionTracker.MIN_TICKS] and
+     * [TrackedRoom.anchorOnClear] anchors on the arrival instead. `Duncan` on the one real M7 is
+     * exactly this — entered at 2990, cleared at 2996 — and there the local player satisfies
+     * `presentFromStart` on six ticks of presence. Without the floor that room writes a 0.3 s clear,
+     * which is defect C by another route.
+     *
+     * The three assertions before the gate are the case: every *other* condition says yes, and only
+     * the floor says no.
+     */
     @Test
-    fun `the presence floor is enforced by the gate itself`() {
+    fun `the presence floor is the one thing wrong with a room that cleared in six ticks`() {
+        val room = room()
+        room.stay("Me", from = 2990, count = 6)
+        assertNull(room.enteredAtTick, "six ticks is not a qualifying stay")
+        assertTrue(room.anchorOnClear(2996), "so the fallback anchors it on the arrival")
+        room.clearedAtTick = 2996
+
+        assertTrue(room.presentFromStart("Me", 2996), "the from-the-start half says yes")
+        assertTrue((room.ticks["Me"] ?: 0) < min, "and the floor is the only thing left")
+        assertFalse(RoomHistory.ownClear(room, self = "Me", topPlayer = "Me"))
+    }
+
+    /**
+     * The floor is unreachable through `onRoomCleared`, which is why no fixture built from that path
+     * could ever have exercised it — recorded as a property rather than left as folklore.
+     * `eligible` is filtered to members at or above the floor *before* `topPlayer` is taken from it,
+     * so `self == topPlayer` implies the floor there. The predicate is `internal` and directly
+     * callable, so it keeps the check anyway; the case above is what holds it.
+     */
+    @Test
+    fun `the caller cannot produce a top player below the floor`() {
         val room = room()
         room.stay("Me", from = 1000, count = min - 1)
         room.stay("Mate", from = 1000, count = min * 4)
         room.clearedAtTick = 1000 + min * 4
 
-        assertFalse(RoomHistory.ownClear(room, self = "Me", topPlayer = "Me"))
+        val eligible = room.ticks.filterValues { it >= ContributionTracker.MIN_TICKS }
+        assertEquals("Mate", eligible.maxByOrNull { it.value }?.key, "onRoomCleared's own computation")
+        assertFalse(eligible.containsKey("Me"), "a member below the floor never reaches topPlayer")
+        assertFalse(RoomHistory.ownClear(room, self = "Me", topPlayer = "Mate"))
     }
 
     /**
