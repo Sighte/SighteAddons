@@ -5,10 +5,15 @@ from scratch each session. Standing facts — the toolchain, the quoting traps, 
 and the code invariants a tidy-up would break — are in `ENVIRONMENT.md`. Read that; do not rewrite
 it. Past sessions are in `claude-progress.md` and, beyond the last two, in `git log`.
 
-**Branch state:** `main` is at `38b5528` with 0.12.0 released and **PR #50 merged** — the two
-secret-count features. No branch is open. The leftover mutation probe that sat uncommitted in
-`RoomHistory.kt:449` (it made the `ofTotal == null` arm print "of null") is stashed, not lost:
-`git stash list` in this repository.
+**Branch state:** **0.13.0 is released** — PR #50 merged the two secret-count features, `v0.13.0`
+is tagged and published on GitHub, and Modrinth version `wS3OCLGl` carries the identical jar. No
+branch is open. The leftover mutation probe that sat uncommitted in `RoomHistory.kt:449` (it made
+the `ofTotal == null` arm print "of null") is stashed, not lost: `git stash list`.
+
+**The release does not reach players and the reason is not in this repository.** The Modrinth
+project answers 404 to anyone not logged in — it is still awaiting review — so the build is
+downloadable by direct CDN link and by nothing else. See Current Verified State in
+`claude-progress.md`. Publishing the project is the user's step.
 
 ## Verified Now
 

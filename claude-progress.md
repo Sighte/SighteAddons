@@ -9,11 +9,22 @@ measured at the time is in its own log entry below, and beyond the last two, in 
 
 - Repository root: the directory holding `build.gradle` and `gradlew` (clone of
   `Sighte/SighteAddons`). Environment, invariants and probe scripts: `ENVIRONMENT.md`.
-- **`main` is at `38b5528`, `mod_version` is 0.12.0, and 0.12.0 is released.** `dist/` holds
-  `sighteaddons-0.12.0.jar`, sha256
-  `378bec73a535c22ce52bfb5449ec0803242d5b773f1001c55af57c98e0f08c0b`; the same bytes are on the
-  GitHub release under tag `v0.12.0` and on Modrinth (version `diMDvw5I`, verified by comparing the
-  uploaded sha1, not assumed).
+- **`mod_version` is 0.13.0 and 0.13.0 is released.** `dist/` holds
+  `sighteaddons-0.13.0.jar`, sha256
+  `d6dafa1d81b46a769b62a78ec4428f97a18c849e0429bca1d0d57bd153015bf3`; the same bytes are on the
+  GitHub release under tag `v0.13.0` and on Modrinth (version `wS3OCLGl`, `listed`), verified by
+  comparing sha1 `c3f584598b4121cb36f0eab3cbda7b35b4c1f6e1` three ways rather than assumed. The
+  build is reproducible here: two `--rerun-tasks` builds gave byte-identical jars.
+- **A GREEN MODRINTH UPLOAD IS NOT A BUILD PLAYERS CAN FIND.** Measured anonymously on 2026-08-16,
+  and it is the single thing standing between this repository and its users:
+  `api.modrinth.com/v2/project/XuCA5Jje` and `/v2/version/wS3OCLGl` both answer **404**, while
+  `api.modrinth.com/v2/search` answers 200 — so it is the project, not the network. The CDN file
+  itself *is* reachable (**200**), so a direct link works and nothing else does: the project is not
+  browsable, not searchable, and not installable the way anybody actually installs a mod. The
+  workflow says why in its own comment — "a project still awaiting Modrinth's review is not
+  readable" — and it authenticates for exactly that reason, which is also why the run goes green
+  regardless. **Publishing the Modrinth project is a step only the user can take**, and until it is
+  taken, every release including this one reaches nobody through Modrinth.
 - **No branch is open.** PR #50 merged `secretcount-001` and `secretapi-001` into `main` as
   `38b5528`, rebased first so the diff is `src/` only and this repository's pruned artifacts
   survived it. The leftover mutation probe that sat uncommitted in `RoomHistory.kt:449` is
