@@ -86,14 +86,21 @@ This repository is worked on in long-running sessions. Prioritize reliable compl
 across sessions, and explicit verification over speed. Everything above stays in force — the release
 gate is what happens when a version bump lands, this is what happens on every ordinary day.
 
-At the start of every session:
+That priority has a limit, found the hard way: an artifact too large to read cheaply stops being the
+system of record and becomes a tax on every session after it. See "Artifact Retention" below.
+
+At the start of every session — read what is named, not the whole file:
 
 1. Confirm you are in this repository root (`build.gradle` and `gradlew` are here).
-2. Read `claude-progress.md`, the "Current Verified State" section first.
-3. Read `feature_list.json`.
-4. `git log --oneline -5`.
-5. Run `./init.sh` and note the reported baseline status.
-6. If the baseline is FAILING, repairing it is the active task. Do not start or continue any feature
+2. Read the **"Current Verified State"** section of `claude-progress.md`. The session log below it is
+   the last two sessions; read it only if the current state does not explain something.
+3. Read the `rules` block of `feature_list.json` and **the entry for your feature**. You do not need
+   the others.
+4. Read `ENVIRONMENT.md` — the toolchain, the quoting traps that make a probe silently do nothing,
+   the probe scripts, and the code invariants a tidy-up would break. Read it; do not rewrite it.
+5. `git log --oneline -5`.
+6. Run `./init.sh` and note the reported baseline status.
+7. If the baseline is FAILING, repairing it is the active task. Do not start or continue any feature
    until it is green again. Record the repair as evidence in the progress log.
 
 Then select exactly one unfinished feature — respecting `depends_on` order — and work only on that
@@ -138,18 +145,52 @@ The reverse order loses every run of that build, permanently.
 Before touching `RunReport.kt`, diff the fields it writes against `RUN_KEYS` in the receiver's
 `ingest.py`. Note the paired feature id in the `notes` field of `feature_list.json` on both sides.
 
+### Artifact Retention
+
+**`git log` is the audit trail. These files carry current state.** Anything removed stays
+recoverable with `git show <hash>:<file>`, so a prune commit names what it removed and the hash it
+was last complete at.
+
+| File | Keeps | Ceiling |
+|---|---|---|
+| `claude-progress.md` | Current Verified State in full; the **last 2 sessions** of the log | ~400 lines |
+| `feature_list.json` | For `passing`: **one** evidence entry — the one that proves it | `notes` ≤ 600 chars, `result` ≤ 300 |
+| `evaluator-rubric.md` | **The current pass only** | 120 lines per pass |
+| `session-handoff.md` | Changeable state only; standing facts live in `ENVIRONMENT.md` | 150 lines |
+| `quality-document.md` | Current grades only, **one row per domain** | ~120 lines |
+
+Open features (`not_started`, `blocked`) keep their `notes` in full — that is the next session's
+brief, not history. Code invariants belong in `ENVIRONMENT.md` and in the KDoc at the site, where a
+tidy-up will actually meet them.
+
+**Current Verified State means the state, not a stack of corrections.** A session that finds a line
+there wrong rewrites that line. Superseding it in a new paragraph is how that section reached 276
+lines carrying five different values for `main`, four for `mod_version`, and one bullet that had
+lost its opening sentence.
+
+The test that matters: **an artifact too large to change with an ordinary string edit is too large.**
+If you are writing a script to edit one of these files, the file has outgrown its ceiling. On
+2026-08-16 this set was 448 KB and `build/` held ~110 KB of throwaway Python whose only purpose was
+editing it.
+
 ### What Counts as Evidence
 
 "Runnable evidence" means something the next session can re-execute or inspect. Every evidence entry
 in `feature_list.json` must contain:
 
 - the exact command that was run,
-- the relevant output excerpt (or test name and result),
+- the relevant output excerpt (or test name and result), ≤ 300 characters,
 - the commit hash the verification ran against,
 - optionally an artifact path (a `run/config/sighteaddons/debug/session-<millis>.jsonl`, a log).
 
 "I tested it manually" without a reproducible command is not evidence. For anything that only shows
 up in a real dungeon, the evidence is the debug session file and which line in it proves the claim.
+
+Record the command you would actually re-run. **`--rerun-tasks` is not a default**: it forces
+recompilation and defeats the up-to-date check. It belongs in evidence when the point being proved
+is that nothing was cached — a mutation probe, or the release gate — and nowhere else, or it
+fossilizes into every later session's copy of the command. It was in 39 recorded commands here
+before 2026-08-16.
 
 ### Regression Policy
 
@@ -165,24 +206,40 @@ Before moving any feature to `passing`:
 - `feature_list.json`
 - `claude-progress.md`
 - `init.sh`
-- `session-handoff.md` — overwrite it at the end of every session
-- `quality-document.md` — update after each significant session
+- `session-handoff.md` — current state at the end of every session
+- `ENVIRONMENT.md` — only when the environment or an invariant actually changed
+- `quality-document.md` — only when a grade actually moved
 
 ### Completion Gate
 
 A feature moves to `passing` only after its `verification_command` succeeds, the regression check
 ran, and the evidence is recorded in `feature_list.json`.
 
-Final acceptance of a phase of work is done with `evaluator-rubric.md`, filled in by a fresh session
-or subagent using repository artifacts only — never by the session that implemented the work.
+Final acceptance is done with `evaluator-rubric.md`, filled in by a fresh session or subagent using
+repository artifacts only — never by the session that implemented the work.
+
+**Evaluation is required for:** a change to the report schema, anything that pulls the release gate
+at the top of this file, `priority` ≤ 3, and any feature that caused a regression. Everything else
+is the orchestrator's call, recorded with its reason. Grading every feature costs a full agent pass
+each, and the regression check — 212 tests in ~1.1 s — is what actually catches breakage.
+
+**Nits do not cost points.** A finding about wording, documentation or the precision of an artifact
+goes in "Required Follow-Up" and must not lower a score. Only behaviour, evidence or a regression
+moves a number. `clearpoints-001` took three passes without its behaviour meaningfully changing
+between the second and the third.
 
 ### Before You Stop
 
-1. Update `claude-progress.md` (Current Verified State + a new session entry at the top of the log).
-2. Update the feature states in `feature_list.json`.
+1. Update `claude-progress.md`: Current Verified State **in place**, plus **one** session entry,
+   **≤ 40 lines**. A revision to work you already recorded amends that entry rather than adding a
+   second one.
+2. Update the feature states in `feature_list.json`, within the retention ceilings above.
 3. Record what is still broken or unverified.
-4. Update `quality-document.md` if grades changed.
-5. Overwrite `session-handoff.md`.
+4. Update `quality-document.md` **only if a grade moved**.
+5. Bring `session-handoff.md` up to date — amend the sections that changed rather than rewriting it.
 6. Commit once the repository is safe to resume — on a branch, and a version bump takes the release
    gate at the top of this file with it.
 7. Leave a clean restart path for the next session.
+
+Writing more than this does not make the handoff better. The next session pays for every line of it
+before it can start.

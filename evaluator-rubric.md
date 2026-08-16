@@ -13,8 +13,23 @@ finding (score Handoff readiness 0).
 The evaluator must re-run the relevant `verification_command`s, not just
 read the recorded evidence.
 
----
 
+**When it is required:** a change to the report schema, anything that pulls the release gate, a
+`priority` <= 3 feature, or a feature that caused a regression. Otherwise the orchestrator decides
+and records why.
+
+**Nits do not cost points.** A finding about only wording, documentation, or the precision of an
+artifact goes under "Nits" and must not lower a score. Only behaviour, evidence or a regression
+moves a number. `clearpoints-001` took three passes without the code's behaviour meaningfully
+changing between the second and the third.
+
+**This file holds the current pass only, in <= 120 lines.** Pass 1 on `recordowner-001` (REVISE,
+11/14) was dropped on 2026-08-16 and is complete at `0852382`
+(`git show 0852382:evaluator-rubric.md`). An open finding must not live only here: this file is
+rewritten wholesale every pass, which is how `residue-001`'s finding came to be hand-copied forward
+by two reviewers before it was moved into `feature_list.json`. Put findings where the work is.
+
+---
 # Pass 2 — `recordowner-001` at `ad3df34` — **ACCEPT, 13 / 14**
 
 **Evaluated:** `recordowner-001` — "A record is only yours when the work was yours".
@@ -50,121 +65,11 @@ it is guarded — not the threshold.
    the reconciliation section; it is why my 80 and their 87 are both correct and neither should have
    been transcribed as a bare integer.
 
-### Commands re-run at `ad3df34`, and what they actually printed
 
-| Command | Result |
-| --- | --- |
-| `bash init.sh` | `==> BASELINE: PASSING` |
-| `./gradlew test --tests 'sighteaddons.SecretRunTest' --tests 'sighteaddons.RoomHistoryTest' --tests 'sighteaddons.ContributionTrackerTest' --rerun-tasks` (the `verification_command`, verbatim) | `BUILD SUCCESSFUL in 8s`. **SecretRun 11 / RoomHistory 13 / ContributionTracker 54, 0 failures, 0 errors, 0 skipped.** Matches the claimed 11 / 13 / 54 |
-| `./gradlew test --rerun-tasks`, summed from `build/test-results/test/TEST-*.xml` | **`classes 15 tests 212 failures 0 errors 0 skipped 0`.** The delta from pass 1's 211 is **`RoomHistoryTest` 12 → 13 and nothing else** — every other class identical. Nothing was lost to gain the new case |
-| `md5sum dist/*.jar; ./gradlew assemble check; md5sum dist/*.jar` | `BUILD SUCCESSFUL in 5s`; md5 **`e8cd7099034dd3475dbc8069be3c433e` identical both sides**; `git status --short dist/ gradle.properties` **empty**; `mod_version=0.11.0`. `./gradlew build` was not run |
-| `python build/keydiff.py` | `SCHEMA 5`, 17 run keys, 17 room keys, **four empty sets both directions**, `KEYDIFF: CLEAN` |
-| `git diff main..HEAD --name-only` | 12 files. **`RunReport.kt` absent**, as are `rooms.json`, `gradle.properties` and `dist/`. `RunReport.kt:67` still `SCHEMA = 5` |
-| Receiver | `SighteAddonServerside` on `master` at `018cee5`, `git status --porcelain` **empty**. Read, never written |
-| **`bash build/evalsweep.sh`** — my own crash-safe driver over their 21 probes | **21 / 21 met their declared expectation**, `EVAL SWEEP OK`, `git status --porcelain src/` empty **before the first probe and after the last**, and every probe carries a `git diff --numstat` proof that the mutation reached the tree before the tests ran |
-| **Probe K specifically** — pass 1's finding | **`caught`**, failing exactly `RoomHistoryTest > the presence floor is the one thing wrong with a room that cleared in six ticks`. It passed all 211 tests in pass 1. The hole is closed and the closure is measured |
-| Deletion / weakening, **whole branch** | vs `main`: **0** `@Test` lines removed, **0** assertion lines removed, and the only removed line in all of `src/test/` is the one-line `room()` helper. Intra-pass (`4e2db23..ad3df34`): 0 `@Test` removed, **1** assertion changed — see below, it strengthens |
-| Feature-status diff vs `main` | `recordowner-001` added as `passing`; `ownsecrets-001` added as `not_started`. **Nothing downgraded, removed or reworded** |
-| `python build/ownsecrets.py` | Read-only, writes nothing. Printed **90** completed runs / 12 kept / 13.3% / 2 of 23 solo / 10 of 67 party — **not** the recorded 87 / 13.8% / 10 of 64. Explained below, and it is not an error |
-
-### The `ownClear` two-line split — the claim I was told to be hostile about
-
-The claim is that the only behaviour change in this pass was `ownClear`'s conditions moving onto
-separate lines, "identical logic". **Verified against the diff, and it is true.**
-
-```
--        if (self == null || self != topPlayer) return false
-+        if (self == null) return false
-+        if (self != topPlayer) return false
-```
-
-`||` short-circuits, so the old form returns `false` on a null `self` without evaluating the second
-operand, and otherwise returns `false` iff `self != topPlayer`. The new form does the same in the
-same order. No condition is inverted, none is dropped, none is added, and the remaining three lines
-of the function are untouched. **The split is not cosmetic — it is what makes probes U and H able to
-delete each half alone**, which is the discipline the whole sweep now rests on, and both come back
-`caught`.
-
-### Test 1 assertion changed intra-pass — checked, and it strengthens
-
-`git diff 4e2db23..ad3df34 -- src/test/` removes exactly three lines: a KDoc line, the old test name
-`the presence floor is enforced by the gate itself`, and
-`assertFalse(RoomHistory.ownClear(room, self = "Me", topPlayer = "Me"))`.
-
-That old assertion was the one pass 1 showed to be vacuous — `presentFromStart`'s staleness half
-refused the fixture 61 ticks out, so the floor was never under test. It is replaced by **two** tests:
-`the presence floor is the one thing wrong with a room that cleared in six ticks`, which reaches the
-floor through `anchorOnClear` and asserts every *other* condition says yes before asserting the gate
-refuses; and `the caller cannot produce a top player below the floor`, which keeps the old fixture
-and records why `onRoomCleared` can never reach the floor. **Probe K flipping from `uncaught` to
-`caught` is the proof that this is a strengthening and not a rename.** Justified in the KDoc, the
-progress log and the entry.
-
-### The 21-probe sweep, and whether the three exemptions are honest
-
-The sweep covers **every condition of every gate this feature added** — I enumerated them
-independently against the source: `onSecret`'s start guard (A, B, P, Q), `readBar`'s ordering and
-both its own conditions (C, D, R), `ownSecretRun`'s two (E, F), `ownClear`'s five (U, H, K, L, M,
-plus G for the pair), and `presentFromStart`'s three (J, N, O, I). Nothing is missing.
-
-I also checked the failure mode a sweep of this shape actually has: **a probe defined but absent from
-the `ORDER` list would never run and nothing would say so.** `PROBES` and `ORDER` are both exactly
-the same 21 keys — checked by parsing the file, not by reading it.
-
-**The three declared-uncaught exemptions are honest.** I verified each independently rather than
-accepting its stated reason:
-
-- **Q** (`max < 2` deleted) — genuinely redundant, not unguarded. `if (found >= max)` three lines
-  below reaches the same `DISCARDED` for a one-secret room; I read `onSecret` to confirm it. The
-  clause is pre-existing and states the intent where the intent is formed.
-- **S** and **T** (the two wiring lines ignore their own gates) — the feature's declared ceiling,
-  and I measured both `uncaught` myself in pass 1 before they were ever written down as expected.
-  They are recorded as "if this ever starts being caught, somebody has found a way to test the
-  wiring", which is the right framing: the exemption is a tripwire, not an excuse.
-
-**Where the mechanism is still weaker than the ten probes it replaces:** `SWEEP OK` compares only
-`caught` / `uncaught`, never the failure *count* or the failing test *name*. A probe that starts
-being caught by an unrelated test would still read "as expected". My driver captured counts and
-names for all 21 and they match pass 1 throughout — but nothing in the repository's own harness would
-notice the drift. Follow-up 3.
-
-### Reconciling 15 / 87 / 12 against my 16 / 80 / 9 — settled
-
-The coordinator asked me to decide which of us counted wrong. **Three separate things, and I was
-wrong about one of them:**
-
-1. **File count: they are right, 15. My "sixteen" in pass 1 was my own miscount** — I listed fifteen
-   files and wrote sixteen. Corrected here rather than left in the superseded section to be
-   inherited.
-2. **The party split: their method is better and supersedes mine.** They take the roster from
-   `tab_slot.parsed`, the actual roster readout; I took it from player names in `cleared` ticks maps,
-   which only ever contains members who were in a room that cleared, so sessions where the local
-   player was the only such member were misfiled as solo. Their 10 of 64 supersedes my 7 of 57.
-   **The single-member figure `2 of 23` is identical in both replays**, which is why it was the
-   figure worth agreeing on.
-3. **The run total is neither a file-set nor a method difference, and the entry attributes it to the
-   wrong cause.** Both replays scanned all fifteen logs. I re-counted per file: **fourteen of the
-   fifteen are byte-stable and agree exactly between my pass-1 scan and now. Exactly one grew** —
-   `session-1786750213806.jsonl`, from 4 completed runs to 15, whose mtime is **two minutes before I
-   measured it**. The user is playing right now. That is the whole of 80 → 87 → 90 → 91: my 80 was
-   true when I measured it, their 87 was true when they measured it, the script printed 90 for me
-   minutes ago and my own recount gives 91 now.
-
-**Consequence, and it is the one that matters for the release:** the bare integers now written into
-`feature_list.json`, `claude-progress.md`, `session-handoff.md`, `quality-document.md` and the KDoc
-are consistent with each other — which is the pass-1 defect fixed — but they are computed over a
-directory that is still being appended to, so they were stale before the ink dried. The figures that
-*cannot* drift are the committed floor's **four of five** and the ratio-with-command. Those are the
-ones that belong in an artifact. Follow-up 2.
-
-**Their two headline claims verified independently, both hold exactly.**
-`session-1786572786745.jsonl`: roster `['p-44e1f7eb']` — a single member — **8 completed runs, 0 kept**,
-`Stairs 3/4, Grand Library 3/4, Pirate 4/6, Pit 3/5, Overgrown 2/3, Big Red Flag 0/2, New Trap 2/3,
-Redstone Warrior 2/3`. It is the strongest single statement of the finding, and unlike the aggregate
-it is frozen — that file has not changed since 2026-08-13. And `RunReport.kt:420` does ship
-`obj.addProperty("ownSecrets", room.ownSecrets)`, so `ownsecrets-001`'s cross-repo flag is accurate:
-changing what `ownSecrets` *means* moves a shipped field's meaning without moving its key, which is
-the `clear-001` shape and needs the receiver diffed first.
+*The reconstruction this verdict rests on — the commands re-run, the `ownClear` split, the 21-probe
+sweep and its three honest exemptions, and the reconciliation of 15/87/12 against 16/80/9 — was
+dropped on 2026-08-16 and is complete at `0852382`. So was the release-notes section, which 0.12.0
+discharged when it was published.*
 
 ### Category scores
 
@@ -201,53 +106,6 @@ no key, no schema move, verified mechanically in both directions.
 decisions are pure predicates, exhaustively probed; the wiring genuinely needs a live client, unlike
 `scores-fetch-001` whose ceiling was a conflation; and probes S and T measure that ceiling every run
 rather than asserting it.
-
-## What the 0.12.0 release notes must tell a player
-
-The notes are generated out of `feature_list.json`, `claude-progress.md` and `session-handoff.md`, so
-this is the part of the verdict with the shortest path to a player.
-
-**How to describe the record change — behaviour first:**
-
-- Room records are now only written when the work was yours. A **secret-run** personal best is
-  recorded only when the mod counted *every* secret in that room as yours. A **room-clear** personal
-  best is recorded only when you were in the room from the moment its clock started *and* spent more
-  time in it than anyone else. Walking into a room somebody else is already clearing no longer
-  credits you with it, and neither does arriving as the checkmark lands.
-- **Say plainly that far fewer records will be written, and that this hits solo floors too.** On the
-  real logs measured for this build, roughly one completed secret run in seven still qualifies, and
-  the rate on single-player floors is no better. On a solo floor every secret was yours by
-  construction, so what is failing there is not the rule but the mod's *attribution*: a secret is
-  credited to you only if you right-clicked a chest, lever or secret skull within about two seconds,
-  or Hypixel named you in a wither-essence line. A secret picked up by walking over it counts as
-  somebody else's and sinks that room's whole run. Tracked as `ownsecrets-001` and **not fixed in
-  this build**. A player who sees their PBs stop appearing should read that sentence, not guess.
-- **Records already in `history.jsonl` are not repaired**, deliberately. Rooms whose best was set by
-  walking into somebody else's work keep that record and will simply never report a PB again.
-  Nothing is rewritten, reinterpreted or migrated.
-- The chat lines are unchanged: the room-clear line still names whoever actually cleared the room and
-  the secret-run line still carries `(N, M yours)`. One narrowing worth a clause: with **own PBs
-  only** switched on, a run the gate refuses no longer prints at all.
-
-**What is not verified — `CLAUDE.md` requires these be named rather than left to assumption:**
-
-- **Neither gate has ever run in a game.** The predicates are unit-tested and swept with 21
-  mutations, but the four lines that call them need a live client, and two probes (S, T) confirm
-  nothing in the test suite guards them.
-- **The secret-run gate now requires the mod to have read a `0/N` action bar on entering the room.**
-  If Hypixel does not deliver one on a bar the mod trusts, secret-run records stop entirely rather
-  than becoming rare. Two new debug fields — `secret_room_first_bar` and `firstBar` on
-  `secret_run_discarded` — exist so the first real floor answers this from the log instead of by
-  inference.
-
-**Do not put a bare "87 completed runs / 13.8%" in the notes.** That figure is computed over a log
-directory that is still being written to and was already 90, then 91, within minutes of being
-recorded. Quote the committed floor — *four of five records on the one real solo floor in the
-repository* — or the ratio with the command that reproduces it. Both are stable; the integer is not.
-
-**Nothing here is owed to `Sighte/skyblock-server`.** This is a client-side change: no report field,
-no schema move, `SCHEMA` stays 5. Nothing has to be deployed before this jar. That belongs in the
-GitHub notes' operator section and, per `CLAUDE.md`, stays out of the Modrinth copy.
 
 ## Required Follow-Up
 
@@ -326,31 +184,3 @@ near them, which is the measurement that decides what the feature actually is.
 
 ---
 
-# Pass 1 — `recordowner-001` at `4e2db23` — **REVISE, 11 / 14** (superseded, retained)
-
-Full text in git at `e5cf586`. Retained here rather than overwritten, because this file's contract is
-that it is rewritten each pass and that has already cost this repository findings once.
-
-**Verdict:** REVISE. Correctness 2, **Verification 1**, Regression 2, Scope 2, Reliability 2,
-**Maintainability 1**, **Handoff readiness 1**.
-
-Every recorded number reproduced and all ten of that pass's probes reproduced to the exact failing
-test name, including probe H, which the session honestly recorded as having passed all 211 tests
-before it rebuilt the fixture. The two findings that held it below Accept:
-
-1. **The stated cost of the strict gate was wrong in scope** — "party secret records become rare",
-   against a committed repository artifact showing four of five records lost on a *solo* floor.
-   **Answered at `ad3df34`**: replayed with `build/ownsecrets.py`, cause correctly re-diagnosed as
-   attribution rather than shared work, corrected consistently in five artifacts, and opened as
-   `ownsecrets-001`.
-2. **A second guard in name only** — deleting `ownClear`'s `MIN_TICKS` floor failed zero of 211
-   tests while a test name and a KDoc claimed otherwise (probe K). **Answered at `ad3df34`**: fixed
-   as a property via the fast-clear shape, probe K now `caught`, and the unreachability through
-   `onRoomCleared` recorded as its own test.
-
-Also raised and now fixed: the `onSecretRun` "announcement stays either way" over-claim; the
-`quality-document.md` `scoring` row promoted from the superseded copy; the handoff's claim that one
-real session log existed when fifteen do.
-
-**One error of my own in that pass, corrected in pass 2 follow-up 5:** I wrote "sixteen real session
-logs" where I had listed fifteen. The count is 15.
