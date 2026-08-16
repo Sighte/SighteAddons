@@ -74,6 +74,9 @@ object DungeonSession {
         // which could not see a report written on the way out.
         RunReport.reset()
         ContributionTracker.reset()
+        // Counted against `runTicks`, so it is forgotten where `runTicks` is: a run that inherited
+        // the previous floor's idle time would report a number describing two runs.
+        IdleTime.reset()
         PartyTracker.reset()
         SecretTracker.reset()
         DungeonTab.reset()

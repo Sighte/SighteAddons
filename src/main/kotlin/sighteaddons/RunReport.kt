@@ -63,8 +63,15 @@ object RunReport {
      * `STAY_ANCHOR_SCHEMA` sends `v` below 5 to its `clear` bucket and 5 or above to `clearStay`,
      * and never mixes them. Shipping the new anchor with this left at 4 is therefore silent: no 400,
      * no log line, just a permanently contaminated mean in an append-only store.
+     *
+     * 6 added `idleTicks` and `navTicks` ([IdleTime]) — where a run's time went that was neither
+     * clearing nor secrets. **The receiver learned them first and is already deployed**: they are in
+     * its `RUN_OPTIONAL`, not `RUN_KEYS` (`ingest.py`, `skyblock-server` `master` `1a7f435`), so the
+     * v5 reports sitting in uploaders' backlogs still validate — a required key would `400` them and
+     * `TelemetryUpload` never retries a `400`. Nothing else moved: `STAY_ANCHOR_SCHEMA` is `>= 5`,
+     * so `enterTick` keeps its `clearStay` bucket at 6 and no earlier line changes meaning.
      */
-    private const val SCHEMA = 5
+    private const val SCHEMA = 6
 
     /**
      * Whether this run has already been handed to the queue.
@@ -188,6 +195,10 @@ object RunReport {
             floor = reportedFloor(),
             complete = complete,
             runTicks = DungeonSession.runTicks,
+            // Read here rather than inside [build] for the same reason every other number is: the
+            // payload is assembled at the call site and [build] stays pure over what it is handed.
+            idleTicks = IdleTime.idleTicks,
+            navTicks = IdleTime.navTicks,
             roster = PartyTracker.roster(),
             rooms = rooms,
             roomsCleared = ContributionTracker.roomsCleared,
@@ -333,6 +344,10 @@ object RunReport {
          *  complete is a permanent claim about a whole run that nobody played. */
         complete: Boolean,
         runTicks: Int,
+        /** [IdleTime.idleTicks]: inside an already-cleared room with no secret run active. */
+        idleTicks: Int,
+        /** [IdleTime.navTicks]: inside no room at all. */
+        navTicks: Int,
         roster: List<DungeonPlayer>,
         rooms: List<TrackedRoom>,
         roomsCleared: Int,
@@ -357,6 +372,15 @@ object RunReport {
         // played, and only this field separates that from a whole one.
         obj.addProperty("complete", complete)
         obj.addProperty("runTicks", runTicks)
+        // Schema 6, and directly behind the number they are a part of. **Both or neither**: the
+        // receiver reads absence as "this build does not count them", so sending one alone would
+        // claim the other was zero. They are always written here, because this build always counts
+        // them — a run that spent no time idle honestly reports 0, which is a different fact from
+        // not having measured it. Deliberately not clamped against `runTicks`: the receiver does not
+        // check it either (see its ponytail note under RUN_FIELDS), and a 400 costs the whole run
+        // and all of its rooms permanently while an implausible number merely looks wrong.
+        obj.addProperty("idleTicks", idleTicks)
+        obj.addProperty("navTicks", navTicks)
         obj.addProperty("partySize", roster.size)
         obj.addProperty("roomsCleared", roomsCleared)
         // Settled here rather than at the call site: [build] is the contract, so a caller that

@@ -167,6 +167,13 @@ class SighteAddons : ClientModInitializer {
         // The party barely changes during a run; re-reading the tab list once a second is plenty.
         if (DungeonSession.runTicks % 20 == 0) PartyTracker.update(client)
         ContributionTracker.tick(client, map)
+        // After the tracker, because the room the player is standing in may only have been
+        // discovered by the call above — on the tick you cross a threshold, asking first would count
+        // the arrival as navigation. In the same loop that advances `runTicks`, which is what makes
+        // `idleTicks + navTicks <= runTicks` true rather than merely intended, and *inside* the two
+        // early returns above: the boss advances the clock without being either a room or a
+        // corridor, and counting it as navigation would make every run look like an hour of walking.
+        IdleTime.tick(currentRoom(client))
     }
 
     private fun onActionBar(text: String) {
@@ -297,6 +304,12 @@ class SighteAddons : ClientModInitializer {
         // DISCONNECT path deliberately does not reset (see the comment on its registration above),
         // which is what makes this a read of the existing shared state rather than a new one.
         if (Config.showSecrets) line(SecretHud.line(currentRoom(client), ContributionTracker.visitedRooms()), WHITE)
+
+        // Same anchoring argument and the same thread argument as the line above: two run-level
+        // counters that keep saying something while you are between rooms, which is precisely when
+        // one of them is the number that is moving. The read is of two `Int`s the client thread
+        // itself advances in `onTick` — nothing off-thread writes them (see IdleTime).
+        if (Config.showIdle) line(IdleTime.line(), GREY)
 
         if (Config.showRoom) currentRoom(client)?.let { room ->
             val self = client.player?.name?.string

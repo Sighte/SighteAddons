@@ -38,6 +38,8 @@ class RunReportTest {
         floor = floor,
         complete = complete,
         runTicks = 8000,
+        idleTicks = 490,
+        navTicks = 1340,
         roster = listOf(DungeonPlayer("Sighte", "Berserk", "VII"), DungeonPlayer("Stranger", "Mage", "L")),
         rooms = listOf(room("Catwalk", mapOf("Sighte" to 300, "Stranger" to 15))),
         roomsCleared = 7,
@@ -50,7 +52,7 @@ class RunReportTest {
     @Test
     fun `run context survives`() {
         val json = report()
-        assertEquals(5, json["v"].asInt)
+        assertEquals(6, json["v"].asInt)
         assertEquals("M5", json["floor"].asString)
         assertEquals(2, json["partySize"].asInt)
         assertEquals(1.25, json["unattributed"].asDouble)
@@ -105,6 +107,8 @@ class RunReportTest {
             floor = "M5",
             complete = true,
             runTicks = 8000,
+            idleTicks = 490,
+            navTicks = 1340,
             roster = listOf(
                 DungeonPlayer("Sighte", "Berserk", "VII"),
                 DungeonPlayer("Stranger", "DEAD", "", livingClass = "Mage", livingLevel = "L"),
@@ -195,6 +199,8 @@ class RunReportTest {
             floor = "M5",
             complete = true,
             runTicks = 8000,
+            idleTicks = 490,
+            navTicks = 1340,
             roster = listOf(DungeonPlayer("Sighte", "Berserk", "VII")),
             rooms = listOf(untouched),
             roomsCleared = 0,
@@ -204,6 +210,55 @@ class RunReportTest {
             mcVersion = "26.1.2",
         )
         assertTrue(json["rooms"].asJsonArray[0].asJsonObject["enterTick"].isJsonNull)
+    }
+
+    /**
+     * Schema 6: where the run's time went. **Both keys or neither** — the receiver reads absence as
+     * "this build does not count them" (`RUN_OPTIONAL` in its `ingest.py`), so one of them alone
+     * would be a silent claim that the other was zero.
+     *
+     * Plain integers, never booleans: the receiver's `_num` excludes `bool` on purpose, because
+     * `"idleTicks": true` would otherwise validate as one tick. Gson writes an `Int` as a number, so
+     * this pins that nothing here turns them into anything else.
+     */
+    @Test
+    fun `the report says where the run's time went`() {
+        val json = report()
+        assertTrue(json.has("idleTicks") && json.has("navTicks"), "both keys or neither")
+        assertEquals(490, json["idleTicks"].asInt)
+        assertEquals(1340, json["navTicks"].asInt)
+        assertTrue(json["idleTicks"].asJsonPrimitive.isNumber, "a bool would validate as 1 tick")
+        assertTrue(json["navTicks"].asJsonPrimitive.isNumber, "a bool would validate as 1 tick")
+        // The receiver only learned these at schema 6, and it is deployed ahead of this build.
+        assertTrue(json["v"].asInt >= 6, "idleTicks and navTicks are schema 6")
+    }
+
+    /**
+     * A run with nothing to report is `0`, not an absent key. Zero and absent are different facts
+     * on the receiver — "this run wasted no time" against "this build cannot measure it" — and the
+     * fold has no third state to carry, so a build that counts them says so on every report.
+     */
+    @Test
+    fun `a run that wasted no time still says so`() {
+        val json = RunReport.build(
+            ts = 1786530882102,
+            installId = installId,
+            player = "Sighte",
+            floor = "M5",
+            complete = true,
+            runTicks = 8000,
+            idleTicks = 0,
+            navTicks = 0,
+            roster = listOf(DungeonPlayer("Sighte", "Berserk", "VII")),
+            rooms = listOf(room("Catwalk", mapOf("Sighte" to 300))),
+            roomsCleared = 7,
+            unattributed = 0.0,
+            deaths = 0,
+            modVersion = "0.3.0",
+            mcVersion = "26.1.2",
+        )
+        assertEquals(0, json["idleTicks"].asInt)
+        assertEquals(0, json["navTicks"].asInt)
     }
 
     // --- unattributed: the one legitimately fractional field ---
@@ -216,6 +271,8 @@ class RunReportTest {
         floor = "M5",
         complete = true,
         runTicks = 8000,
+        idleTicks = 490,
+        navTicks = 1340,
         roster = listOf(DungeonPlayer("Sighte", "Berserk", "VII")),
         rooms = listOf(room("Catwalk", mapOf("Sighte" to 300))),
         roomsCleared = 30,
