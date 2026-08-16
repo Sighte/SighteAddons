@@ -179,7 +179,9 @@ class SighteAddons : ClientModInitializer {
 
     private fun onActionBar(text: String) {
         val player = Minecraft.getInstance().player ?: return
-        SecretTracker.onActionBar(text, player.x, player.z)
+        // The name goes with the position because a secret attributed here is now credited as
+        // ClearPoints, and the tracker keys on the same Minecraft name the roster and the tab do.
+        SecretTracker.onActionBar(text, player.name.string, player.x, player.z)
     }
 
     /** Hypixel prints the results headline when the run ends, e.g. "The Catacombs - Floor VII". */
@@ -381,6 +383,8 @@ class SighteAddons : ClientModInitializer {
         }
 
         if (!Config.showStandings) return
+        // Read every frame, and since `secretpoints-001` it moves between clears: your own secrets
+        // are credited into this map on the tick they are attributed, not on the next checkmark.
         val points = ContributionTracker.pointsByPlayer()
         PartyTracker.roster()
             .map { it.name to (points[it.name] ?: 0.0) }

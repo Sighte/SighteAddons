@@ -141,8 +141,15 @@ object SecretTracker {
     private fun isRepeat(pos: BlockPos) = pos == lastLoggedPos &&
         lastLoggedTick != NO_INTERACTION && DungeonSession.runTicks - lastLoggedTick <= REPEAT_WINDOW
 
-    /** Called for every action bar update while in a dungeon. */
-    fun onActionBar(text: String, playerX: Double, playerZ: Double) {
+    /**
+     * Called for every action bar update while in a dungeon.
+     *
+     * [self] is the local player's Minecraft name, and it is here for one reason: a secret credited
+     * to this client is worth ClearPoints now (`secretpoints-001`), and [ContributionTracker]
+     * credits by name. It is passed in rather than read from `Minecraft.getInstance()` here for the
+     * same reason [playerX] and [playerZ] are — this object is driven by tests that have no client.
+     */
+    fun onActionBar(text: String, self: String, playerX: Double, playerZ: Double) {
         if (!DungeonSession.calibrated) return
         val bar = parseSecrets(text) ?: return
 
@@ -198,7 +205,15 @@ object SecretTracker {
         // it has no earlier timestamp to offer, and [NO_INTERACTION] must never be read as one. Read
         // before the credit below resets it.
         val at = if (mine && clicked) lastOwnInteraction else DungeonSession.runTicks
-        if (mine) room.ownSecrets++
+        // One line, two consumers, and they must not be able to disagree: `ownSecrets` is what
+        // SecretHud shows as "Your secrets", and the quarter point is what the standings show. The
+        // user's complaint was that the second did not exist — the score only moved on a checkmark,
+        // because the room's weight paid for the secrets the *database* said it held. See
+        // ContributionTracker.onOwnSecret.
+        if (mine) {
+            room.ownSecrets++
+            ContributionTracker.onOwnSecret(self)
+        }
         // One click credits one secret, not a whole burst — and only when the click is what credited
         // it. A click the chat line has just overruled belongs to a secret still to come.
         if (mine && clicked) lastOwnInteraction = NO_INTERACTION

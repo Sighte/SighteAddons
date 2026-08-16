@@ -592,6 +592,36 @@
         }
       ],
       "notes": "Ported from a CC0-1.0 mod the user supplied. Its ApiSender (POSTed name/crit/power/ratio to a third party) and its auto /msg + party line are absent by design; the readout is local-only and RunReport is untouched, so no receiver work is owed. THE CEILING: every string is a hypothesis - nothing on disk holds one; `crit_unparsed` settles it."
+    },
+    {
+      "id": "secretpoints-001",
+      "priority": 3,
+      "area": "scoring",
+      "title": "Pay ClearPoints for secrets you find, as you find them",
+      "user_visible_behavior": "Each secret attributed to you adds 0.25 to your live clear score on the tick it is credited, instead of the score only moving when a room's checkmark lands. A room stops paying for secrets nobody found.",
+      "status": "passing",
+      "depends_on": [
+        "clearpoints-002"
+      ],
+      "verification_command": "./gradlew test --tests 'sighteaddons.ContributionTrackerTest' --tests 'sighteaddons.RoomDatabaseTest'",
+      "verification_manual": [
+        "NOT PERFORMABLE IN THIS REPOSITORY. The dev client has no Hypixel session, so no step below has been run. The arithmetic is covered by the suite; the wiring is not.",
+        "In a dungeon with /sa standings on, open a secret chest and confirm your own row rises by exactly 0.25 on the spot, before the room clears.",
+        "Confirm a teammate's row does NOT move when they find one — only clears pay them.",
+        "Clear a room holding several secrets without opening any and confirm it pays only its clear (0.75 for an ordinary room), not 0.75 + 0.25 per secret.",
+        "Cross-check the standings against the 'Your secrets ... run' HUD line: run secrets x 0.25 must be exactly the part of your score that is not clears."
+      ],
+      "blocked_reason": "",
+      "evidence": [
+        {
+          "date": "2026-08-16",
+          "command": "./gradlew test --tests 'sighteaddons.ContributionTrackerTest' --tests 'sighteaddons.RoomDatabaseTest' ; ./gradlew test assemble check ; python build/keydiff.py",
+          "result": "ContributionTrackerTest 55 tests / RoomDatabaseTest 8 tests, 0 failures. Full suite 20 classes / 277 tests / 0 failures / 0 skipped (build/test-results/test/*.xml); the branch point was 20/276, net +1 (three cases added, two that pinned the removed term retitled or merged). assemble check BUILD SUCCESSFUL; dist/, gradle.properties and RunReport.kt untouched; KEYDIFF CLEAN at schema 6, so no receiver work is owed.",
+          "commit": "PENDING",
+          "artifact": "build/test-results/test/"
+        }
+      ],
+      "notes": "0.25 per ATTRIBUTED secret, credited by ContributionTracker.onOwnSecret on the tick SecretTracker attributes it; weightOf's `db secrets x 0.25` term is REMOVED - keeping both would pay a fully cleared room twice. Old and new scores are NOT comparable. UNVERIFIED: the wiring never ran in a game."
     }
   ]
 }
