@@ -255,8 +255,9 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     /** Full-screen placement mode: the next left click puts the HUD where the cursor is. */
     private fun renderPlacing(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
         graphics.flat("Sighte F7 3:12.5  23 rooms", mouseX, mouseY, TEXT)
-        graphics.flat("Water Board  0:41.2", mouseX, mouseY + 10, ACCENT)
-        graphics.flat("  cleared  02:58.6", mouseX, mouseY + 20, DIM)
+        graphics.flat("Your secrets  2/5 room  ·  11 run", mouseX, mouseY + 10, TEXT)
+        graphics.flat("Water Board  0:41.2", mouseX, mouseY + 20, ACCENT)
+        graphics.flat("  cleared  02:58.6", mouseX, mouseY + 30, DIM)
         graphics.flat("left click places it · right click cancels", contentLeft, HEADER_Y, DIM)
     }
 
@@ -265,6 +266,11 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             Row("show HUD", Config.hud.word(), Config.hud) { Config.hud = !Config.hud },
             Row("position", "${Config.hudX}, ${Config.hudY} · place") { placing = true },
             Row("current room", Config.showRoom.word(), Config.showRoom) { Config.showRoom = !Config.showRoom },
+            // "your secrets", not "secrets": the action bar already counts the room's, and the whole
+            // point of the line is that this one is about you.
+            Row("your secrets", Config.showSecrets.word(), Config.showSecrets) {
+                Config.showSecrets = !Config.showSecrets
+            },
             Row("standings", Config.showStandings.word(), Config.showStandings) {
                 Config.showStandings = !Config.showStandings
             },

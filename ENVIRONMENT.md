@@ -162,6 +162,10 @@ suite while a test name claimed otherwise.
   secretsFound`, and reaffirmed the strict rule twice. **It is shipped in 0.12.0 and documented in
   its release notes**, so softening it silently would also make a published page wrong. The right
   response to the cost is `ownsecrets-001`, which fixes the number the gate reads.
+- **`SecretHud` displays attribution and must never repair it.** Falling back to
+  `TrackedRoom.secretsFound` when `ownSecrets` is 0 — the obvious "fix" for a HUD reading `0/5` in a
+  room you worked — claims the party's secrets for the local player on screen. Measured: probes A and
+  B of `build/secrethudprobe.py`. The under-count is `ownsecrets-001`'s to fix, at the tracker.
 - **`RoomHistory.ownSecretRun` keeps its `secretsFound > 0` guard.** `0 == 0` is true and must never
   be the answer. Measured: probe F.
 - **`TrackedRoom.presentFromStart`'s staleness check uses the same tolerance `onPresence` continues a

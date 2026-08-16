@@ -25,10 +25,16 @@ measured at the time is in its own log entry below, and beyond the last two, in 
   readable" — and it authenticates for exactly that reason, which is also why the run goes green
   regardless. **Publishing the Modrinth project is a step only the user can take**, and until it is
   taken, every release including this one reaches nobody through Modrinth.
-- **No branch is open.** PR #50 merged `secretcount-001` and `secretapi-001` into `main` as
-  `38b5528`, rebased first so the diff is `src/` only and this repository's pruned artifacts
-  survived it. The leftover mutation probe that sat uncommitted in `RoomHistory.kt:449` is
-  **stashed, not lost** — `git stash list`.
+- **One branch is open: `secrethud-001`**, off `main` at `530f470`, not pushed and not merged.
+  `main` itself is at `530f470`; PR #50 merged `secretcount-001` and `secretapi-001` into it as
+  `38b5528` and the two release commits sit on top. The leftover mutation probe that sat uncommitted
+  in `RoomHistory.kt:449` is **stashed, not lost** — `git stash list`.
+- **The HUD says how much of the floor was yours.** `secrethud-001` adds one standing line under the
+  header — `Your secrets  2/5 room  ·  11 run` — behind `Config.showSecrets` and a `your secrets`
+  row in the `/sa` HUD tab. It is **display only**: `SecretHud.line` formats `TrackedRoom.ownSecrets`
+  and decides nothing, so it under-counts by exactly the amount `SecretTracker` does and
+  `ownsecrets-001` stays the fix for that. `RunReport.kt` is not in the diff. **The wiring in
+  `renderHud` has never run in a game**; the formatter is pure and swept by three probes.
 - **The run summary now reports secrets honestly**, and neither half touches a record, a report
   field or the receiver: `RunReport.SCHEMA` stays 5 and `RunReport.kt` is not in the diff.
   `secretcount-001` reads the floor's true party-wide total out of the tab list, so the line is
@@ -40,9 +46,10 @@ measured at the time is in its own log entry below, and beyond the last two, in 
   **Neither has run on a real floor**: the two wiring lines need a live `Minecraft`, and
   `secret_api_baseline` / `secret_api_settle` are logged so one played floor settles it.
   `Config.hypixelKey` is blank by default and there is no bundled fallback.
-- **Baseline: PASSING, 247 tests across 17 classes**, 0 failures, 0 skipped, on `main` at `38b5528`.
-  Counts come from `build/test-results/test/*.xml`, not the console. The tests themselves run in
-  ~1.1 s; the rest of a `./gradlew test` is Gradle startup.
+- **Baseline: PASSING. 247 tests across 17 classes on `main` at `530f470`; 252 across 18 on branch
+  `secrethud-001` at `07b8fd4`**, 0 failures and 0 skipped either way. Take the count from the branch
+  you are on, out of `build/test-results/test/*.xml` rather than the console. The tests themselves
+  run in ~1.1 s; the rest of a `./gradlew test` is Gradle startup.
 - Standard startup path: `./gradlew runClient` — Loom's dev client, which has no valid session and
   cannot reach Hypixel.
 - Standard verification path: `./init.sh` → `./gradlew test`; full is **`./gradlew assemble check`**.
@@ -94,6 +101,8 @@ measured at the time is in its own log entry below, and beyond the last two, in 
 
 ### Next
 
+- **`secrethud-001` is `passing` on its branch and wants merging or grading before anything else
+  starts in this repository** — one active feature at a time, and its branch is the only one open.
 - Current highest-priority workable feature: **`runend-001`** — cheap, and its open question is
   already answered (write the run-level count, not the event count). **`floorname-001`** is the
   cheapest entry on the board and its decision is argued in the entry: map `Entrance` → `E` on this
@@ -102,9 +111,10 @@ measured at the time is in its own log entry below, and beyond the last two, in 
   decision). `party-001` is `blocked` on a finding, not a task. `ingame-001` and `deconame-001` both
   need a **party** floor. `chatfields-001` starts with a feature in `Sighte/skyblock-server` and is
   a different repository and a different session.
-- **The highest-value input on the board is a real 0.12.0 session log**, which can now exist: the
-  build with the new gates is on Modrinth and the user plays. A log whose events include
-  `secret_room_first_bar` is 0.12.0 or later.
+- **The highest-value input on the board is a real session log from 0.12.0 or later**, which can now
+  exist: the build with the new gates is released and the user plays. A log whose events include
+  `secret_room_first_bar` is 0.12.0 or later — but note the Modrinth entry above, so the build has to
+  have come from the direct CDN link or the GitHub release.
 
 ## Session Log
 
@@ -116,6 +126,43 @@ One entry per session, **≤ 40 lines**. A revision to work already recorded ame
 entry rather than adding a second one.
 
 Entries for 015, 014, 012, 013, 011, 010, 009, 008, 007, 006, 005, 004, 003, 002, 001 were dropped on 2026-08-16; they are complete at `0852382`.
+
+### Session 018 — `secrethud-001`: the run seen from your side, and nothing about attribution moved
+
+- Date: 2026-08-16
+- Branch `secrethud-001` off `main` at `530f470`. **Not pushed and not merged.** Baseline `./init.sh`
+  → **BASELINE: PASSING** before a line was written, 17 classes / 247 tests; after, **18 / 252**,
+  0 failures, 0 skipped, counts from `build/test-results/test/*.xml`.
+- **The feature did not exist and was created here**, per the delegation: `secrethud-001`,
+  `priority` 20, `area` hud. One HUD line under the always-drawn header —
+  `Your secrets  2/5 room  ·  11 run` — behind `Config.showSecrets` and a `your secrets` row in the
+  `/sa` HUD tab. The line is anchored directly under the header on purpose: the header is the only
+  unconditional line, so the readout does not move up and down the screen as `showRoom` or
+  `showStandings` change.
+- **Nothing about attribution was touched, and that was the constraint.** `SecretHud.line(current,
+  rooms)` is pure and formats `TrackedRoom.ownSecrets`; `SecretTracker` is not in the diff, so
+  `ownsecrets-001` stays `not_started` and unclaimed. The readout under-counts by exactly the amount
+  attribution does — a secret walked over is credited to nobody — and that is displayed rather than
+  compensated for. The label is `Your secrets` so it remains a true statement when `ownsecrets-001`
+  raises the number underneath it.
+- **A separate switch rather than part of `showRoom`.** The existing room block already prints
+  `3/5 (2 you)` for the room you are in, so the two overlap while both are on; the new line is the
+  one that keeps saying something between rooms and carries the run total, which nothing on screen
+  had.
+- **No schema change and no receiver work.** `RunReport.kt` is absent from `git diff main...HEAD`
+  and `RunReport.SCHEMA` is still 5. `Sighte/skyblock-server` was not opened.
+- Evidence, at `07b8fd4`: `./gradlew test --tests 'sighteaddons.SecretHudTest'` → 5 tests, 0
+  failures; `./gradlew test --rerun-tasks` → 18/252/0/0 uncached; and a three-probe sweep
+  (`build/secrethudprobe.py`) in which the run total reading `secretsFound`, the room half reading
+  `secretsFound`, and an unknown room spelled `0/0` are **all CAUGHT** — so the tests guard the
+  honesty of the number, not just its formatting. `git status --porcelain src/` empty after the
+  sweep, which is also what proved the restore was exact (the next `./gradlew test` hit the cache).
+- **THE CEILING: the wiring has never run in a game and cannot here.** That `renderHud` calls
+  `SecretHud.line` once a frame with the room the player is standing in, that `currentRoom` resolves
+  the right room, and every pixel of the new `/sa` row are unverified — they need a live `Minecraft`.
+  One played floor settles all of it by eye.
+- Next: unchanged — a real 0.13.0 session log is still the highest-value input, then
+  `ownsecrets-001`, which this feature deliberately left alone and now has a live readout for.
 
 ### Session 017 — the release gate for 0.12.0: merged, tagged, published, and the upload checked
 
@@ -195,85 +242,6 @@ Entries for 015, 014, 012, 013, 011, 010, 009, 008, 007, 006, 005, 004, 003, 002
   this build's debug log so the first real floor answers it from data.
 - Next: **read a real 0.12.0 session log.** It is now the cheapest and highest-value input on the
   board, and unlike before this release it can actually exist.
-
-### Session 016 — `recordowner-001` revision: the cost was an adjective, and a second guard held nothing
-
-- Date: 2026-08-15
-- Branch `recordowner-001`, unchanged, off `main` at `8431597`. **Not pushed and not merged.** For
-  the commit count run `git rev-list --count 8431597..HEAD`. This is a revision pass on the same
-  feature, not a new one; the feature stays `passing`, which the evaluator argued for explicitly.
-- Baseline: `bash init.sh` → **BASELINE: PASSING** at start and end. Suite **211 → 212** in the same
-  15 classes, 0 failures, 0 skipped.
-- **A fresh evaluator graded the feature REVISE, 11/14** (Correctness 2, Verification 1, Regression
-  2, Scope 2, Reliability 2, Maintainability 1, Handoff 1). Its pass is committed verbatim at
-  `e5cf586` — by this session, unedited, because it was sitting uncommitted in the working tree and
-  would otherwise have been lost. **It reproduced every recorded number and all ten probes to the
-  failing test name.** Nothing was broken; two things were cheaply knowable and not known.
-- **THE COST OF THE STRICT SECRET GATE WAS WRONG IN EVERY ARTIFACT, AND IT IS THE FINDING THAT
-  MATTERS MOST because a release is written from these files.** Session 015 wrote it as "party secret
-  records become rare". Re-derived here rather than copied, with `python build/ownsecrets.py`, which
-  replays `ownSecretRun` over the `secret_run_done` events — that event has always carried exactly
-  the two numbers the gate compares, so it is a replay and not a reimplementation. **Of 87 completed
-  secret runs across the fifteen real logs, 12 survive — 13.8%.** By roster: **2 of 23 on
-  single-member sessions**, 10 of 64 on party sessions. On the committed floor, four of five go and
-  only `Chains 2/2` stays. **So the cause is attribution, not shared work**: on a solo floor every
-  secret was the local player's by construction, and one solo log carries `Big Red Flag 0/2` — a
-  room the player emptied alone and was credited with none of. The 87 is confirmed three ways with
-  zero unparseable lines.
-- **The gate does not move.** The user was shown these numbers and was offered the majority rule
-  `ownSecrets * 2 >= secretsFound` (which keeps four of the committed floor's five). They reaffirmed
-  `ownSecrets == secretsFound` and asked for it to ship as written. Not weakened, no escape hatch,
-  not made configurable. The underlying weakness is recorded as **`ownsecrets-001`, `not_started`** —
-  discovered work recorded rather than fixed inline, which is the operating loop's rule.
-- **A SECOND GUARD IN NAME ONLY, IN THE SAME PREDICATE, AND THE SWEEP THAT SHOULD HAVE FOUND IT.**
-  The evaluator's probe K — delete the `MIN_TICKS` floor from `ownClear` — passed all 211 tests.
-  **Reproduced here rather than transcribed**: `git checkout 4e2db23 -- RoomHistory.kt
-  RoomHistoryTest.kt`, apply probe K, `./gradlew test --rerun-tasks` → BUILD SUCCESSFUL, 211 tests,
-  0 failures. The case carrying the name gave the local player `min - 1` ticks from tick 1000 and
-  asked about 1080, so `presentFromStart`'s staleness half refused it 61 ticks out and the floor was
-  never under test, while the KDoc called the predicate "total". Same species as probe H, which
-  session 015 found and wrote up and then did not sweep for.
-- **Fixed as a property, not as one case.** The shape that genuinely reaches the floor is the fast
-  clear — a room anchored by `anchorOnClear` where six ticks of presence satisfy `presentFromStart`,
-  which is `Duncan` on the one real M7 (entered 2990, cleared 2996). Without the floor that room
-  writes a 0.3 s clear: defect C by another route. The new case asserts every *other* condition says
-  yes before asserting the gate says no. A second new case records why no fixture built from
-  `onRoomCleared` could ever reach it — `eligible` is filtered before `topPlayer` is taken from it —
-  so the honest half of the old totality claim is measured instead of asserted.
-- **THE SWEEP IS NOW A SWEEP: 21 probes, one per condition in every gate**, up from ten hand-picked.
-  `ownClear`'s conditions are one per line, because a compound condition cannot be probed alone. Each
-  probe declares whether it expects to be caught, and `bash build/runprobes.sh` prints `SWEEP OK`
-  only when every one meets its expectation — so a guard that rots and a ceiling that lifts are
-  equally visible. **18 caught; 3 expected-uncaught, each with its reason in the script**: `Q`
-  (`max < 2` alone) is redundant with `if (found >= max)` three lines below and is pre-existing; `S`
-  and `T` mutate the two wiring lines and are the feature's declared ceiling, now measured on every
-  run rather than asserted once.
-- **The handoff said there was one real session file. There are fifteen.** Counted in the directory
-  the handoff itself names, and they carry 30 `death`, 15 `revive`, 104 `roster_skew` and 49
-  `chat_secret` events — while `main`'s own `dc8d504` had already analysed three of them. That claim
-  had `Next Best Step` asking the user to play a party floor with a death for data partly already on
-  disk. Corrected. **A trap for anyone globbing for them**: the repository's own
-  `config/sighteaddons/debug/` holds ~145 files written by `./gradlew test` and contains no dungeon.
-- **One thing those logs already settle**, which session 015 listed as unobservable:
-  `session-1786567867893.jsonl` line 85, `t=137`, is
-  `{"e":"secret_room_mismatch","room":"Slime","barMax":7,"expected":5,"barFound":0}` — a real Hypixel
-  action bar reporting **zero** secrets. The room's max mismatched so it was not a *trusted* reading,
-  but it is direct evidence that Hypixel sends `0/N` at all, which is the assumption the whole
-  secret-run half rests on. What remains unobserved is narrower: a `0/N` on a bar whose max matches
-  the database, plus the four wiring lines.
-- **`onSecretRun`'s KDoc over-claimed on one path and is now qualified.** "The announcement stays
-  either way" is true on the defaults and false with `Config.ownPbsOnly` on, where a refused run has
-  a null `pb` and the line is suppressed. `ownPbsOnly` defaults to `false`.
-- **The quality table's *current* `scoring` row was the stale copy, and session 015 dated it.** It
-  read `RoomStatsTest` (9 cases) against an actual 17 and claimed layer 2 had never been read
-  "because nothing writes a cache yet", untrue since `scores-fetch-001` merged — while the accurate
-  row sat in the superseded block below. Promoted, with the reason recorded in the row so the next
-  session does not repeat the mistake.
-- **No behaviour changed in this revision** except `ownClear`'s conditions moving onto separate
-  lines, which is identical logic. `RunReport.kt` still absent from the branch diff, `SCHEMA` still
-  5, `keydiff` CLEAN, jar md5 `e8cd7099034dd3475dbc8069be3c433e` identical either side of
-  `assemble check`, `mod_version` and `dist/` untouched, `SighteAddonServerside` read and never
-  written, `evaluator-rubric.md` committed verbatim and not edited.
 
 <!-- SESSION TEMPLATE — copy, do not fill in here
 ### Session NNN
