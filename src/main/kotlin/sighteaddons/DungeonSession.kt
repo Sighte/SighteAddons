@@ -77,6 +77,9 @@ object DungeonSession {
         // Counted against `runTicks`, so it is forgotten where `runTicks` is: a run that inherited
         // the previous floor's idle time would report a number describing two runs.
         IdleTime.reset()
+        // The Maxor window belongs to the floor it opened on. Left standing, a crit line landing in
+        // the next run's entrance would be read against that run's blessings.
+        CritMeter.reset()
         PartyTracker.reset()
         SecretTracker.reset()
         DungeonTab.reset()

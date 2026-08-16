@@ -48,6 +48,16 @@ object Config {
     var runSummary = true
 
     /**
+     * The Explosive Shot crit readout — see [CritMeter]. On the CHAT tab and not the HUD one because
+     * it is a line printed into your own chat, like [roomMessages] and [runSummary], rather than
+     * something drawn on screen.
+     *
+     * On by default and inert everywhere except the Maxor phase of M7: the combat window has to be
+     * open and Hypixel has to announce a crit before this says anything at all.
+     */
+    var critLine = true
+
+    /**
      * Off for an ordinary install: the public upload tier never ships sessions, so a session written
      * on a stranger's machine is a few MB per launch that nobody can ever read. On in the development
      * environment, which is where the log is actually used.
@@ -131,6 +141,7 @@ object Config {
             roomMessages = obj.bool("roomMessages", roomMessages)
             ownPbsOnly = obj.bool("ownPbsOnly", ownPbsOnly)
             runSummary = obj.bool("runSummary", runSummary)
+            critLine = obj.bool("critLine", critLine)
             debugLog = obj.bool("debugLog", debugLog)
             upload = obj.bool("upload", upload)
             uploadName = obj.bool("uploadName", uploadName)
@@ -156,6 +167,7 @@ object Config {
         obj.addProperty("roomMessages", roomMessages)
         obj.addProperty("ownPbsOnly", ownPbsOnly)
         obj.addProperty("runSummary", runSummary)
+        obj.addProperty("critLine", critLine)
         obj.addProperty("debugLog", debugLog)
         obj.addProperty("upload", upload)
         obj.addProperty("uploadName", uploadName)

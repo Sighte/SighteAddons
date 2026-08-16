@@ -1,15 +1,19 @@
 # Session Handoff
 
-Current state only, **<= 150 lines**. Amend the sections that changed; do not rewrite the file
-from scratch each session. Standing facts — the toolchain, the quoting traps, the probe scripts,
-and the code invariants a tidy-up would break — are in `ENVIRONMENT.md`. Read that; do not rewrite
-it. Past sessions are in `claude-progress.md` and, beyond the last two, in `git log`.
+Current state only, **<= 80 lines** — the ceiling in `CLAUDE.md`, which this header claimed as 150
+until 2026-08-16. Amend the sections that changed; do not rewrite the file from scratch. Standing
+facts — toolchain, quoting traps, probe scripts, the code invariants a tidy-up would break — are in
+`ENVIRONMENT.md`. Past sessions are in `claude-progress.md` and, beyond that, in `git log`.
 
-**Branch state:** **0.14.0 is released and `main` is `64a0f8e`.** `secrethud-001` (PR #51) and
-`idletime-001` both merged; `v0.14.0` is tagged and published, and Modrinth version `VXWw5sPF`
-carries the identical jar — `sha1 cea7c51b…`, 245583 bytes, compared against the local file rather
-than assumed. It is the first build sending `RunReport.SCHEMA = 6`. `critcalc-001` is open and being
-implemented. The leftover mutation probe once uncommitted in `RoomHistory.kt:449` is stashed, not
+**Branch state: 0.14.0 is released, and `critcalc-001` is merged on top of it.** `secrethud-001`
+(PR #51) and `idletime-001` are in 0.14.0; `v0.14.0` is tagged and published, and Modrinth version
+`VXWw5sPF` carries the identical jar — `sha1 cea7c51b…`, 245583 bytes, compared against the local
+file rather than assumed. It is the first build sending `RunReport.SCHEMA = 6`.
+
+**0.14.0 was cut from `3643004` and does NOT contain the crit readout.** Its notes do not claim it,
+and **no `crit_unparsed` event can appear in a log until a later build ships** — a silent 0.14.0 says
+nothing about `critcalc-001`. That readout is on `main` now and reaches nobody until 0.15.0, which is
+the user's call. The leftover mutation probe once uncommitted in `RoomHistory.kt:449` is stashed, not
 lost: `git stash list`.
 
 **The process was cut back on 2026-08-16 at the user's instruction** — grading is no longer routine,
@@ -23,11 +27,11 @@ is in `claude-progress.md`.
 
 ## Verified Now
 
-- **`main` is at `2cacb60` and `mod_version` is 0.13.0.** The release, its jar hashes and the
+- **`main` carries 0.14.0 plus the crit readout; `mod_version` is 0.14.0.** The release, its jar hashes and the
   Modrinth state are in `claude-progress.md`'s Current Verified State and are not repeated here.
-- **The suite is 252 across 18 classes on `main`, 265 across 19 on `idletime-001`**, 0 failures and
+- **The suite is 265 across 19 classes on `main`, 276 across 20 on `critcalc-001`**, 0 failures and
   0 skipped either way. Counts come from `build/test-results/test/*.xml`, not the console.
-- **`RunReport.SCHEMA` is 6 on the branch and 5 in every install, and the pair is closed.**
+- **`RunReport.SCHEMA` is 6 on `main` and 5 in every install, and the pair is closed.**
   `skyblock-server`'s `master` is `1a7f435`, deployed and verified on the box 2026-08-16: it accepts
   run-level `idleTicks` and `navTicks` as **optional** keys, so v5 reports in backlogs still
   validate and the v6 this branch produces is already understood. `python build/keydiff.py` is CLEAN
@@ -39,75 +43,72 @@ is in `claude-progress.md`.
 
 ## Changed This Session
 
-**`idletime-001`, created and implemented on branch `idletime-001`.** No version bump, no release,
-`dist/` and `gradle.properties` untouched, so none of the release gate was pulled.
+**`critcalc-001`, created and implemented on branch `critcalc-001`.** No version bump, no release,
+`dist/`, `gradle.properties` and **`RunReport.kt` untouched**, so no release gate and no schema pair.
 
-- New `IdleTime.kt` (the accumulator plus the pure `classify`) and `IdleTimeTest.kt` (11 cases).
-- `TrackedRoom`: one read-only `secretRunOpen`. Attribution untouched.
-- `SighteAddons.onTick`: `IdleTime.tick(currentRoom(client))`, after `ContributionTracker.tick` and
-  inside the boss early-return. `renderHud`: one line behind `Config.showIdle`.
-- `DungeonSession.reset`: `IdleTime.reset()`, so the counters are per run like the clock.
-- `RunReport`: `SCHEMA` 5 → 6, `idleTicks`/`navTicks` behind `runTicks`, both required parameters of
-  `build` so a new write path cannot forget them; `RunReportTest` gained 2 cases and its `v`
-  assertion moved to 6.
-- `Config`: `showIdle`, in the defaults, in `read` and in `save` — a key missing from `save` is a
-  HUD that switches itself off after an update. `SettingsScreen`: an `idle & nav` row on the HUD
-  tab, and the placement preview gained the line so the mock is the height of the block it places.
-- `feature_list.json` gained the `idletime-001` entry, which did not exist before this session.
-- New probe scripts in gitignored `build/`: `idleprobe.py` (11 probes) and `idlesweep.sh`, which
-  restores in a `trap` and refuses to start on a dirty `src/`.
+- New `CritMeter.kt` (parse, roman numerals, power sum, combat window, wording) and
+  `CritMeterTest.kt` (11 cases), ported from a `CC0-1.0` mod in the parent directory.
+- `PlayerTabOverlayAccessor` gained an instance `@Accessor("footer")`; field name from `javap` on
+  the merged jar, not remembered. `SighteAddons`: `onCrit(text)` and `tabFooter()`, **not** gated on
+  `DungeonSession.calibrated` (the Maxor window is stricter). `DungeonSession.reset`:
+  `CritMeter.reset()`. `Config.critLine` + a `crit readout` row on the **chat** tab, not the HUD one.
+- `feature_list.json` gained the entry, which did not exist before. No probes, no mutation sweep.
+- This file was **pruned toward its 80-line ceiling and is still over it — 140, from 150, with a
+  whole feature added.** Everything cut survives at `git show 3643004:session-handoff.md`. What
+  remains over budget is other features' standing briefs (`recordowner-001`'s trusted-`0/N` risk,
+  `scores-fetch-001`'s carried list), which `CLAUDE.md` says an open feature keeps in full; deciding
+  which of those has expired is the next prune and wants the features closed first, not a session
+  that was here for one afternoon.
 
 ## Broken Or Unverified
 
-- **`idletime-001`'s wiring has never run in a game, and probes S and T measure exactly that.**
-  Verified: what a tick counts as, for a given room state, and what the report and the line say for
-  given counters. **Not** verified: that `onTick` calls `IdleTime.tick` once per tick with the room
-  the player is actually in, that `currentRoom` resolves that room from the player's own x/z, that
-  the `idle & nav` row renders and toggles, and that `Config.showIdle` survives a restart. Removing
-  either wiring line passes the whole suite — by declaration, not by oversight. One played floor
-  settles all of it by eye, and `jq '{v, runTicks, idleTicks, navTicks}'` over the new profile line
-  on the box settles the report half.
-- **The one ambiguity in the shared definition, resolved as written rather than softened.** A
-  *discarded* secret run is not an active one, so a cleared room whose run was abandoned counts as
-  **idle** while its leftovers are still being collected — an over-count of `idleTicks`. The receiver
-  and the mod say the same thing here; if the user wants the other reading it is a change to
-  `SETUP.md` section 4 first and to both halves after, never to this side alone.
-- **`secrethud-001`'s wiring has never run in a game either** — the formatter is verified, the
-  `renderHud` call, `currentRoom`, the `/sa` row and `Config.showSecrets` surviving a restart are
-  not. Same live-`Minecraft` ceiling, and the same one floor settles it.
-- **The `Your secrets` readout under-counts and that is the specification, not a defect** — it shows
-  `TrackedRoom.ownSecrets`, the same gap that keeps six secret-run records in seven from being
-  written. `ownsecrets-001` fixes it, at the tracker.
-- **Neither of `recordowner-001`'s gates has ever run in a game, and it is now in players' hands.**
-  The predicates are swept by 21 probes; the **wiring** — `onRoomCleared` → `ownClear` with the
-  `topPlayer` it just computed, `onSecretRun` → `ownSecretRun` before `record`, `ClearPopup.show`
-  under the same answer, `SecretTracker.onActionBar` → `readBar` at all — needs a live `Minecraft`.
-  `recordprobe.py`'s own S and T measure that nothing guards those four lines.
-- **The sharp one, and shipping it did not soften it.** The secret-run gate depends on a **trusted
-  `0/N`** action bar being read on entering the room. If Hypixel does not deliver one for a room the
-  mod has identified, secret records do not become rare — they **stop entirely**. Hypixel is known
-  to send `0/N` (`session-1786567867893.jsonl` line 85, `t=137`, a `secret_room_mismatch` with
-  `barFound: 0`) but on a room whose bar max disagreed with the database, so the *trusted* path is
-  unproven. `secret_room_first_bar` and `firstBar` on `secret_run_discarded` ship in 0.12.0 for
-  exactly this. Falsified by: `secret_room_first_bar` never appearing, or always carrying
-  `untouched: false` for rooms entered clean.
-- **The strict secret gate keeps roughly one record in seven, and that is intended** — the user's
-  decision, reaffirmed; the measurement is in `claude-progress.md`. The weakness underneath is
-  **`ownsecrets-001`, `not_started`**: a secret counts as yours only via a right-click inside
-  `SecretTracker.OWN_WINDOW` (40 ticks, `SecretTracker.kt:42`) or a wither-essence chat line, so one
-  walked over sinks the room's whole run. Its first task needs no dungeon — `attributedBy` and
-  `own_interaction` in the fifteen logs on disk answer it.
-- **The bogus bests already in `history.jsonl` are not repaired and deliberately not repairable.**
-  The user was told, accepted it, and the release notes state it as fact.
-- **A tie in `topPlayer` is arbitrary** — `maxByOrNull` over a `HashMap`, so two members on the same
-  tick count resolve in hash order. Pre-existing; pinning it is a decision nobody has asked for.
-- **`runTicks` is read on the DISCONNECT path and is not volatile.** Pre-existing, out of scope —
-  note `IdleTime`'s two counters, read on that same path, *are* `@Volatile`.
-- **Open and recorded, not fixed: `floorname-001`.** The receiver validates `floor` as
-  `?|E|[FM][1-7]` under `fullmatch` (`ingest.py:93`, used at `:225`) and `DungeonSession.floor` can
-  hold `Entrance`; a 400 is never retried. **`keydiff.py` compares key *sets*** and will never catch
-  a value-domain mismatch.
-- **`SighteAddons.RUN_END` still has no test of any kind.**
+- **`critcalc-001`: EVERY STRING IN IT IS A HYPOTHESIS AND NOTHING ON DISK CONFIRMS ONE.** Grepping
+  `docs/evidence/` and the fifteen real session logs for "explosive shot" or "blessing of power"
+  finds nothing — no build ever looked. Verified: the parse, the divide-by-enemies, the roman
+  numerals, the power sum, the window, the wording, and that `DungeonSession.reset` shuts the window
+  (the test drives `reset()` itself, so that one line is real wiring coverage). **Not** verified:
+  that Hypixel's crit, Maxor, Goldor or blessing lines look anything like what is assumed; that
+  Fabric delivers them with `overlay` false; that `getFooter()` returns blessings; that the `/sa` row
+  toggles and `critLine` survives a restart. **Zero `crit_unparsed` *and* zero readouts in an M7 with
+  crits is the failure signal** — pattern matches nothing, or the window never opened.
+- **The 2.5 per Blessing of Time is inherited, unexplained and unverifiable here.** Unlike the
+  strings it never announces itself wrong — it produces a plausible quotient. `CritMeter.TIME_WORTH`
+  is the one line to change if the user says the number is off.
+- **What must not be added back:** the source mod's `ApiSender` (POSTed name/crit/power/ratio to a
+  third party on every hit, no toggle) and its automatic `/msg` + party lines. Neither is present in
+  any form behind any flag; the readout is `addClientSystemMessage` only.
+- **The tab-footer mixin was checked to *apply*, not to return anything useful.** One `runClient`
+  reached a full resource reload, exit 0, zero mixin errors — which rules out a startup crash
+  (`required: true`). **The compile does not catch a wrong `@Accessor` name**: renaming it to
+  `footerXYZ` still compiles clean, so `javap` on the merged jar is the only check there is.
+- **`idletime-001` (now on `main`) and `secrethud-001`'s wiring have never run in a game.** The pure
+  halves are verified; `onTick` → `IdleTime.tick` with the right room, `renderHud`, `currentRoom`,
+  the `/sa` rows and `showIdle`/`showSecrets` surviving a restart are not — removing either
+  `IdleTime` wiring line passes the whole suite, by declaration. One played floor settles it by eye.
+  The definitional ambiguity stands as written: a *discarded* secret run is not an active one, so a
+  cleared room whose run was abandoned counts as **idle**; changing that is `SETUP.md` section 4
+  first and both halves after, never this side alone.
+- **The sharpest standing risk, unchanged by anything this session did.** `recordowner-001`'s
+  secret-run gate needs a **trusted `0/N`** action bar on entering a room; if Hypixel does not send
+  one for a room the mod identified, secret records do not get rare, they **stop**. Hypixel is known
+  to send `0/N` (`session-1786567867893.jsonl` line 85, `t=137`) but only on a room whose bar max
+  disagreed with the database, so the trusted path is unproven. `secret_room_first_bar` ships in
+  0.12.0 for exactly this; falsified by it never appearing, or always carrying `untouched: false`
+  for rooms entered clean. Neither of that feature's gates has ever run in a game — the predicates
+  are swept, the four wiring lines are not.
+- **The strict gate keeps roughly one record in seven, intended, the user's reaffirmed decision.**
+  The weakness under it is **`ownsecrets-001`, `not_started`**: a secret is yours only via a
+  right-click inside `SecretTracker.OWN_WINDOW` (40 ticks, `SecretTracker.kt:42`) or a
+  wither-essence chat line, so one walked over sinks the room's run — and it is the same gap that
+  makes `Your secrets` under-count, which is specification and not a defect. Its first task needs no
+  dungeon: `attributedBy` and `own_interaction` in the fifteen logs on disk answer it.
+- **Open and recorded, not fixed: `floorname-001`.** The receiver `fullmatch`es `floor` against
+  `?|E|[FM][1-7]` (`ingest.py:93`, used at `:225`) and `DungeonSession.floor` can hold `Entrance`; a
+  400 is never retried, and `keydiff.py` compares key *sets* so it will never catch this.
+- **Pre-existing and out of scope, carried forward:** the bogus bests in `history.jsonl` are not
+  repairable (the user was told and accepted it); a `topPlayer` tie resolves in hash order;
+  `runTicks` is read on the DISCONNECT path and is not `@Volatile` (`IdleTime`'s two counters are);
+  `SighteAddons.RUN_END` has no test of any kind.
 - **`RoomStats.start()` has still never run inside a game** (`scores-fetch-001`'s ceiling), and every
   earlier unverified item carries over unchanged: the atomic rename; the weights against a real run;
   whether the order heuristic is correct; whether `roster_skew` ever fires and whether
@@ -115,39 +116,36 @@ is in `claude-progress.md`.
   carry it**); the wiring of `positions()`; that Hypixel sends `chat-001`'s strings; the `RED`
   checkmark path and every pixel of `/sa`; the three write paths of `floorloss-001`; and that
   `unattributed` is only ever consumed as a ratio against `roomsCleared`.
-- **`build/runprobes.sh` is still not crash-safe** — it restores on the success path rather than in
-  a `trap`, so an interruption leaves the tree carrying a deliberate defect, which happened once and
-  was repaired by hand. **Evaluator follow-up 1, still open.** `build/evalsweep.sh` and now
-  `build/idlesweep.sh` are worked fixes (`trap restore EXIT INT TERM`, a refusal to start unless
-  `git status --porcelain src/` is empty) — but `build/` is gitignored, so all three are one
-  `git clean` from gone.
-- Regressions found: **none.** `./gradlew test --rerun-tasks` on the branch is 19 classes / 265
-  tests / 0 failures / 0 skipped, from 18 / 252 on `main`; every previously passing feature's class
-  is in that run and none moved.
+- **`build/runprobes.sh` is still not crash-safe** — it restores on the success path rather than in a
+  `trap`, so an interruption leaves a deliberate defect in the tree, which happened once. **Evaluator
+  follow-up 1, still open.** `build/evalsweep.sh` and `build/idlesweep.sh` are the worked fixes, and
+  `build/` is gitignored so all three are one `git clean` from gone.
+- Regressions found: **none.** The suite on the branch is 20 classes / 276 tests / 0 failures / 0
+  skipped, from 19 / 265 on `main`; every previously passing feature's class is in that run and none
+  moved.
 
 ## Next Best Step
 
-- **Decide `idletime-001` first: grade it, then merge it.** It is `passing` on its branch and it is
-  the only branch open, so a second feature started here breaks `single_active_feature`. Unlike
-  `secrethud-001`, **grading is required** — it changes the report schema. The evaluator must be a
-  fresh agent and should re-run `bash build/idlesweep.sh` itself rather than trust the recorded
-  SWEEP OK.
+- **Decide `critcalc-001`: it is the only branch open, so a second feature here breaks
+  `single_active_feature`.** Grading is **not** required — no schema change, no deploy path, nothing
+  in `RunReport.kt`, `priority` 22. Merging it is the ordinary next move.
 - **READ A REAL SESSION LOG FROM 0.12.0 OR LATER — the cheapest and highest-value input on the
   board, and unlike a week ago it can actually exist.** One floor settles `recordowner-001`'s entire
   remaining ceiling: whether `secret_room_first_bar` appears at all, whether it ever carries
   `untouched: true`, and whether the four wiring lines do what the call graph says. Logs are at
   `%APPDATA%\PrismLauncher\instances\Skyblock 26.1.2 Modpack\minecraft\config\sighteaddons\debug\session-*.jsonl`;
   one whose events include `secret_room_first_bar` is 0.12.0 or later.
-- **Then `ownsecrets-001`** — the measured cause of the record loss, and its first task needs no
-  dungeon. `python build/ownsecrets.py` replays the decision against the logs on disk.
+- **Then `ownsecrets-001`** — the measured cause of the record loss; its first task needs no dungeon
+  (`python build/ownsecrets.py` replays the decision against the logs on disk). Then `floorname-001`,
+  the cheapest entry on the board and already argued in its entry (map `Entrance` → `E` here, no
+  receiver change, no pairing), then `runend-001` (write the run-level count, not the event count).
 - **Follow-up 1 (make `runprobes.sh` crash-safe) before the next mutation sweep**, not before the
   next feature. `build/idlesweep.sh` is the newest worked example of the `trap` form.
-- **`floorname-001` is the cheapest entry on the board** and its decision is already argued in the
-  entry: map `Entrance` → `E` on this side, which needs no receiver change and no pairing.
-- **Then `runend-001`.** Cheap, and its open question is already answered: write the run-level count,
-  not the event count.
 - **Do not start `chatfields-001`** by editing `RunReport.kt` — its first move is a feature in
   `Sighte/skyblock-server`. `records-001` is deferred by the user, a product decision.
-- **Eleven features still exist in source only** — `idletime-001` joined them, since nothing on a
-  branch reaches a player. Nothing breaks meanwhile either.
+- **Twelve features still exist in source only** — `critcalc-001` joined them. Nothing breaks
+  meanwhile, but a released build is the only thing that can produce a `crit_unparsed`, so that
+  feature stays a hypothesis until one ships.
+- **`stormtimer-001` does not exist yet.** The `LBRelease/` half of the same decompiled mod was
+  explicitly out of scope for this session and was not read.
 
