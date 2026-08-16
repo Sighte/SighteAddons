@@ -39,13 +39,28 @@ import java.util.UUID
  * A key compiled into the jar would be public on the first Modrinth upload — the mod already learned
  * that with its upload token — so there is no default, no fallback and no bundled value.
  *
- * ## What it costs
+ * ## What it costs, measured against the live API on 2026-08-16
  *
  * Two requests per party member per run, on a daemon thread, never on the client thread and never
- * during a room. Every failure — no key, no network, a `403` from a revoked key, a `429`, a player
- * whose profile is private — means [settle] never calls back and the summary reads exactly as it did
- * without this feature. That fallback is the path most installs will be on, so it is the one that has
- * to be right.
+ * during a room. **Hypixel's budget is 300 requests per five-minute window** (`ratelimit-limit: 300`,
+ * with `ratelimit-reset` counting down from ~300 s), so a five-player floor spends ten of three
+ * hundred. This is not a feature that has to ration itself.
+ *
+ * Four things were checked against the real endpoint rather than taken from the two mods this is
+ * modelled on, because "cited, not observed" is how a wrong field name survives a green suite:
+ *
+ * - `GET /v2/player?uuid=<id>` with the key in an `API-Key` header answers `200`.
+ * - A UUID Hypixel has never seen answers `200` with `{"success":true,"player":null}` — the case
+ *   [parse] returns null for, confirmed rather than assumed.
+ * - `player.achievements.skyblock_treasure_hunter` is present and is an integer (two public
+ *   accounts, 1928 and 50609).
+ * - **No key at all is a `400`, not the `403` one would expect.** [fetch] branches on `!= 200`, so
+ *   every refusal shape lands in the same place and nothing depends on the number — it is recorded
+ *   because a reader checking this against Hypixel's docs will otherwise think it is wrong.
+ *
+ * Every failure — no key, no network, a revoked key, a `429`, a player whose profile is private —
+ * means [settle] never calls back and the summary reads exactly as it did without this feature. That
+ * fallback is the path most installs will be on, so it is the one that has to be right.
  */
 object SecretApi {
     /** Hypixel's lifetime dungeon-secret achievement. The only per-player secret figure that exists. */

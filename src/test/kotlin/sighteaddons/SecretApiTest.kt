@@ -20,6 +20,12 @@ import java.util.UUID
  * not what it claims cannot be produced by a pure function. **This is not a network test** — it
  * binds loopback, it is closed with the case, and it never leaves the machine.
  *
+ * **The response shapes below are not invented.** The endpoint, the `API-Key` header, the
+ * `{"success":true,"player":null}` body for an unknown UUID and the integer at
+ * `player.achievements.skyblock_treasure_hunter` were all checked against the live API on
+ * 2026-08-16 — see [SecretApi]'s header for what was measured. A fixture that agrees only with
+ * itself is the failure mode this whole object exists to avoid.
+ *
  * What no test here can reach: the two wiring lines. That [PartyTracker.update] calls
  * [SecretApi.observe] inside a dungeon, and that [RoomHistory.printSummary] calls
  * [SecretApi.settle], both need a live `Minecraft`. Same ceiling as every other wiring line in this
@@ -174,6 +180,16 @@ class SecretApiTest {
     fun `a refused key is null rather than an exception`() {
         Api(reply(403, """{"success":false,"cause":"Invalid API key"}""")).use { api ->
             assertNull(SecretApi.fetch(client(), api.base, "wrong", id))
+        }
+    }
+
+    @Test
+    fun `a missing key is a 400 rather than a 403, and is still null`() {
+        // Measured against the live API: Hypixel answers 400 for no key at all, not the 403 the
+        // shape of the problem suggests. fetch branches on != 200 so the number does not matter —
+        // this pins that it does not matter.
+        Api(reply(400, """{"success":false,"cause":"Missing API key"}""")).use { api ->
+            assertNull(SecretApi.fetch(client(), api.base, "", id))
         }
     }
 
