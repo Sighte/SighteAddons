@@ -5,7 +5,8 @@ until 2026-08-16. Amend the sections that changed; do not rewrite the file from 
 facts — toolchain, quoting traps, probe scripts, the code invariants a tidy-up would break — are in
 `ENVIRONMENT.md`. Past sessions are in `claude-progress.md` and, beyond that, in `git log`.
 
-**Branch state: 0.14.0 is released, and `critcalc-001` is merged on top of it.** `secrethud-001`
+**Branch state: 0.14.0 is released; `critcalc-001` is merged on `main` (`b46188c`); branch
+`secretpoints-001` is open on top of it.** `secrethud-001`
 (PR #51) and `idletime-001` are in 0.14.0; `v0.14.0` is tagged and published, and Modrinth version
 `VXWw5sPF` carries the identical jar — `sha1 cea7c51b…`, 245583 bytes, compared against the local
 file rather than assumed. It is the first build sending `RunReport.SCHEMA = 6`.
@@ -13,12 +14,8 @@ file rather than assumed. It is the first build sending `RunReport.SCHEMA = 6`.
 **0.14.0 was cut from `3643004` and does NOT contain the crit readout.** Its notes do not claim it,
 and **no `crit_unparsed` event can appear in a log until a later build ships** — a silent 0.14.0 says
 nothing about `critcalc-001`. That readout is on `main` now and reaches nobody until 0.15.0, which is
-the user's call. The leftover mutation probe once uncommitted in `RoomHistory.kt:449` is stashed, not
-lost: `git stash list`.
-
-**The process was cut back on 2026-08-16 at the user's instruction** — grading is no longer routine,
-mutation sweeps are not a per-feature deliverable, and the artifact ceilings roughly halved. What was
-kept, and why, is at the end of `CLAUDE.md`. Do not grow it back without a reason you can name.
+the user's call, as does the score change on this branch. The leftover mutation probe once
+uncommitted in `RoomHistory.kt:449` is stashed, not lost: `git stash list`.
 
 **The release does not reach players and the reason is not in this repository.** The Modrinth
 project answers 404 to anyone not logged in — still awaiting review — so the build is downloadable
@@ -29,8 +26,9 @@ is in `claude-progress.md`.
 
 - **`main` carries 0.14.0 plus the crit readout; `mod_version` is 0.14.0.** The release, its jar hashes and the
   Modrinth state are in `claude-progress.md`'s Current Verified State and are not repeated here.
-- **The suite is 265 across 19 classes on `main`, 276 across 20 on `critcalc-001`**, 0 failures and
-  0 skipped either way. Counts come from `build/test-results/test/*.xml`, not the console.
+- **The suite is 276 across 20 classes on `main` (`b46188c`), 277 across 20 on `secretpoints-001`**,
+  0 failures and 0 skipped either way. Counts come from `build/test-results/test/*.xml`, not the
+  console.
 - **`RunReport.SCHEMA` is 6 on `main` and 5 in every install, and the pair is closed.**
   `skyblock-server`'s `master` is `1a7f435`, deployed and verified on the box 2026-08-16: it accepts
   run-level `idleTicks` and `navTicks` as **optional** keys, so v5 reports in backlogs still
@@ -39,29 +37,47 @@ is in `claude-progress.md`.
   **Nothing is owed to the receiver in either direction and that repository was only read.**
 - **`secrethud-001` is display only and was verified as such** — `SecretHud.line` is pure over
   tracker state, swept by three mutations of `build/secrethudprobe.py`, all CAUGHT. `SecretTracker`
-  is not in the diff of that feature or of `idletime-001`, so `ownsecrets-001` stays unclaimed.
+  now carries one added line (`secretpoints-001`) and `ownsecrets-001` still stays unclaimed:
+  nothing in that diff changes what attribution decides, only what a decided secret is worth.
 
 ## Changed This Session
 
-**`critcalc-001`, created and implemented on branch `critcalc-001`.** No version bump, no release,
-`dist/`, `gradle.properties` and **`RunReport.kt` untouched**, so no release gate and no schema pair.
+**`secretpoints-001`, created and implemented on branch `secretpoints-001` off `b46188c`.** A
+user-reported defect: *"in the live clear score, each secret should add 0.25, and right now nothing
+happens when they collect secrets."* No version bump, `dist/`, `gradle.properties` and
+**`RunReport.kt` untouched**; `python build/keydiff.py` CLEAN at 6, so no receiver work is owed.
 
-- New `CritMeter.kt` (parse, roman numerals, power sum, combat window, wording) and
-  `CritMeterTest.kt` (11 cases), ported from a `CC0-1.0` mod in the parent directory.
-- `PlayerTabOverlayAccessor` gained an instance `@Accessor("footer")`; field name from `javap` on
-  the merged jar, not remembered. `SighteAddons`: `onCrit(text)` and `tabFooter()`, **not** gated on
-  `DungeonSession.calibrated` (the Maxor window is stricter). `DungeonSession.reset`:
-  `CritMeter.reset()`. `Config.critLine` + a `crit readout` row on the **chat** tab, not the HUD one.
-- `feature_list.json` gained the entry, which did not exist before. No probes, no mutation sweep.
-- This file was **pruned toward its 80-line ceiling and is still over it — 140, from 150, with a
-  whole feature added.** Everything cut survives at `git show 3643004:session-handoff.md`. What
-  remains over budget is other features' standing briefs (`recordowner-001`'s trusted-`0/N` risk,
-  `scores-fetch-001`'s carried list), which `CLAUDE.md` says an open feature keeps in full; deciding
-  which of those has expired is the next prune and wants the features closed first, not a session
-  that was here for one afternoon.
+- **`ContributionTracker.weightOf` no longer pays `(room.info.secrets) * 0.25`.** That term was
+  *potential* — the database's count, credited on the clear checkmark, so a 7-secret room paid 1.75
+  whether anybody opened one or not and the live number never moved while collecting.
+- **`ContributionTracker.onOwnSecret(player)` pays 0.25 into `credited`**, called from the one line
+  in `SecretTracker.onActionBar` that does `room.ownSecrets++`. Same signal `SecretHud` shows as
+  "Your secrets", so the readout and the standings cannot disagree. `SecretTracker.onActionBar`
+  gained a `self: String` argument; `SighteAddons.onActionBar` passes `player.name.string`.
+- Both terms were **not** kept: a player who clears a room and takes all its secrets would be paid
+  for them twice. **Scores from before this change are not comparable with scores after it** — the
+  same break `clearpoints-002` documents for its own change of kind, and `Pipes` is the number that
+  shows it: 4.25 → 2.50 → **0.75**.
+- Two cases that pinned the removed term were retitled to assert the opposite
+  (`a room is not paid for secrets, found or merely present`, `an unnamed room keeps its kind`);
+  three new cases; two `unattributed` fixtures reseeded to `Ice Fill`/`Water Board`, which are what
+  makes a run outscore its rooms now that secrets do not. **No test was deleted or weakened.**
+- No probes, no mutation sweep, no grading pass — `CLAUDE.md`'s lighter process, 2026-08-16.
 
 ## Broken Or Unverified
 
+- **`secretpoints-001`: the arithmetic is verified, the wiring never ran in a game.** Verified by
+  the suite: 0.25 per attributed secret, credited on the call rather than on a clear
+  (`roomsCleared` is 0 while the score climbs); the clear half and the secret half add once each;
+  a room pays nothing for secrets found or merely present; `Pipes` is 0.75. **Not** verified: that
+  `SighteAddons.onActionBar` → `SecretTracker.onActionBar(text, self, x, z)` delivers the local
+  player's name Hypixel's roster keys on, that the standings row for the local player exists at all
+  (it needs `PartyTracker.roster()` to contain them — pre-existing, and true of clear points too),
+  and that the HUD repaints between the find and the next clear. One played floor settles all
+  three by eye: open a chest, watch your own row rise 0.25 before the checkmark.
+- **The under-count is inherited, not introduced.** A secret walked over is attributed to nobody, so
+  it now costs 0.25 as well as a line on the HUD. That is `ownsecrets-001`, still `not_started` and
+  still unclaimed; this feature spends attribution and does not touch it.
 - **`critcalc-001`: EVERY STRING IN IT IS A HYPOTHESIS AND NOTHING ON DISK CONFIRMS ONE.** Grepping
   `docs/evidence/` and the fifteen real session logs for "explosive shot" or "blessing of power"
   finds nothing — no build ever looked. Verified: the parse, the divide-by-enemies, the roman
@@ -120,15 +136,15 @@ is in `claude-progress.md`.
   `trap`, so an interruption leaves a deliberate defect in the tree, which happened once. **Evaluator
   follow-up 1, still open.** `build/evalsweep.sh` and `build/idlesweep.sh` are the worked fixes, and
   `build/` is gitignored so all three are one `git clean` from gone.
-- Regressions found: **none.** The suite on the branch is 20 classes / 276 tests / 0 failures / 0
-  skipped, from 19 / 265 on `main`; every previously passing feature's class is in that run and none
+- Regressions found: **none.** The suite on the branch is 20 classes / 277 tests / 0 failures / 0
+  skipped, from 20 / 276 on `main`; every previously passing feature's class is in that run and none
   moved.
 
 ## Next Best Step
 
-- **Decide `critcalc-001`: it is the only branch open, so a second feature here breaks
-  `single_active_feature`.** Grading is **not** required — no schema change, no deploy path, nothing
-  in `RunReport.kt`, `priority` 22. Merging it is the ordinary next move.
+- **Decide `secretpoints-001`: it is the only branch open, so a second feature here breaks
+  `single_active_feature`.** No schema change, no deploy path, nothing in `RunReport.kt`. It does
+  change what every score means, which is the one thing worth a second reader before it merges.
 - **READ A REAL SESSION LOG FROM 0.12.0 OR LATER — the cheapest and highest-value input on the
   board, and unlike a week ago it can actually exist.** One floor settles `recordowner-001`'s entire
   remaining ceiling: whether `secret_room_first_bar` appears at all, whether it ever carries
@@ -143,9 +159,16 @@ is in `claude-progress.md`.
   next feature. `build/idlesweep.sh` is the newest worked example of the `trap` form.
 - **Do not start `chatfields-001`** by editing `RunReport.kt` — its first move is a feature in
   `Sighte/skyblock-server`. `records-001` is deferred by the user, a product decision.
-- **Twelve features still exist in source only** — `critcalc-001` joined them. Nothing breaks
-  meanwhile, but a released build is the only thing that can produce a `crit_unparsed`, so that
-  feature stays a hypothesis until one ships.
-- **`stormtimer-001` does not exist yet.** The `LBRelease/` half of the same decompiled mod was
-  explicitly out of scope for this session and was not read.
+- **Thirteen features exist in source only** — `critcalc-001` and `secretpoints-001` joined them.
+  Nothing breaks meanwhile, but a released build is the only thing that can produce a
+  `crit_unparsed`, or let the user see a score that moves on a chest. `stormtimer-001` still does
+  not exist; the `LBRelease/` half of the decompiled mod has never been read.
+
+**This file is 174 lines against an 80-line ceiling, from 151 with a feature added.** It was
+already over when this session started and the reason has not changed: most of what remains is
+other features' standing briefs (`recordowner-001`'s trusted-`0/N` risk, `scores-fetch-001`'s
+carried list), which `CLAUDE.md` says an open feature keeps in full. Cut here: the duplicated
+process-cut paragraph (it is the end of `CLAUDE.md`) and `critcalc-001`'s implementation detail,
+which survives at `git show b46188c:session-handoff.md`. **The real prune wants those features
+closed, not another session trimming around them.**
 

@@ -317,12 +317,101 @@ class ContributionTrackerTest {
         )
     }
 
+    /**
+     * **Replaces `a secret-heavy room is worth more than an empty one`, and asserts the opposite on
+     * purpose** — the same shape of replacement `size and kind are no longer paid for directly` is,
+     * and for the same reason: the old case pinned behaviour the user has since called a defect.
+     *
+     * Until `secretpoints-001` a room carried `+ 0.25` for every secret the *database* says it
+     * holds, credited on the clear checkmark. That is potential, not work: a room with seven
+     * secrets paid 1.75 even if nobody touched one, and the score never moved while the player was
+     * collecting. Secrets are now paid to whoever is credited with finding them, as they are found
+     * (`each attributed secret is worth a quarter point`), so the room may not pay for them again.
+     *
+     * Both counters are pinned in the same case because they are two different mistakes with the
+     * same fix: `info.secrets` is the term that was removed, and `secretsFound` is the plausible
+     * "make it live by reading the live counter here" edit, which would weight every room at
+     * whatever it happened to be part-way through when the checkmark landed.
+     */
     @Test
-    fun `a secret-heavy room is worth more than an empty one`() {
-        val heavy = ContributionTracker.weightOf(roomOf(info = info("NORMAL", secrets = 8)))
-        val one = ContributionTracker.weightOf(roomOf(info = info("NORMAL", secrets = 1)))
-        assertTrue(heavy > one, "eight secrets is more room than one")
-        assertTrue(one > ContributionTracker.weightOf(plain()), "and one secret is more than none")
+    fun `a room is not paid for secrets, found or merely present`() {
+        val plain = ContributionTracker.weightOf(plain())
+        assertEquals(
+            plain,
+            ContributionTracker.weightOf(roomOf(info = info("NORMAL", secrets = 8))),
+            1e-9,
+            "the database's secret count is potential, and the room is being paid for it again",
+        )
+
+        val collected = roomOf(info = info("NORMAL", secrets = 8))
+        collected.secretsFound = 8
+        collected.ownSecrets = 8
+        assertEquals(
+            plain,
+            ContributionTracker.weightOf(collected),
+            1e-9,
+            "and the live counters may not reach the room's weight either — they pay the finder",
+        )
+    }
+
+    // --- Secrets are paid to the finder, as they are found (secretpoints-001) ---
+
+    /**
+     * **The defect, in the shape the user reported it**: *"in the live clear score, each secret
+     * should add 0.25, and right now nothing happens when they collect secrets"*.
+     *
+     * The score has to move on the find, not on the next checkmark, so nothing here is cleared at
+     * all: [ContributionTracker.onCleared] is never called and [ContributionTracker.roomsCleared]
+     * stays at zero while the standings climb. Under the previous model this test could not have
+     * been written — the whole of a secret's worth was inside [ContributionTracker.weightOf] and
+     * arrived with the clear.
+     *
+     * Only the local player is paid: attribution is something this client can prove about itself
+     * and about nobody else, which is why [ContributionTracker.onOwnSecret] takes a name rather
+     * than crediting a room's occupants.
+     */
+    @Test
+    fun `each secret adds a quarter the moment it is attributed, with no room cleared`() {
+        assertTrue(ContributionTracker.pointsByPlayer().isEmpty())
+
+        ContributionTracker.onOwnSecret("Fighter")
+        assertEquals(0.25, ContributionTracker.pointsByPlayer()["Fighter"] ?: 0.0, 1e-9)
+        repeat(3) { ContributionTracker.onOwnSecret("Fighter") }
+        assertEquals(1.0, ContributionTracker.pointsByPlayer()["Fighter"] ?: 0.0, 1e-9, "0.25 each, four of them")
+
+        assertNull(ContributionTracker.pointsByPlayer()["Mate"], "a teammate's find is not ours to credit")
+        assertEquals(0, ContributionTracker.roomsCleared, "nothing was cleared; the score moved anyway")
+
+        ContributionTracker.reset()
+        assertTrue(ContributionTracker.pointsByPlayer().isEmpty(), "and the run's secrets go with the run")
+    }
+
+    /**
+     * The two halves add, once each. A player who clears a room *and* takes its secrets is paid the
+     * clear once and a quarter per secret once — which is the arithmetic that forced the potential
+     * term out of [ContributionTracker.weightOf] rather than leaving both terms in.
+     *
+     * The room here is the four-secret room the old model paid `0.75 + 4 x 0.25 = 1.75` for on the
+     * checkmark whether anybody opened one or not. It is now worth 0.75, split by time between the
+     * two members who were in it, and the four secrets are worth 1.0 to the one who found them.
+     */
+    @Test
+    fun `a cleared room pays its clear once and its secrets once`() {
+        val room = roomOf(info = info("NORMAL", secrets = 4))
+        room.ticks["Fighter"] = 400
+        room.ticks["Mate"] = 400
+        repeat(4) { ContributionTracker.onOwnSecret("Fighter") }
+        ContributionTracker.onCleared(room)
+
+        val points = ContributionTracker.pointsByPlayer()
+        assertEquals(0.375 + 1.0, points["Fighter"] ?: 0.0, 1e-9, "half the room's 0.75, plus four secrets")
+        assertEquals(0.375, points["Mate"] ?: 0.0, 1e-9, "who was there just as long and found nothing")
+        assertEquals(
+            1.75,
+            points.values.sum(),
+            1e-9,
+            "the old model paid exactly this for the room alone, to whoever was standing in it",
+        )
     }
 
     /**
@@ -399,49 +488,28 @@ class ContributionTrackerTest {
     }
 
     /**
-     * Secrets are paid for out of the room database and never out of [TrackedRoom.secretsFound].
-     * That counter is the party's live progress through the room, and it is not what is being
-     * weighted — the room is. Pinned in both directions because both edits are plausible and neither
-     * is caught by the fixtures on its own: *adding* the live counter to the weight, and
-     * *substituting* it for the database's count.
+     * Why the clear credit has to be independent of the secrets, stated as a property of the award
+     * rather than of [ContributionTracker.weightOf]. [ContributionTracker.onCleared] fires when the
+     * checkmark appears, and the party is usually still collecting the room's secrets at that
+     * moment — two of five, here, with none of them ours. The clear pays the clear; the secrets pay
+     * separately, as they are found, and none of that changes what the checkmark hands over.
+     *
+     * Retitled from `the credit is the whole room even though the checkmark lands mid-collection`,
+     * whose point was the opposite: that the room's *full* secret complement was credited at the
+     * checkmark, part-collected or not. That is the behaviour `secretpoints-001` removed.
      */
     @Test
-    fun `the live secret counter is not what a room is worth`() {
-        val collected = roomOf(info = info("NORMAL", secrets = 0))
-        collected.secretsFound = 8
-        assertEquals(
-            ContributionTracker.weightOf(plain()),
-            ContributionTracker.weightOf(collected),
-            "eight secrets found in a room the database says holds none may not add anything",
-        )
-
-        val stocked = roomOf(info = info("NORMAL", secrets = 8))
-        assertTrue(
-            ContributionTracker.weightOf(stocked) > ContributionTracker.weightOf(collected),
-            "and the database's count has to be the one that pays, with nothing found yet",
-        )
-    }
-
-    /**
-     * Why that exclusion is load-bearing rather than a preference. [ContributionTracker.onCleared]
-     * fires when the checkmark appears, and the party is usually still collecting the room's secrets
-     * at that moment — two of five, here. So the live counter at award time is a race against when
-     * the last mob happened to drop, and reading it would make the same room worth a different
-     * amount on every run. The credit that lands is the whole room, as the database describes it.
-     */
-    @Test
-    fun `the credit is the whole room even though the checkmark lands mid-collection`() {
+    fun `what the checkmark pays does not depend on the room's secrets`() {
         val room = roomOf(info = info("NORMAL", secrets = 5))
         room.secretsFound = 2
         room.ticks["Fighter"] = 400
         ContributionTracker.onCleared(room)
 
-        val whole = ContributionTracker.weightOf(roomOf(info = info("NORMAL", secrets = 5)))
         assertEquals(
-            whole,
+            ContributionTracker.weightOf(plain()),
             ContributionTracker.pointsByPlayer()["Fighter"] ?: 0.0,
             1e-9,
-            "the room was credited at what it was part-way through, not at what it is",
+            "the clear is worth an ordinary room's clear, whatever the room holds",
         )
     }
 
@@ -612,16 +680,22 @@ class ContributionTrackerTest {
     }
 
     /**
-     * An unnamed room falls back to the map colour, so it keeps its kind but loses its secrets.
-     * Less than it should be, never nothing — and worth saying out loud, because it means the same
-     * room can be worth two different amounts across two runs depending on chunk streaming.
+     * An unnamed room falls back to the map colour, so it keeps its kind. What it loses is its
+     * *measurement*, which is keyed by name — pinned separately in `an unnamed room can carry no
+     * measurement`, since the seed layer alone cannot show it.
+     *
+     * The secret half of the old assertion is gone with the secret half of the weight: a named and
+     * an unnamed puzzle are now worth exactly the same with nothing measured. Its secrets are not
+     * lost, they are simply not the room's — though in practice an unnamed room cannot yield an
+     * attributed one either, because `SecretTracker` only trusts an action bar whose maximum
+     * matches the database.
      */
     @Test
-    fun `an unnamed room keeps its kind and loses only its secrets`() {
+    fun `an unnamed room keeps its kind`() {
         val named = ContributionTracker.weightOf(roomOf(type = RoomType.PUZZLE, info = info("PUZZLE", secrets = 2)))
         val unnamed = ContributionTracker.weightOf(roomOf(type = RoomType.PUZZLE))
-        assertTrue(unnamed < named, "the secret bonus needs the database")
-        assertTrue(unnamed > ContributionTracker.weightOf(roomOf(type = RoomType.ROOM)), "the kind does not")
+        assertEquals(named, unnamed, 1e-9, "with nothing measured, the name buys nothing")
+        assertTrue(unnamed > ContributionTracker.weightOf(roomOf(type = RoomType.ROOM)), "the kind does")
     }
 
     // --- ClearPoints: the seed is a prior, not a constant (clearpoints-002) ---
@@ -827,11 +901,16 @@ class ContributionTrackerTest {
      */
     @Test
     fun `weighting cannot silence the unattributed count`() {
-        val puzzle = roomOf(info = info("PUZZLE", secrets = 3))
+        // `Ice Fill` and `Water Board` are the two heaviest seeds the user gave (2.0 and 1.5), and
+        // they are what makes this run outscore its rooms now that secrets have stopped paying the
+        // room. The fixture used to be a secret-heavy puzzle and a secret-heavy 1x4; both are worth
+        // 0.75 under `secretpoints-001` and the run would have scored 1.75 for three rooms, which
+        // reproduces nothing.
+        val puzzle = roomOf(info = info("PUZZLE", name = "Ice Fill"))
         puzzle.ticks["Fighter"] = 400
         ContributionTracker.onCleared(puzzle)
 
-        val big = roomOf(segments = 4, info = info("NORMAL", secrets = 6))
+        val big = roomOf(segments = 4, info = info("PUZZLE", name = "Water Board"))
         big.ticks["Fighter"] = 400
         ContributionTracker.onCleared(big)
 
@@ -860,7 +939,7 @@ class ContributionTrackerTest {
      */
     @Test
     fun `an expensive room nobody was in is one unattributed room, not its weight in points`() {
-        val expensive = roomOf(segments = 4, info = info("PUZZLE", secrets = 10))
+        val expensive = roomOf(segments = 4, info = info("PUZZLE", name = "Ice Fill", secrets = 10))
         // Relative to the cheapest room rather than an absolute figure: what this case needs is a
         // room worth several rooms, and an absolute number would have to be retuned every time the
         // model moves — which is exactly how it came to say 4.0 against a room now worth 3.5.

@@ -17,6 +17,13 @@ package sighteaddons
  * "your secrets" is still exactly what this line was saying, which is why it is labelled that way
  * rather than "found" or "collected".
  *
+ * **Since `secretpoints-001` that same attribution also pays ClearPoints** — a quarter per secret,
+ * credited by [ContributionTracker.onOwnSecret] on the line that increments `ownSecrets`. So this
+ * readout and the standings below it are two views of one signal by construction, and widening
+ * attribution (`ownsecrets-001`) now moves both. It could not move only one without them
+ * contradicting each other on screen, which is why they share the counter rather than each
+ * deciding what a secret of yours is.
+ *
  * Pure on purpose. The dev client cannot reach Hypixel, so the wiring — that [SighteAddons.renderHud]
  * calls this with the room the player is in, every frame, while the game is running — is not
  * observable in this repository. What *is* observable is what the line says for a given tracker

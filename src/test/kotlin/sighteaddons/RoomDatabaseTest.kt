@@ -74,7 +74,8 @@ class RoomDatabaseTest {
         assertEquals(0, puzzle.secrets)
         assertEquals("NORMAL", plain!!.type)
         assertEquals(0, plain.secrets)
-        // And a plain room with ten of them, so the secret count alone does too.
+        // And a plain room with ten of them — the fixture for the opposite claim since
+        // `secretpoints-001`: the secret count must NOT separate it from `Admin` any more.
         assertEquals("NORMAL", heavy!!.type)
         assertEquals(10, heavy.secrets)
     }
@@ -95,7 +96,10 @@ class RoomDatabaseTest {
     @Test
     fun `a real puzzle outscores a real empty room`() {
         assertTrue(weigh("Ice Fill") > weigh("Admin"), "Ice Fill is a puzzle; Admin is an empty 1x1")
-        assertTrue(weigh("Mines") > weigh("Admin"), "Mines holds ten secrets; Admin holds none")
+        // `Mines` holds ten secrets and `Admin` holds none, and since `secretpoints-001` that does
+        // not separate them: a room is worth its clear, and the ten secrets are worth 2.50 to
+        // whoever opens them. The clause here used to assert the opposite.
+        assertEquals(weigh("Admin"), weigh("Mines"), 1e-9, "a room is not paid for the secrets it holds")
     }
 
     /**
@@ -134,15 +138,18 @@ class RoomDatabaseTest {
      *
      *     clearpoints-001   1.00 + 7 x 0.25 + 3 x 0.50  =  4.25
      *     clearpoints-002   0.75 + 7 x 0.25             =  2.50
+     *     secretpoints-001  0.75                        =  0.75
      *
-     * Its three extra segments stop being paid for at all — under the new model a 1x4 earns its
-     * points by measuring slow, and `Pipes` has never been measured. On the one real M7 there is,
-     * the old formula scored rooms from 1.00 (`Hall`) to 4.50 (`Cathedral`) and `Pipes` at exactly
-     * the 4.25 above; every room comes down under this one and they come down by different amounts,
-     * so a per-player total from an older build cannot be held next to one from this build. That run
-     * is committed — `docs/evidence/session-1786719912927/`, whose `readout.sh` asserts all three of
-     * those numbers out of the run's own `award` events, so this KDoc cites evidence rather than
-     * recollection.
+     * Its three extra segments stopped being paid for at `clearpoints-002` — under that model a 1x4
+     * earns its points by measuring slow, and `Pipes` has never been measured. Its seven secrets
+     * stopped being paid to the *room* at `secretpoints-001`: they are worth 1.75 to whoever is
+     * credited with finding them, as they are found, and nothing at all if nobody does. On the one
+     * real M7 there is, the first formula scored rooms from 1.00 (`Hall`) to 4.50 (`Cathedral`) and
+     * `Pipes` at exactly the 4.25 above; every room came down at each step and they came down by
+     * different amounts, so a per-player total from an older build cannot be held next to one from
+     * this build. That run is committed — `docs/evidence/session-1786719912927/`, whose `readout.sh`
+     * asserts all three of those numbers out of the run's own `award` events, so this KDoc cites
+     * evidence rather than recollection.
      *
      * Pinned against the real database rather than left in a comment, because a reader who wants to
      * know what changed will look for a number and this is it.
@@ -151,11 +158,11 @@ class RoomDatabaseTest {
     fun `the seed weight of Pipes is the user's model, not the old one`() {
         val pipes = RoomDatabase.infoByName("Pipes")
         assertNotNull(pipes)
-        assertEquals(7, pipes!!.secrets, "Pipes' seven secrets are half of the arithmetic below")
-        assertEquals("1x4", pipes.shape, "and its four segments are what stopped being paid for")
+        assertEquals(7, pipes!!.secrets, "Pipes' seven secrets stopped reaching the room's weight")
+        assertEquals("1x4", pipes.shape, "and its four segments are what stopped being paid before that")
 
-        assertEquals(2.50, weigh("Pipes"), 1e-9, "the old formula made this 4.25")
-        assertEquals(0.75 + 7 * 0.25, weigh("Pipes"), 1e-9)
+        assertEquals(0.75, weigh("Pipes"), 1e-9, "clearpoints-001 made this 4.25 and clearpoints-002 2.50")
+        assertEquals(weigh("Admin"), weigh("Pipes"), 1e-9, "a 1x4 with seven secrets clears like any room")
     }
 
     @Test

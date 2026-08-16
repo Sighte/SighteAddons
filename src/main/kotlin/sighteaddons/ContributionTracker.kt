@@ -485,13 +485,20 @@ object ContributionTracker {
     private const val CONFIDENCE_SAMPLES = 10.0
 
     /**
-     * Per secret the room database says the room holds — the room's own count, not
-     * [TrackedRoom.secretsFound]. Two reasons, and the second one is decisive: what is being
-     * weighted is the room rather than the party's thoroughness, and [award] runs on the clear
-     * checkmark, at which point the secrets of that room are usually still being collected. Reading
-     * the live counter here would weight most rooms at whatever they happened to be part-way
-     * through. What the party actually found is already reported per room (`secretsFound`,
-     * `ownSecrets`), which is where that analysis belongs.
+     * Per secret **the local player was actually credited with finding** ([TrackedRoom.ownSecrets]),
+     * paid the moment attribution happens rather than when the room clears. See [onOwnSecret].
+     *
+     * **`secretpoints-001` moved this off the room and onto the find, and that is a change of
+     * meaning.** Until 2026-08-16 the quarter was multiplied by `room.info.secrets` — how many
+     * secrets the *database* says the room contains — inside [weightOf]. So it was potential, baked
+     * into the room's weight and handed over on the clear checkmark: a room with seven secrets paid
+     * 1.75 whether anybody opened one or not, and the number on screen never moved while the player
+     * was collecting. Reported by the user, 2026-08-16: *"in the live clear score, each secret
+     * should add 0.25, and right now nothing happens when they collect secrets."*
+     *
+     * The potential term was **removed** rather than kept alongside this one, and it had to be:
+     * with both, a room the player fully cleared would pay its secrets twice — once for holding
+     * them and once for their finding them.
      */
     private const val SECRET_POINTS = 0.25
 
@@ -655,10 +662,41 @@ object ContributionTracker {
 
     /**
      * Weighted ClearPoints per player — **not** a number of rooms, and not comparable with
-     * [roomsCleared]. One [weightOf] room is worth between [MIN_BASE] and [MAX_BASE] plus a quarter
-     * per secret, so this total normally runs above the room count. See [unattributed].
+     * [roomsCleared]. One [weightOf] room is worth between [MIN_BASE] and [MAX_BASE], and the local
+     * player is additionally paid [SECRET_POINTS] for every secret attributed to them, so this
+     * total normally runs above the room count. See [unattributed].
+     *
+     * **Two halves with two different clocks, in one accumulator.** [award] pays a room's clear
+     * when its checkmark lands; [onOwnSecret] pays a quarter the moment a secret is attributed to
+     * the local player. The second is what makes the HUD figure move while somebody is collecting,
+     * which it did not do before `secretpoints-001`.
      */
     fun pointsByPlayer(): Map<String, Double> = credited
+
+    /**
+     * One secret was just credited to [player] — always the local player, because attribution is
+     * something this client can only prove about itself. Pays [SECRET_POINTS] on the spot.
+     *
+     * **This is the "live" half of `secretpoints-001` and the whole of the user's complaint.** The
+     * credit lands on the tick [SecretTracker.onActionBar] decides the secret was theirs, so the
+     * standings line and the run summary both move while the room is still being worked, rather
+     * than jumping when the checkmark arrives. Nothing waits for a clear: a secret found in a room
+     * that never clears, or in a room that was already cleared when we walked in, is still paid.
+     *
+     * **Attributed, not found**, and deliberately the same signal [SecretHud] puts on screen as
+     * "Your secrets" — [TrackedRoom.ownSecrets] is incremented on the same line that calls this. A
+     * live score that moved on a teammate's find would contradict the readout directly above it.
+     * The two signals attribution runs on (a counter rise inside the own-interaction window, or a
+     * wither-essence chat line naming you) mean a secret walked over is credited to nobody, so this
+     * under-counts by exactly the margin the HUD line does. That gap is `ownsecrets-001`'s subject;
+     * this feature does not touch attribution, it spends it.
+     *
+     * Takes the name rather than reading `Minecraft.getInstance()`, for the reason [onDeath] takes
+     * its tick: a function that reaches for the client is a function no test here can drive.
+     */
+    fun onOwnSecret(player: String) {
+        credited.merge(player, SECRET_POINTS, Double::plus)
+    }
 
     /**
      * The cleared rooms nobody was credited for, **in rooms**. A room nobody was ever seen in is one
@@ -688,8 +726,15 @@ object ContributionTracker {
     /**
      * What one cleared room is worth, before [award] splits it over the members who were in it.
      *
-     *     weight = base(room) + 0.25 per secret the database says the room holds
-     *     base    = seed, blended toward the room's measured clear time as samples accumulate
+     *     weight = seed, blended toward the room's measured clear time as samples accumulate
+     *
+     * **`secretpoints-001` removed the secret term from this function**, and that is a second break
+     * in comparability on top of the one below. A room used to carry `+ 0.25` for every secret the
+     * *database* says it holds, so the room paid for its secrets as potential, on the clear
+     * checkmark, whether anybody found one or not. Secrets are now paid to the finder as they are
+     * found ([onOwnSecret]) and the room is worth its clear alone. Keeping both terms was
+     * considered and rejected in one line: a player who clears a room and takes all its secrets
+     * would be paid for them twice.
      *
      * **What `clearpoints-002` changed, and it is a change of kind rather than of numbers.** The
      * previous version paid a room for *being* a puzzle (1.5), a trap, a miniboss, a blood room
@@ -705,20 +750,20 @@ object ContributionTracker {
      * `Pipes` — a 1x4 holding seven secrets — was `1.0 + 7x0.25 + 3x0.5 = 4.25`. Those are not
      * remembered numbers: the run is committed at `docs/evidence/session-1786719912927/`, the nine
      * `award` events are in `session-excerpt.jsonl` and sum to 26.25, and `readout.sh` asserts each
-     * one so a hand-copy that drifts from them fails rather than merely disagrees. Under this model
-     * `Pipes` seeds at `0.75 + 7x0.25 = 2.50` before any measured adjustment, because its size stops
-     * being paid for directly. Every room came down, and rooms came down by different amounts, so a
+     * one so a hand-copy that drifts from them fails rather than merely disagrees. Under
+     * `clearpoints-002` `Pipes` seeded at `0.75 + 7x0.25 = 2.50`, and under `secretpoints-001` it
+     * seeds at **0.75** — the seven secrets are now worth 1.75 to whoever opens them and nothing to
+     * the room. Every room came down at both steps, and rooms came down by different amounts, so a
      * standing from an older build cannot be held next to one from this build. `the seed weight of
      * Pipes is the user's model, not the old one` in `RoomDatabaseTest` pins that number against the
      * real database.
      *
-     * **Two things are still properties of the room rather than of what the party did in it**, so
-     * two players in the same room are still separated only by time, which is [award]'s job:
-     *
-     * - **Time** ([blend]): how long the average player takes to clear this room, from the
-     *   receiver's `clearStay` average — the stay-anchored clear span, with no secret hunting in it.
-     * - **Secrets** ([SECRET_POINTS]): from the room database, and the reason `rooms.json` carries
-     *   the counts at all.
+     * **One thing is still a property of the room rather than of what the party did in it**, so two
+     * players in the same room are still separated only by time, which is [award]'s job: **time**
+     * ([blend]) — how long the average player takes to clear this room, from the receiver's
+     * `clearStay` average, the stay-anchored clear span with no secret hunting in it. Secrets used
+     * to be the second entry here and are not any more; they are paid per find, per player, in
+     * [onOwnSecret], which is the one part of the score that *is* about what somebody did.
      *
      * **Floor is deliberately not a factor**, though `DungeonSession.floorNumber` is right there and
      * the README lists it as available. A floor multiplier is constant across every room of a run,
@@ -728,8 +773,9 @@ object ContributionTracker {
      * has no points field; the per-player breakdown never leaves the client). It would be a constant
      * with no reader. Revisit if points ever become something the server stores.
      *
-     * **All three exclusions are guarded.** Rarity by `a rare room is not paid for being rare`, the
-     * live secret counter by `the live secret counter is not what a room is worth`, and the floor by
+     * **All three exclusions are guarded.** Rarity by `a rare room is not paid for being rare`,
+     * secrets of either kind by `a room is not paid for secrets, found or merely present`, and the
+     * floor by
      * `a room is worth the same on every floor`, which writes `DungeonSession.floor` by reflection:
      * the field is `private set` and set only by `inDungeon(Minecraft)`, which no test here can call,
      * but the backing field of the `object` is reachable and `floorNumber` then reads the real digit.
@@ -746,8 +792,11 @@ object ContributionTracker {
      * nothing.
      *
      * An unnamed room — the chunk never streamed, so [TrackedRoom.info] is null — keeps the seed its
-     * map colour implies, pays no secret bonus, and can carry no measurement, since the measurement
-     * is keyed by name. It is worth less than it should be, never nothing: a room we could not
+     * map colour implies and can carry no measurement, since the measurement is keyed by name. Its
+     * secrets are unaffected: they were never a property of the room's weight after
+     * `secretpoints-001`, and [SecretTracker] cannot credit one in an unnamed room anyway, because
+     * the action bar is only trusted where its maximum matches the database. It is worth less than
+     * it should be, never nothing: a room we could not
      * identify is still a room somebody cleared.
      */
     internal fun weightOf(room: TrackedRoom): Double {
@@ -757,8 +806,7 @@ object ContributionTracker {
         // whenever both are set — `applyNames` copies one from the other — so the fallback only
         // matters for a room identified but not yet named.
         val name = room.info?.name ?: room.name
-        return blend(seedOf(room), name?.let { scores.of(it) }, scores.medianTicks) +
-            (room.info?.secrets ?: 0) * SECRET_POINTS
+        return blend(seedOf(room), name?.let { scores.of(it) }, scores.medianTicks)
     }
 
     /**
