@@ -27,29 +27,19 @@ gh release create "v$(grep '^mod_version' gradle.properties | cut -d= -f2)" \
 
 ### What the notes have to say
 
-"Documented" means a reader can decide whether to install it and an operator knows what else to do.
-In this project the jar is regularly only half of a change, so the notes carry:
+Short. A reader decides whether to install it; an operator learns what else to do. Four things:
 
-- **What changed**, per merged PR, in one line each — behaviour first, internals only if they are
-  visible from outside.
-- **What is not in the jar.** The receiver lives in
-  [`Sighte/skyblock-server`](https://github.com/Sighte/skyblock-server) and a push to its `master`
-  deploys, so the question is whether the matching change is *pushed there* rather than whether
-  somebody copied a file. Name the commit or PR it needs. A build whose receiver side is behind
-  silently rejects every report it produces — the report schema is compiled in, and a field the
-  validator has not learned yet is a `400` the client never retries.
-- **What breaks for older installs.** The upload URL and the report schema are compiled in, so a
-  bump can take previous builds off the air — say so plainly, and say whether their queued data
-  survives.
-- **Requirements**: Minecraft, loader, Fabric API and fabric-language-kotlin versions, read out of
-  `gradle.properties` rather than remembered.
-- **`sha256`** of the attached jar.
-- **What is not verified.** The dev client cannot reach Hypixel, so anything needing a real run is
-  unverified until somebody plays one. Name those paths instead of leaving the reader to assume they
-  were tested.
+- **What changed**, one line per merged PR, behaviour first.
+- **Whether the receiver side is already deployed.** The report schema is compiled in, so a build
+  whose receiver half is behind silently `400`s every report it produces. Name the commit it needs,
+  or say it is already live.
+- **`sha256`** of the attached jar, and the Minecraft/loader versions out of `gradle.properties`
+  rather than remembered.
+- **What is not verified** — the dev client cannot reach Hypixel, so name the paths nobody has run
+  instead of leaving the reader to assume they were tested.
 
 Do not backfill releases for versions that never had one — the tags would claim a review that never
-happened. Start where the habit starts.
+happened.
 
 ## The same build goes to Modrinth, in the same step
 
@@ -82,42 +72,36 @@ not on the first GitHub release — so it is worth saying out loud when it is ab
 
 ## Operating Loop
 
-This repository is worked on in long-running sessions. Prioritize reliable completion, continuity
-across sessions, and explicit verification over speed. Everything above stays in force — the release
-gate is what happens when a version bump lands, this is what happens on every ordinary day.
+**Two people use this mod. The process is sized for that** — enough to know what is running and not
+to break what already works, and no more. It was much heavier until 2026-08-16; see "How much process
+this is worth" below for what was cut and what deliberately was not.
 
-That priority has a limit, found the hard way: an artifact too large to read cheaply stops being the
-system of record and becomes a tax on every session after it. See "Artifact Retention" below.
+At the start of a session — read what is named, not the whole file:
 
-At the start of every session — read what is named, not the whole file:
+1. Read the **"Current Verified State"** section of `claude-progress.md`.
+2. Read the entry for your feature in `feature_list.json`. You do not need the others.
+3. Run `./init.sh`. If the baseline is FAILING, repairing it is the task and nothing else starts.
 
-1. Confirm you are in this repository root (`build.gradle` and `gradlew` are here).
-2. Read the **"Current Verified State"** section of `claude-progress.md`. The session log below it is
-   the last two sessions; read it only if the current state does not explain something.
-3. Read the `rules` block of `feature_list.json` and **the entry for your feature**. You do not need
-   the others.
-4. Read `ENVIRONMENT.md` — the toolchain, the quoting traps that make a probe silently do nothing,
-   the probe scripts, and the code invariants a tidy-up would break. Read it; do not rewrite it.
-5. `git log --oneline -5`.
-6. Run `./init.sh` and note the reported baseline status.
-7. If the baseline is FAILING, repairing it is the active task. Do not start or continue any feature
-   until it is green again. Record the repair as evidence in the progress log.
+`ENVIRONMENT.md` holds the toolchain, the quoting traps that make a probe silently do nothing, and
+the code invariants a tidy-up would break. Read it when you are about to meet one of those, not as a
+ritual. Do not rewrite it.
 
-Then select exactly one unfinished feature — respecting `depends_on` order — and work only on that
-feature until you either verify it or document why it is blocked.
+Then take one unfinished feature and work on that until it is verified or documented as blocked.
 
 ### Rules
 
 - One active feature at a time.
-- Do not claim completion without runnable evidence.
-- Do not rewrite the feature list to hide unfinished work.
-- Do not remove or weaken tests just to make the task look complete.
-- Use repository artifacts as the system of record.
+- Do not claim something works without having run it.
+- Do not rewrite the feature list to hide unfinished work, and do not weaken a test to make work look
+  finished.
+- **Tests pin behaviour that could plausibly break. They are not a score.** A handful of cases that
+  would actually catch a mistake beats twenty that restate the implementation, and no feature needs a
+  test count to justify itself. Mutation probes are a tool for logic that is genuinely easy to get
+  wrong — reach for one when you doubt a test, not once per feature out of habit.
 - If you discover new required work while implementing, do not fix it inline. Add it to
-  `feature_list.json` as a new feature (or record it as a blocker) and stay on the active feature.
-- Do not modify or delete harness files (`CLAUDE.md`, `init.sh`, the schema of `feature_list.json`,
-  this operating loop) unless the user explicitly asks for it. Record any harness change in the
-  progress log.
+  `feature_list.json` as a new feature and stay on the active one.
+- Do not modify harness files (`CLAUDE.md`, `init.sh`, the schema of `feature_list.json`) unless the
+  user asks for it.
 
 ### What this repository is, that a session has to respect
 
@@ -153,15 +137,17 @@ was last complete at.
 
 | File | Keeps | Ceiling |
 |---|---|---|
-| `claude-progress.md` | Current Verified State in full; the **last 2 sessions** of the log | ~400 lines |
-| `feature_list.json` | For `passing`: **one** evidence entry — the one that proves it | `notes` ≤ 600 chars, `result` ≤ 300 |
-| `evaluator-rubric.md` | **The current pass only** | 120 lines per pass |
-| `session-handoff.md` | Changeable state only; standing facts live in `ENVIRONMENT.md` | 150 lines |
-| `quality-document.md` | Current grades only, **one row per domain** | ~120 lines |
+| `claude-progress.md` | Current Verified State; the **last session** of the log | ~150 lines |
+| `feature_list.json` | For `passing`: **one** evidence line — the one that proves it | `notes` ≤ 300 chars |
+| `session-handoff.md` | Changeable state only; standing facts live in `ENVIRONMENT.md` | 80 lines |
 
 Open features (`not_started`, `blocked`) keep their `notes` in full — that is the next session's
 brief, not history. Code invariants belong in `ENVIRONMENT.md` and in the KDoc at the site, where a
 tidy-up will actually meet them.
+
+`evaluator-rubric.md` and `quality-document.md` are no longer maintained artifacts. They stay in the
+repository as the record of the passes that were run; nothing writes to them unless the user asks
+for a grading pass.
 
 **Current Verified State means the state, not a stack of corrections.** A session that finds a line
 there wrong rewrites that line. Superseding it in a new paragraph is how that section reached 276
@@ -175,71 +161,53 @@ editing it.
 
 ### What Counts as Evidence
 
-"Runnable evidence" means something the next session can re-execute or inspect. Every evidence entry
-in `feature_list.json` must contain:
+**One command, its result, and the commit it ran against.** One line in `feature_list.json`, not a
+report. "I tested it manually" without a command anyone can re-run is not evidence. For anything that
+only shows up in a real dungeon, the evidence is the debug session file and the line in it that
+proves the claim.
 
-- the exact command that was run,
-- the relevant output excerpt (or test name and result), ≤ 300 characters,
-- the commit hash the verification ran against,
-- optionally an artifact path (a `run/config/sighteaddons/debug/session-<millis>.jsonl`, a log).
-
-"I tested it manually" without a reproducible command is not evidence. For anything that only shows
-up in a real dungeon, the evidence is the debug session file and which line in it proves the claim.
-
-Record the command you would actually re-run. **`--rerun-tasks` is not a default**: it forces
-recompilation and defeats the up-to-date check. It belongs in evidence when the point being proved
-is that nothing was cached — a mutation probe, or the release gate — and nowhere else, or it
-fossilizes into every later session's copy of the command. It was in 39 recorded commands here
-before 2026-08-16.
-
-### Regression Policy
-
-Before moving any feature to `passing`:
-
-1. Run the feature's own `verification_command`.
-2. Re-run `./gradlew test` over previously passing features.
-3. If a previously passing feature broke, set its status to `regressed` and treat the regression as
-   the highest-priority work after the current feature is recorded.
-
-### Required Files
-
-- `feature_list.json`
-- `claude-progress.md`
-- `init.sh`
-- `session-handoff.md` — current state at the end of every session
-- `ENVIRONMENT.md` — only when the environment or an invariant actually changed
-- `quality-document.md` — only when a grade actually moved
+**`--rerun-tasks` is not a default** — it forces recompilation and defeats the up-to-date check. Use
+it when the point is that nothing was cached, and nowhere else, or it fossilizes into every later
+copy of the command. It was in 39 recorded commands here before 2026-08-16.
 
 ### Completion Gate
 
-A feature moves to `passing` only after its `verification_command` succeeds, the regression check
-ran, and the evidence is recorded in `feature_list.json`.
+A feature moves to `passing` when its own check succeeds and `./gradlew test` is still green. If
+something that used to pass now fails, that is the next work, ahead of anything else.
 
-Final acceptance is done with `evaluator-rubric.md`, filled in by a fresh session or subagent using
-repository artifacts only — never by the session that implemented the work.
-
-**Evaluation is required for:** a change to the report schema, anything that pulls the release gate
-at the top of this file, `priority` ≤ 3, and any feature that caused a regression. Everything else
-is the orchestrator's call, recorded with its reason. Grading every feature costs a full agent pass
-each, and the regression check — 212 tests in ~1.1 s — is what actually catches breakage.
-
-**Nits do not cost points.** A finding about wording, documentation or the precision of an artifact
-goes in "Required Follow-Up" and must not lower a score. Only behaviour, evidence or a regression
-moves a number. `clearpoints-001` took three passes without its behaviour meaningfully changing
-between the second and the third.
+That is the whole gate. **Grading is not routine.** `evaluator-rubric.md` and the `devloop-evaluator`
+agent still exist, and a fresh agent — never the one that implemented — can still be asked for a
+pass. Ask when something is genuinely dangerous or when the user wants it, not once per feature: a
+pass costs a full agent run re-reading work the suite already covers, and it produced 11 passes for
+8 features on the receiver and three on one mod feature whose behaviour did not change between the
+last two.
 
 ### Before You Stop
 
-1. Update `claude-progress.md`: Current Verified State **in place**, plus **one** session entry,
-   **≤ 40 lines**. A revision to work you already recorded amends that entry rather than adding a
-   second one.
-2. Update the feature states in `feature_list.json`, within the retention ceilings above.
-3. Record what is still broken or unverified.
-4. Update `quality-document.md` **only if a grade moved**.
-5. Bring `session-handoff.md` up to date — amend the sections that changed rather than rewriting it.
-6. Commit once the repository is safe to resume — on a branch, and a version bump takes the release
-   gate at the top of this file with it.
-7. Leave a clean restart path for the next session.
+1. Set the feature's status and its one evidence line in `feature_list.json`.
+2. Bring `session-handoff.md` up to date — amend what changed, and say plainly what is still
+   unverified. That last part is the one thing worth spending words on, because the dev client cannot
+   reach Hypixel and a reader will otherwise assume a path was tested.
+3. Commit on a branch. A version bump takes the release gate at the top of this file with it.
 
-Writing more than this does not make the handoff better. The next session pays for every line of it
-before it can start.
+`claude-progress.md` gets a session entry only when something happened that the handoff does not
+already say. Writing more does not make the handoff better; the next session pays for every line of
+it before it can start.
+
+## How much process this is worth
+
+Cut on 2026-08-16, at the user's instruction, after a single feature run cost 224k tokens and the
+suite had reached 265 tests for a mod with two users. What went: mandatory grading passes, the
+mutation sweep per feature, the four-part evidence entry, the seven-step session close, and roughly
+half of every artifact ceiling.
+
+**What did not go, because none of it is ceremony:**
+
+- **The receiver moves first for a schema change.** Not process — a `400` the client never retries,
+  and the run is gone. The check is a two-file diff and costs seconds.
+- **`./gradlew test` before calling something done.** It is ~1.1 s of actual execution and it is what
+  catches breakage; the grading passes never did.
+- **Never pushing `main` on your own**, because a version bump pulls the release gate and a release
+  reaches other people's game.
+- **Saying what is unverified.** The cheapest line in the file and the only defence against a reader
+  assuming the dev client tested something it cannot reach.
