@@ -66,6 +66,19 @@ object Config {
     var uploadNoticeShown = false
 
     /**
+     * A Hypixel API key, the player's own, for the true per-player secret counts in the run summary.
+     *
+     * **Blank by default and there is no bundled fallback.** A key in the jar would be public on the
+     * first Modrinth upload, which is the same lesson the upload token already taught here. Edit it
+     * into `config.json` by hand; it is deliberately not in the `/sa` screen, because a text field
+     * that echoes a credential on screen is a worse default than one more step.
+     *
+     * Blank means [SecretApi] never runs and the summary reads exactly as it did before the feature
+     * existed. Nothing about this key or the counts it fetches is ever uploaded — see [SecretApi].
+     */
+    var hypixelKey = ""
+
+    /**
      * Who the uploaded run reports belong to. Generated once on first launch and then never again.
      *
      * Deliberately **not** the Minecraft UUID: the server files a permanent history under this, and
@@ -106,6 +119,7 @@ object Config {
             upload = obj.bool("upload", upload)
             uploadName = obj.bool("uploadName", uploadName)
             uploadNoticeShown = obj.bool("uploadNoticeShown", uploadNoticeShown)
+            hypixelKey = if (obj.has("hypixelKey")) obj.get("hypixelKey").asString else hypixelKey
             installId = if (obj.has("installId")) obj.get("installId").asString else installId
         } catch (e: Exception) {
             // A broken config must never cost the run — the defaults above are already in place.
@@ -128,6 +142,7 @@ object Config {
         obj.addProperty("upload", upload)
         obj.addProperty("uploadName", uploadName)
         obj.addProperty("uploadNoticeShown", uploadNoticeShown)
+        obj.addProperty("hypixelKey", hypixelKey)
         obj.addProperty("installId", installId)
         try {
             Files.createDirectories(FILE.parent)

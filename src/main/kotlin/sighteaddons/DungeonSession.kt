@@ -77,6 +77,10 @@ object DungeonSession {
         PartyTracker.reset()
         SecretTracker.reset()
         DungeonTab.reset()
+        // Drops the run's opening snapshot with it. A baseline that outlived its run would be
+        // subtracted from the next one and credit every player with the difference between two
+        // unrelated floors.
+        SecretApi.reset()
         ClearPopup.reset()
     }
 

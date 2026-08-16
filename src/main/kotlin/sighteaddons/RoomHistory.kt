@@ -395,6 +395,19 @@ object RoomHistory {
                 )
             }
 
+        // The true per-player counts, if a key is configured. Deliberately not waited for: this runs
+        // off the run-end chat line and a network call here would hold up the whole summary. It
+        // arrives as its own line a moment later, or not at all.
+        //
+        // `estimated` is taken here rather than inside the callback, so the comparison is against
+        // what this run measured rather than against whatever the tracker holds by the time the
+        // answer lands — which, for a player who starts the next floor quickly, is a different run.
+        // `announce` schedules onto the client thread itself, so the callback is safe where it is.
+        val estimated = rooms.sumOf { it.ownSecrets }
+        SecretApi.settle(PartyTracker.rosterIds()) { counts ->
+            announce(secretLine(counts, estimated, self))
+        }
+
         // Was `> 0.01` against an inline subtraction — the same guard against the same split residue
         // that the run report clamps, written twice and agreeing by coincidence. The figure is now a
         // count of rooms rather than a subtraction of a score from a count, so there is no residue
@@ -443,6 +456,35 @@ object RoomHistory {
      * have never been observed on a real floor from this repository, so the fallback is the path that
      * has to stay correct.
      */
+    /**
+     * The follow-up line carrying Hypixel's own per-player counts, highest first.
+     *
+     * Kept apart from the per-player rows above rather than folded into them, and the reason is
+     * honesty about provenance: those rows are what this client measured, this line is what Hypixel
+     * says. A reader can tell them apart, and when they disagree the disagreement is visible instead
+     * of resolved silently in favour of whichever arrived last.
+     *
+     * [estimated] is the local player's own provable count, printed beside the true one when the two
+     * differ. That gap is the measured cost of [SecretTracker]'s attribution — the thing
+     * `ownsecrets-001` currently has to reconstruct by hand from old logs — and putting it on screen
+     * once per run is how it stops being a guess.
+     */
+    internal fun secretLine(counts: Map<String, Int>, estimated: Int, self: String?): MutableComponent {
+        val line = Component.literal("  secrets ").withStyle(ChatFormatting.GOLD)
+            .append(Component.literal("(Hypixel) ").withStyle(ChatFormatting.DARK_GRAY))
+        counts.entries.sortedByDescending { it.value }.forEachIndexed { index, (name, found) ->
+            if (index > 0) line.append(Component.literal(", ").withStyle(ChatFormatting.DARK_GRAY))
+            line.append(Component.literal("$name ").withStyle(ChatFormatting.WHITE))
+            line.append(Component.literal("$found").withStyle(ChatFormatting.AQUA))
+            // Only for the local player, and only when it disagrees: this client cannot estimate a
+            // teammate's count at all, so there is nothing to compare theirs against.
+            if (name == self && found != estimated) {
+                line.append(Component.literal(" (counted $estimated)").withStyle(ChatFormatting.DARK_GRAY))
+            }
+        }
+        return line
+    }
+
     internal fun breakdown(rooms: Int, secrets: Int?, ofTotal: Int? = null) = "($rooms rooms · " +
         when {
             secrets == null -> "–"
