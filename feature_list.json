@@ -511,7 +511,7 @@
           "date": "2026-08-17",
           "command": "./gradlew test --tests 'sighteaddons.SecretTrackerTest' ; ./gradlew assemble check ; python build/keydiff.py",
           "result": "SecretTrackerTest 11 tests, 0 failures (3 added: the whitelist through colour codes, the near-miss names a substring rule would take, the bounded unknown-name log). Full suite 21 classes / 289 tests / 0 failures / 0 skipped from build/test-results/test/*.xml, three cases added and none removed or weakened. assemble check BUILD SUCCESSFUL; RunReport.kt, gradle.properties and dist/ untouched and KEYDIFF CLEAN at schema 6. Receiver checked, not written: `ownSecrets` appears in ingest.py only as a ROOM_KEYS entry and a bounded-number validator (:171, :289) and in no other production file — roomstats.py and metrics.py have no reference — so its meaning moving routes nothing and no paired feature is owed. runClient reached a full resource reload with the mod initialised (so both callback registrations ran) and zero mixin errors — NOT proof the injector resolves, since ClientPacketListener is not loaded until the client joins a server, and NOT to be repeated: the user forbade launching the dev client on 2026-08-17 because it opens a game window over the one they are playing.",
-          "commit": "PENDING",
+          "commit": "4a9fadd",
           "artifact": "build/test-results/test/"
         }
       ],
