@@ -6,9 +6,11 @@ and the code invariants a tidy-up would break — are in `ENVIRONMENT.md`. Read 
 it. Past sessions are in `claude-progress.md` and, beyond the last two, in `git log`.
 
 **Branch state:** **0.13.0 is released** — PR #50 merged the two secret-count features, `v0.13.0`
-is tagged and published on GitHub, and Modrinth version `wS3OCLGl` carries the identical jar. No
-branch is open. The leftover mutation probe that sat uncommitted in `RoomHistory.kt:449` (it made
-the `ofTotal == null` arm print "of null") is stashed, not lost: `git stash list`.
+is tagged and published on GitHub, and Modrinth version `wS3OCLGl` carries the identical jar.
+**One branch is open: `secrethud-001`** at `07b8fd4`, off `main` at `530f470`, not pushed and not
+merged; the feature is `passing` on it. The leftover mutation probe that sat uncommitted in
+`RoomHistory.kt:449` (it made the `ofTotal == null` arm print "of null") is stashed, not lost:
+`git stash list`.
 
 **The release does not reach players and the reason is not in this repository.** The Modrinth
 project answers 404 to anyone not logged in — it is still awaiting review — so the build is
@@ -17,63 +19,53 @@ downloadable by direct CDN link and by nothing else. See Current Verified State 
 
 ## Verified Now
 
-- **`main` is at `9aebd6d` and 0.12.0 is released.** `recordowner-001` merged as PR **#48** with
-  zero conflicts — `git merge-base main recordowner-001` was `8431597`, the branch point, so there
-  was nothing to reconcile. `main` and `origin/main` are level. **The branch is merged; do not
-  continue work on it.**
-- **`mod_version` is 0.12.0 and `dist/` holds exactly one jar**, `sighteaddons-0.12.0.jar`,
-  sha256 `378bec73a535c22ce52bfb5449ec0803242d5b773f1001c55af57c98e0f08c0b`. The same bytes are on
-  the GitHub release, in `dist/`, and on the Modrinth CDN — the uploaded file's sha1
-  `a3712e1a362227c366a0b5fa977c83d47b70c22b` was compared, not assumed.
-- **The build is reproducible on this machine.** `./gradlew build --rerun-tasks` reproduced the jar
-  an earlier session had left untracked in the tree **byte-identically** (`cmp` clean). That is why
-  it was shipped rather than replaced, and it is the reason CLAUDE.md's second pre-publish check is
-  meaningful here rather than vacuous.
-- **The suite is 212 across 15 classes, 0 failures, 0 skipped**, unchanged by the release. Counts
-  come from `build/test-results/test/*.xml`, not the console.
-- **`RunReport.SCHEMA` is 5 and `RunReport.kt` is absent from the release diff.** No receiver work
-  was owed, none was done, `Sighte/skyblock-server` was not touched this session at all.
-- The release gate's three checks, with what they actually printed:
-  - `git status --porcelain` empty; `git rev-parse main origin/main` both
-    `9aebd6da589bc65caa1b0391ac826af698db86b1`
-  - `./gradlew build --rerun-tasks` → `BUILD SUCCESSFUL in 9s`, `classes 15 tests 212 failures 0
-    errors 0 skipped 0`, jar sha256 **unchanged either side** with `git status` still empty
-  - `unzip -p dist/sighteaddons-0.12.0.jar fabric.mod.json` → `"version": "0.12.0"`, matching
-    `gradle.properties`
-  - `git status --porcelain src/` **empty before the build and after it** — the check that a release
-    was not cut from a tree still carrying a mutation probe
-- **The Modrinth upload was watched, not assumed.** Workflow run `31856152798`, success in 7s;
-  version `diMDvw5I` on project `XuCA5Jje`, `version_number` 0.12.0, `version_type` release, status
-  `listed`, `game_versions [26.1.2]`, `loaders [fabric]`, size 221873.
-- **The frozen release figure, recomputed rather than transcribed.** From
-  `docs/evidence/session-1786719912927/session-excerpt.jsonl`, five `secret_run_done` events; under
-  `ownSecrets == secretsFound` **four of five no longer record** — Atlas 6/4, New Trap 3/2, Slime
-  5/2, Pipes 7/5 refused, **Chains 2/2 kept**. This figure is in git and cannot drift. The aggregate
-  ("12 of 87 / 13.8%") still quoted in `feature_list.json`, `claude-progress.md` and
-  `quality-document.md` **is computed over a directory the user is appending to** and moved
-  80 → 87 → 90 → 91 within minutes. Prefer the frozen figure or `python build/ownsecrets.py` with
-  its output; do not transcribe the integer again.
+- **`main` is at `530f470` and `mod_version` is 0.13.0.** The 0.13.0 release, its jar hashes and the
+  Modrinth state are in `claude-progress.md`'s Current Verified State and are not repeated here. The
+  0.12.0 release-gate output this section used to carry survives at
+  `git show 530f470:session-handoff.md`.
+- **The build is reproducible on this machine.** Two `./gradlew build --rerun-tasks` of one tree gave
+  byte-identical jars, which is what makes CLAUDE.md's second pre-publish check meaningful here
+  rather than vacuous.
+- **The suite is 252 across 18 classes on `secrethud-001`, 247 across 17 on `main`**, 0 failures and
+  0 skipped either way. Counts come from `build/test-results/test/*.xml`, not the console — take
+  them from the branch you are on.
+- **`RunReport.SCHEMA` is 5 and `RunReport.kt` is absent from the `secrethud-001` diff.** No receiver
+  work is owed, none was done, `Sighte/skyblock-server` was not touched this session at all.
+- **`secrethud-001` is display only and was verified as such.** `SecretHud.line` is pure over tracker
+  state; `./gradlew test --tests 'sighteaddons.SecretHudTest'` is 5 tests, and
+  `python build/secrethudprobe.py` sweeps three mutations of it — the run total reading
+  `secretsFound`, the room half reading `secretsFound`, and an unknown room spelled `0/0` — all
+  **CAUGHT**. That script is in gitignored `build/` like every probe here, which is the standing
+  defect ENVIRONMENT.md records; the three anchors are written out above so the sweep is
+  reconstructible without it. `SecretTracker` is not in the diff, so `ownsecrets-001` is untouched and unclaimed.
+- **The frozen four-of-five figure and the caution about transcribing the aggregate now live in
+  `claude-progress.md`'s Current Verified State**, where they were duplicated word for word. Full
+  text at `git show 530f470:session-handoff.md`.
 
 ## Changed This Session
 
-**Nothing under `src/`.** This session ran the release gate at the top of `CLAUDE.md` for the
-version bump a previous session had left uncommitted, and nothing else.
+**`secrethud-001`, created and implemented on branch `secrethud-001`.** No version bump, no release,
+`dist/` and `gradle.properties` untouched, so none of the release gate was pulled.
 
-- `gradle.properties`: `mod_version` 0.11.0 → 0.12.0.
-- `dist/`: `sighteaddons-0.11.0.jar` → `sighteaddons-0.12.0.jar`, committed as a rename.
-- Merged `recordowner-001` to `main` (PR #48 → `9aebd6d`), tagged `v0.12.0` on that sha, published
-  the GitHub release, and verified the Modrinth upload it triggered.
-- The record artifacts, on branch `record/release-0.12.0`.
-
-**The release notes were written to be strippable and the strip was simulated before publishing.**
-`.github/workflows/modrinth.yml` removes the operator section with
-`re.sub(r"\n## Not in the jar.*?(?=\n## )", ...)`. That lookahead **only fires if another `## `
-heading follows**, so the section must be named exactly `## Not in the jar` and must not be last.
-Here it sits before `## Requirements`: 5266 chars on GitHub, 4654 on Modrinth, `skyblock-server`
-absent from the player-facing copy. Simulated locally first, then confirmed in the run log.
+- New `SecretHud.kt` (pure formatter) and `SecretHudTest.kt` (5 cases).
+- `SighteAddons.renderHud`: one line under the header, behind `Config.showSecrets`.
+- `Config`: `showSecrets`, in the defaults, in `read` and in `save` — a key missing from `save` is a
+  HUD that switches itself off after an update, which is what that file's KDoc is about.
+- `SettingsScreen`: a `your secrets` row on the HUD tab, and the placement preview gained the line
+  so the mock is the height of the block it is placing.
+- `feature_list.json` gained the `secrethud-001` entry, which did not exist before this session.
 
 ## Broken Or Unverified
 
+- **`secrethud-001`'s wiring has never run in a game.** What is verified is the formatter: what the
+  line says for a given tracker state. What is **not** is that `renderHud` draws it once a frame with
+  the room the player is standing in, that `currentRoom` resolves the right room, that the new `/sa`
+  row renders and toggles, and that `Config.showSecrets` survives a restart on a real install. All of
+  it needs a live `Minecraft`; one played floor settles all of it by eye.
+- **The readout under-counts and that is the specification, not a defect.** It shows
+  `TrackedRoom.ownSecrets`, so a secret walked over shows as nobody's — the same gap that keeps six
+  secret-run records in seven from being written. `ownsecrets-001` is where that is fixed, and it was
+  deliberately not touched here.
 - **Neither of `recordowner-001`'s gates has ever run in a game, and it is now in players' hands.**
   The predicates are driven directly and swept by 21 mutation probes; the **wiring** — that
   `onRoomCleared` calls `ownClear` with the `topPlayer` it just computed, that `onSecretRun` calls
@@ -128,9 +120,13 @@ absent from the player-facing copy. Simulated locally first, then confirmed in t
 
 ## Next Best Step
 
-- **READ A REAL 0.12.0 SESSION LOG. It is now the cheapest and highest-value input on the board, and
-  unlike a week ago it can actually exist** — the build with the new gates is on Modrinth and the
-  user plays. One floor settles `recordowner-001`'s entire remaining ceiling: whether
+- **Decide `secrethud-001` first: merge it or grade it.** It is `passing` on its branch and it is the
+  only branch open, so a second feature started here breaks `single_active_feature`. It is not on a
+  deploy path, changes no schema and caused no regression, and its `priority` is 20 — so grading is
+  the orchestrator's call, not a requirement.
+- **READ A REAL SESSION LOG FROM 0.12.0 OR LATER. It is the cheapest and highest-value input on the
+  board, and unlike a week ago it can actually exist** — the build with the new gates is released and
+  the user plays. One floor settles `recordowner-001`'s entire remaining ceiling: whether
   `secret_room_first_bar` appears at all, whether it ever carries `untouched: true`, and whether the
   four wiring lines do what the call graph says. Logs are at
   `%APPDATA%\PrismLauncher\instances\Skyblock 26.1.2 Modpack\minecraft\config\sighteaddons\debug\session-*.jsonl`.
@@ -148,6 +144,6 @@ absent from the player-facing copy. Simulated locally first, then confirmed in t
 - **Do not start `chatfields-001`** by editing `RunReport.kt`. Its first move is a feature in
   `Sighte/skyblock-server`, which is a different repository and a different session.
 - `records-001` is deferred by the user — a product decision, not a technical blocker.
-- **Nine features still exist in source only** (`recordowner-001` is no longer one of them). Nothing
-  breaks meanwhile; nothing reaches a player either.
+- **Ten features still exist in source only** — `secrethud-001` joined them, since nothing on a
+  branch reaches a player. Nothing breaks meanwhile either.
 

@@ -1,7 +1,7 @@
 {
   "project": "SighteAddons",
   "schema_version": 2,
-  "last_updated": "2026-08-15",
+  "last_updated": "2026-08-16",
   "rules": {
     "single_active_feature": true,
     "passing_requires_evidence": true,
@@ -507,6 +507,33 @@
       "blocked_reason": "",
       "evidence": [],
       "notes": "OPENED 2026-08-15 by recordowner-001's revision pass, as discovered work recorded rather than fixed inline (CLAUDE.md's rule). NOT a defect introduced by recordowner-001 — it is pre-existing, and recordowner-001 is what made its cost visible by putting a gate in front of it.\n\nTHE MEASUREMENT, and it is the whole motivation. `RoomHistory.ownSecretRun` is `ownSecrets == secretsFound`, the user's decision of 2026-08-15 reaffirmed on 2026-08-15 after being shown these numbers. Replayed over the fifteen real session logs on this machine with `python build/ownsecrets.py`: of **87** completed secret runs, **12 survive — 13.8%**. Split by roster it is **2 of 23** on single-member sessions and **10 of 64** on party sessions. A solo floor is hit as hard as a party one, which is the finding: on a solo floor every secret WAS the local player's by construction, so what is failing is not ownership but ATTRIBUTION. `session-1786572786745.jsonl` is a single-member session with eight completed runs and not one of them attributed in full, including `Big Red Flag 0/2` — a room where the client credited itself with none of the secrets it must have found. On the committed floor (`docs/evidence/session-1786719912927/`) it is `Atlas 4/6`, `New Trap 2/3`, `Slime 2/5`, `Chains 2/2`, `Pipes 5/7` — four of five records gone.\n\nWHERE THE GAP IS. `SecretTracker` credits a secret to the local player on exactly two signals: an own block interaction inside `OWN_WINDOW` (40 ticks) seen through `UseBlockCallback`, or a wither-essence chat line naming us (`chatAttribution`). Everything else is somebody else's by default. `SecretTracker.secretTypeAt` recognises chests, trapped chests, levers and the two secret skull profiles — so a secret that is not *right-clicked* is invisible to it. The obvious candidate is the walk-over item pickup, which raises the counter with no block interaction at all and no chat line; a second is a click whose server acknowledgement lands outside the 40-tick window. Neither is confirmed. **Confirm which before building anything**: the `secret` events in the fifteen logs carry `attributedBy` (`chat` or `click`) and `mine`, and `own_interaction` carries the type and position, so the ratio of unattributed rises that have no `own_interaction` anywhere near them is measurable from the logs already on disk. That is the first task of this feature and it needs no dungeon.\n\nWHAT NOT TO DO. Do not widen this by softening `ownSecretRun`. The user was offered the majority rule `ownSecrets * 2 >= secretsFound` — which keeps four of the committed floor's five runs — and refused it twice, most recently after seeing the 13.8% figure. The gate is the specification; this feature is about making the number it reads correct, not about making the comparison looser. A change here that credits a secret the local player did not find is strictly worse than the missing record it replaces, because a wrong record is permanent and a missing one is not.\n\nSCOPE NOTE: this may turn out to need nothing from the receiver, but check before touching `RunReport.kt` — `ownSecrets` is already a shipped room field (`RunReport.kt:420`) and its *meaning* would change if the counting changed, which is the `clear-001` shape (key stays, meaning moves) rather than the `residue-001` shape. `roomstats.py` on the receiver is where to look for whether anything routes on it. Diff before, not after."
+    },
+    {
+      "id": "secrethud-001",
+      "priority": 20,
+      "area": "hud",
+      "title": "A live count of the secrets that were yours",
+      "user_visible_behavior": "The HUD carries a standing line — `Your secrets  2/5 room  ·  11 run` — reading how many of the secrets in the room you are standing in are attributed to you, against the total that room holds, and how many across the run so far. Hypixel's action bar counts the room's secrets for the whole party; this is the same floor seen from your side. `/sa` → HUD → `your secrets` switches it off.",
+      "status": "passing",
+      "depends_on": [],
+      "verification_command": "./gradlew test --tests 'sighteaddons.SecretHudTest'",
+      "verification_manual": [
+        "Join a floor, open `/sa`, and confirm the HUD tab carries a `your secrets` row that toggles the line on and off and survives a restart (`config.json` → `showSecrets`).",
+        "Walk into a room with secrets and open one yourself: the room half moves from `0/N` to `1/N` at the same moment the action bar's own counter rises, and the run half moves with it.",
+        "Stand in a corridor or an unidentified room and confirm the room half reads `--/--` while the run half keeps its number.",
+        "Watch a teammate open a secret in the room you are both in: the action bar rises and this line does NOT — that is attribution working as specified, not a defect."
+      ],
+      "blocked_reason": "",
+      "evidence": [
+        {
+          "date": "2026-08-16",
+          "command": "./gradlew test --tests 'sighteaddons.SecretHudTest' ; ./gradlew test --rerun-tasks ; PYTHONIOENCODING=utf-8 python build/secrethudprobe.py",
+          "result": "SecretHudTest 5 tests 0 failures. Regression, uncached: 18 classes / 252 tests / 0 failures / 0 skipped (build/test-results/test/*.xml); main was 17/247, so +5 and nothing broken. Probes A (run total reads secretsFound), B (room half likewise), C (unknown room as 0/0) all CAUGHT, SWEEP OK.",
+          "commit": "07b8fd4",
+          "artifact": "build/secrethudprobe.py"
+        }
+      ],
+      "notes": "Display only. `SecretHud.line` is pure over tracker state and formats `TrackedRoom.ownSecrets`; it does not decide whether a secret is yours, so `SecretTracker` and `ownsecrets-001` are untouched. It UNDER-COUNTS as much as attribution does today — a secret walked over is nobody's — and that is deliberately not compensated for. The label `Your secrets` stays true when `ownsecrets-001` raises the number under it. No report field: `RunReport.kt` is absent from the diff, SCHEMA stays 5, no receiver work owed. THE CEILING: `renderHud`'s wiring needs a live `Minecraft` and has never run in a game."
     }
   ]
 }
