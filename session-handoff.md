@@ -5,13 +5,16 @@ from scratch each session. Standing facts — the toolchain, the quoting traps, 
 and the code invariants a tidy-up would break — are in `ENVIRONMENT.md`. Read that; do not rewrite
 it. Past sessions are in `claude-progress.md` and, beyond the last two, in `git log`.
 
-**Branch state:** **0.13.0 is released** — PR #50 merged the two secret-count features, `v0.13.0`
-is tagged and published on GitHub, and Modrinth version `wS3OCLGl` carries the identical jar.
-`secrethud-001` merged via PR #51 → `cdc980d`; `main` is now `2cacb60`.
-**One branch is open: `idletime-001` at `7b17342`, `passing`, not pushed and not merged.** It moves
-`RunReport.SCHEMA` 5 → 6 and **grading is required for it** (report schema). No release gate was
-pulled: `mod_version` is untouched at 0.13.0 and `dist/` is absent from the diff. The leftover
-mutation probe once uncommitted in `RoomHistory.kt:449` is stashed, not lost: `git stash list`.
+**Branch state:** **0.14.0 is released and `main` is `64a0f8e`.** `secrethud-001` (PR #51) and
+`idletime-001` both merged; `v0.14.0` is tagged and published, and Modrinth version `VXWw5sPF`
+carries the identical jar — `sha1 cea7c51b…`, 245583 bytes, compared against the local file rather
+than assumed. It is the first build sending `RunReport.SCHEMA = 6`. `critcalc-001` is open and being
+implemented. The leftover mutation probe once uncommitted in `RoomHistory.kt:449` is stashed, not
+lost: `git stash list`.
+
+**The process was cut back on 2026-08-16 at the user's instruction** — grading is no longer routine,
+mutation sweeps are not a per-feature deliverable, and the artifact ceilings roughly halved. What was
+kept, and why, is at the end of `CLAUDE.md`. Do not grow it back without a reason you can name.
 
 **The release does not reach players and the reason is not in this repository.** The Modrinth
 project answers 404 to anyone not logged in — still awaiting review — so the build is downloadable
