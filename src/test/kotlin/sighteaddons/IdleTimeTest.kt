@@ -1,6 +1,7 @@
 package sighteaddons
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
@@ -106,9 +107,36 @@ class IdleTimeTest {
      * over-count and not a defect of this file: "no secret run active" is the phrase the receiver's
      * `SETUP.md` writes both halves against, and softening it here would be exactly the divergence
      * the receiver-first ordering exists to prevent. Recorded in `idletime-001`'s notes.
+     *
+     * **The run has to have *started* for this to guard anything**, which is the whole reason the
+     * abandoned case is used rather than the leftovers one below: a run that was refused outright
+     * leaves `secretRunStart` null, so it reads closed on the first clause and says nothing about
+     * whether the discard flag is honoured. That first version of this test passed while the flag
+     * was ignored entirely — probe E, uncaught, and the same shape of guard-in-name-only
+     * `ownClear`'s five conditions have produced twice.
      */
     @Test
-    fun `a discarded secret run leaves the room idle`() {
+    fun `a secret run that was started and then abandoned leaves the room idle`() {
+        val abandoned = clearedRoom()
+        abandoned.readBar(0)
+        assertEquals(TrackedRoom.SecretRun.STARTED, abandoned.onSecret(previous = 0, found = 1, max = 5, at = 500))
+        assertEquals(IdleTime.Where.WORKING, IdleTime.classify(abandoned), "while it is open, this is work")
+
+        // The party moved on and the room went quiet: the run is dropped rather than closed at
+        // whatever the room reaches later, and standing there is standing there.
+        assertTrue(abandoned.expireSecretRun(now = 1500, abandonTicks = 400))
+        assertEquals(IdleTime.Where.IDLE, IdleTime.classify(abandoned))
+
+        IdleTime.tick(abandoned)
+        assertEquals(1, IdleTime.idleTicks)
+    }
+
+    /**
+     * The other discard: a run that was never ours to time. Walking into a room already at 3/5
+     * refuses the run outright, so nothing is open and standing there is idle.
+     */
+    @Test
+    fun `somebody else's leftovers are not an open run`() {
         val leftovers = clearedRoom()
         leftovers.readBar(3) // walked in at 3/5: not ours to time
         assertEquals(TrackedRoom.SecretRun.DISCARDED, leftovers.onSecret(previous = 3, found = 4, max = 5, at = 500))
