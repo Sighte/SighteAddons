@@ -31,8 +31,7 @@ downloadable by direct CDN link and by nothing else. See Current Verified State 
   before the merge. Counts come from `build/test-results/test/*.xml`, not the console.
 - **`RunReport.SCHEMA` is 5, and the receiver is ahead of it on purpose.** `skyblock-server`'s
   `master` is `1a7f435`, deployed and verified on the box 2026-08-16: it accepts run-level
-  `idleTicks` and `navTicks` (schema 6, optional) and nothing sends them. That unblocks
-  `idletime-001`.
+  `idleTicks` and `navTicks` (schema 6, optional) and nothing sends them. That unblocks `idletime-001`.
 - **`secrethud-001` is display only and was verified as such.** `SecretHud.line` is pure over tracker
   state; `./gradlew test --tests 'sighteaddons.SecretHudTest'` is 5 tests, and
   `python build/secrethudprobe.py` sweeps three mutations of it — the run total reading
