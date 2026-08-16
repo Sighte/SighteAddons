@@ -112,10 +112,18 @@ Then take one unfinished feature and work on that until it is verified or docume
 
 ### What this repository is, that a session has to respect
 
-- **The dev client cannot reach Hypixel.** `./gradlew runClient` has no valid session, so calibration,
-  decoration mapping, checkmark reading and core hashing cannot be verified here at all. A feature
-  that depends on a real dungeon run is `blocked`, not `passing` — say which paths are unverified
-  rather than letting the reader assume they were tested.
+- **Never run `./gradlew runClient`.** It opens a real Minecraft window on the user's desktop, on the
+  machine they are playing on, and interrupts them. Instructed on 2026-08-17 after several sessions
+  launched it to check that a mixin applied. It is not a fallback and there is no case that justifies
+  it — not a startup check, not "just once".
+- **The dev client could not reach Hypixel anyway.** It has no valid session, so calibration,
+  decoration mapping, checkmark reading and core hashing were never verifiable here. A feature that
+  depends on a real dungeon run is `blocked`, not `passing` — say which paths are unverified rather
+  than letting the reader assume they were tested.
+- **What that costs, so you do not discover it as a surprise:** a mixin injector that fails to resolve
+  and an `@Accessor` naming a field that does not exist are both invisible to the compiler. `javap`
+  on the merged jar is the only local check for a field name, and for an injector there is none.
+  Record it as unverified; do not launch the game to find out.
 - **`rooms.json` is Odin's database verbatim** (`LICENSE-Odin`, BSD-3). Never edited, never
   regenerated. The server side reads this exact file rather than a copy.
 - **`dist/` holds exactly one jar** and `build` refreshes it. A `build` that changes the committed jar
