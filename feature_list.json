@@ -617,7 +617,7 @@
           "date": "2026-08-16",
           "command": "./gradlew test --tests 'sighteaddons.ContributionTrackerTest' --tests 'sighteaddons.RoomDatabaseTest' ; ./gradlew test assemble check ; python build/keydiff.py",
           "result": "ContributionTrackerTest 55 tests / RoomDatabaseTest 8 tests, 0 failures. Full suite 20 classes / 277 tests / 0 failures / 0 skipped (build/test-results/test/*.xml); the branch point was 20/276, net +1 (three cases added, two that pinned the removed term retitled or merged). assemble check BUILD SUCCESSFUL; dist/, gradle.properties and RunReport.kt untouched; KEYDIFF CLEAN at schema 6, so no receiver work is owed.",
-          "commit": "PENDING",
+          "commit": "7d200c7",
           "artifact": "build/test-results/test/"
         }
       ],
