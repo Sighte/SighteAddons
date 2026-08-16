@@ -139,11 +139,18 @@ was last complete at.
 |---|---|---|
 | `claude-progress.md` | Current Verified State; the **last session** of the log | ~150 lines |
 | `feature_list.json` | For `passing`: **one** evidence line — the one that proves it | `notes` ≤ 300 chars |
-| `session-handoff.md` | Changeable state only; standing facts live in `ENVIRONMENT.md` | 80 lines |
+| `session-handoff.md` | Changeable state only; standing facts live in `ENVIRONMENT.md` | 120 lines |
 
 Open features (`not_started`, `blocked`) keep their `notes` in full — that is the next session's
 brief, not history. Code invariants belong in `ENVIRONMENT.md` and in the KDoc at the site, where a
 tidy-up will actually meet them.
+
+**The handoff ceiling was 80 for two hours on 2026-08-16 and it was wrong.** Two sessions in a row
+pruned honestly, reported the overage rather than hiding it, and both were right about the cause:
+the file is long because open features carry standing briefs that this same section protects. 120 is
+the honest number while `recordowner-001`, `scores-fetch-001` and `ownsecrets-001` are open. **The
+way to shrink it is to close a feature, not to trim around one** — if you are over and every
+remaining line belongs to open work, say so and stop, exactly as those sessions did.
 
 `evaluator-rubric.md` and `quality-document.md` are no longer maintained artifacts. They stay in the
 repository as the record of the passes that were run; nothing writes to them unless the user asks
