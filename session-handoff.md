@@ -5,10 +5,10 @@ from scratch each session. Standing facts — the toolchain, the quoting traps, 
 and the code invariants a tidy-up would break — are in `ENVIRONMENT.md`. Read that; do not rewrite
 it. Past sessions are in `claude-progress.md` and, beyond the last two, in `git log`.
 
-**Branch state:** `main` is at `0852382` with 0.12.0 released. `secretcount-001` is open and
-unmerged — one commit (`8b07f34`, reading the floor's true secret count out of the tab list) plus
-an uncommitted one-line edit in `RoomHistory.kt:449` that is a **leftover mutation probe**, not
-work: it makes the `ofTotal == null` arm print "of null". Revert it before continuing there.
+**Branch state:** `main` is at `38b5528` with 0.12.0 released and **PR #50 merged** — the two
+secret-count features. No branch is open. The leftover mutation probe that sat uncommitted in
+`RoomHistory.kt:449` (it made the `ofTotal == null` arm print "of null") is stashed, not lost:
+`git stash list` in this repository.
 
 ## Verified Now
 

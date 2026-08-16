@@ -9,15 +9,27 @@ measured at the time is in its own log entry below, and beyond the last two, in 
 
 - Repository root: the directory holding `build.gradle` and `gradlew` (clone of
   `Sighte/SighteAddons`). Environment, invariants and probe scripts: `ENVIRONMENT.md`.
-- **`main` is at `0852382`, `mod_version` is 0.12.0, and 0.12.0 is released.** `dist/` holds
+- **`main` is at `38b5528`, `mod_version` is 0.12.0, and 0.12.0 is released.** `dist/` holds
   `sighteaddons-0.12.0.jar`, sha256
   `378bec73a535c22ce52bfb5449ec0803242d5b773f1001c55af57c98e0f08c0b`; the same bytes are on the
   GitHub release under tag `v0.12.0` and on Modrinth (version `diMDvw5I`, verified by comparing the
   uploaded sha1, not assumed).
-- **One branch is open and unmerged: `secretcount-001`** (`8b07f34`), plus an uncommitted one-line
-  edit in `RoomHistory.kt:449` that is a **leftover mutation probe** — it makes the
-  `ofTotal == null` arm print "of null". Revert it before continuing there.
-- **Baseline: PASSING, 212 tests across 15 classes**, 0 failures, 0 skipped, on `main` at `0852382`.
+- **No branch is open.** PR #50 merged `secretcount-001` and `secretapi-001` into `main` as
+  `38b5528`, rebased first so the diff is `src/` only and this repository's pruned artifacts
+  survived it. The leftover mutation probe that sat uncommitted in `RoomHistory.kt:449` is
+  **stashed, not lost** — `git stash list`.
+- **The run summary now reports secrets honestly**, and neither half touches a record, a report
+  field or the receiver: `RunReport.SCHEMA` stays 5 and `RunReport.kt` is not in the diff.
+  `secretcount-001` reads the floor's true party-wide total out of the tab list, so the line is
+  `(19 rooms · 10 of 29 secrets)` rather than a count that only covered the rooms this client stood
+  in — measured at 5 of 19 rooms producing any reading at all. `secretapi-001` fills in the dash
+  every teammate used to get, from two snapshots of the lifetime `skyblock_treasure_hunter`
+  achievement, and prints the local player's provable count beside the true one so
+  `SecretTracker`'s attribution gap is measured once per run instead of reconstructed from old logs.
+  **Neither has run on a real floor**: the two wiring lines need a live `Minecraft`, and
+  `secret_api_baseline` / `secret_api_settle` are logged so one played floor settles it.
+  `Config.hypixelKey` is blank by default and there is no bundled fallback.
+- **Baseline: PASSING, 247 tests across 17 classes**, 0 failures, 0 skipped, on `main` at `38b5528`.
   Counts come from `build/test-results/test/*.xml`, not the console. The tests themselves run in
   ~1.1 s; the rest of a `./gradlew test` is Gradle startup.
 - Standard startup path: `./gradlew runClient` — Loom's dev client, which has no valid session and
