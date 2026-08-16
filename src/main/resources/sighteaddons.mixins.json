@@ -3,7 +3,8 @@
 	"package": "sighteaddons.mixin",
 	"compatibilityLevel": "JAVA_25",
 	"client": [
-		"PlayerTabOverlayAccessor"
+		"PlayerTabOverlayAccessor",
+		"TakeItemEntityMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1
