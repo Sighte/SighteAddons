@@ -495,18 +495,44 @@
       "priority": 19,
       "area": "attribution",
       "title": "Credit the secrets the local player actually found",
-      "user_visible_behavior": "A secret you picked up yourself counts as yours, so a room you did alone reports every one of its secrets as yours and its secret run becomes a record again.",
-      "status": "not_started",
+      "user_visible_behavior": "A secret you picked up or killed a bat for counts as yours, not just one you right-clicked, so a room you did alone reports every one of its secrets as yours and its secret run becomes a record again.",
+      "status": "passing",
       "depends_on": [],
       "verification_command": "./gradlew test --tests 'sighteaddons.SecretTrackerTest'",
       "verification_manual": [
-        "Play a floor and collect every secret in one room yourself.",
-        "Check the debug log's `secret` events for that room: every one should carry `mine: true`.",
-        "Confirm the room's `secret_run_done` carries own == secrets, and that a secretrun line appears in history.jsonl."
+        "Play a floor and take every secret in one room yourself, including at least one item you walk over and at least one bat, and kill that bat in melee.",
+        "(1) `own_pickup` and `own_bat` present at all: the two signals fire. `own_pickup` absent in a floor with item secrets means the mixin never applied or Hypixel sends no take-item packet — `pickup_unmatched` tells the two apart. `own_bat` absent means AttackEntityCallback did not fire, which is what a ranged kill looks like.",
+        "(2) `pickup_unmatched` lines: the item names Hypixel actually used, which is the only thing that can correct SECRET_ITEMS. An item secret whose name appears here is one this feature is still missing.",
+        "(3) `secret` events carrying `attributedBy: pickup` or `bat` with `mine: true`: a signal was spent on a real counter rise. Then the room's `secret_run_done` should carry own == secrets, and a secretrun line should appear in history.jsonl."
+      ],
+      "blocked_reason": "",
+      "evidence": [
+        {
+          "date": "2026-08-17",
+          "command": "./gradlew test --tests 'sighteaddons.SecretTrackerTest' ; ./gradlew assemble check ; python build/keydiff.py",
+          "result": "SecretTrackerTest 11 tests, 0 failures (3 added: the whitelist through colour codes, the near-miss names a substring rule would take, the bounded unknown-name log). Full suite 21 classes / 289 tests / 0 failures / 0 skipped from build/test-results/test/*.xml, three cases added and none removed or weakened. assemble check BUILD SUCCESSFUL; RunReport.kt, gradle.properties and dist/ untouched and KEYDIFF CLEAN at schema 6. Receiver checked, not written: `ownSecrets` appears in ingest.py only as a ROOM_KEYS entry and a bounded-number validator (:171, :289) and in no other production file — roomstats.py and metrics.py have no reference — so its meaning moving routes nothing and no paired feature is owed. runClient reached a full resource reload with the mod initialised (so both callback registrations ran) and zero mixin errors — NOT proof the injector resolves, since ClientPacketListener is not loaded until the client joins a server, and NOT to be repeated: the user forbade launching the dev client on 2026-08-17 because it opens a game window over the one they are playing.",
+          "commit": "4a9fadd",
+          "artifact": "build/test-results/test/"
+        }
+      ],
+      "notes": "Two new signals, both arming the SAME 40-tick window a click does: a whitelisted item pickup (collector == self) and a swing at a Bat. The counter still decides a secret happened. Exact name match, never substring. UNVERIFIED: every item name; neither ran in a game; a bat killed at range is missed."
+    },
+    {
+      "id": "secretburst-001",
+      "priority": 22,
+      "area": "attribution",
+      "title": "Credit every secret in a burst, not just the first",
+      "user_visible_behavior": "Two secrets you take between one action bar reading and the next both count as yours, instead of one of them silently going to somebody else.",
+      "status": "not_started",
+      "depends_on": ["ownsecrets-001"],
+      "verification_command": "./gradlew test --tests 'sighteaddons.SecretTrackerTest'",
+      "verification_manual": [
+        "Take two secrets in one room within a second of each other, alone in the room.",
+        "The `secret` event carrying `delta: 2` should raise `ownTotal` by 2, and the room's `secret_run_done` should carry own == secrets."
       ],
       "blocked_reason": "",
       "evidence": [],
-      "notes": "OPENED 2026-08-15 by recordowner-001's revision pass, as discovered work recorded rather than fixed inline (CLAUDE.md's rule). NOT a defect introduced by recordowner-001 — it is pre-existing, and recordowner-001 is what made its cost visible by putting a gate in front of it.\n\nTHE MEASUREMENT, and it is the whole motivation. `RoomHistory.ownSecretRun` is `ownSecrets == secretsFound`, the user's decision of 2026-08-15 reaffirmed on 2026-08-15 after being shown these numbers. Replayed over the fifteen real session logs on this machine with `python build/ownsecrets.py`: of **87** completed secret runs, **12 survive — 13.8%**. Split by roster it is **2 of 23** on single-member sessions and **10 of 64** on party sessions. A solo floor is hit as hard as a party one, which is the finding: on a solo floor every secret WAS the local player's by construction, so what is failing is not ownership but ATTRIBUTION. `session-1786572786745.jsonl` is a single-member session with eight completed runs and not one of them attributed in full, including `Big Red Flag 0/2` — a room where the client credited itself with none of the secrets it must have found. On the committed floor (`docs/evidence/session-1786719912927/`) it is `Atlas 4/6`, `New Trap 2/3`, `Slime 2/5`, `Chains 2/2`, `Pipes 5/7` — four of five records gone.\n\nWHERE THE GAP IS. `SecretTracker` credits a secret to the local player on exactly two signals: an own block interaction inside `OWN_WINDOW` (40 ticks) seen through `UseBlockCallback`, or a wither-essence chat line naming us (`chatAttribution`). Everything else is somebody else's by default. `SecretTracker.secretTypeAt` recognises chests, trapped chests, levers and the two secret skull profiles — so a secret that is not *right-clicked* is invisible to it. The obvious candidate is the walk-over item pickup, which raises the counter with no block interaction at all and no chat line; a second is a click whose server acknowledgement lands outside the 40-tick window. Neither is confirmed. **Confirm which before building anything**: the `secret` events in the fifteen logs carry `attributedBy` (`chat` or `click`) and `mine`, and `own_interaction` carries the type and position, so the ratio of unattributed rises that have no `own_interaction` anywhere near them is measurable from the logs already on disk. That is the first task of this feature and it needs no dungeon.\n\nWHAT NOT TO DO. Do not widen this by softening `ownSecretRun`. The user was offered the majority rule `ownSecrets * 2 >= secretsFound` — which keeps four of the committed floor's five runs — and refused it twice, most recently after seeing the 13.8% figure. The gate is the specification; this feature is about making the number it reads correct, not about making the comparison looser. A change here that credits a secret the local player did not find is strictly worse than the missing record it replaces, because a wrong record is permanent and a missing one is not.\n\nSCOPE NOTE: this may turn out to need nothing from the receiver, but check before touching `RunReport.kt` — `ownSecrets` is already a shipped room field (`RunReport.kt:420`) and its *meaning* would change if the counting changed, which is the `clear-001` shape (key stays, meaning moves) rather than the `residue-001` shape. `roomstats.py` on the receiver is where to look for whether anything routes on it. Diff before, not after."
+      "notes": "FOUND 2026-08-17 while implementing ownsecrets-001; recorded rather than fixed inline, per CLAUDE.md. `SecretTracker.onActionBar` does `room.ownSecrets++` ONCE per rise however large `delta` is, and then spends the signal — so a rise of 2 that was entirely yours counts 1, and `RoomHistory.ownSecretRun` (`ownSecrets == secretsFound`) fails for the room. Measured while sizing ownsecrets-001: 2 of the 37 missed secrets across the six single-member sessions on disk had an `own_interaction` within 40 ticks of them, which is this shape and not the missing-signal one. ownsecrets-001 makes it MORE likely rather than less — walking over two items in one second is easier than right-clicking two chests. THE FIX IS NOT `ownSecrets += delta`: that credits a teammate's secret whenever one of yours shared the reading, which is the failure this whole area is required to avoid. It needs a count of unspent own signals rather than one timestamp, which is a different structure in the same function and is exactly why it was not done inline."
     },
     {
       "id": "secrethud-001",

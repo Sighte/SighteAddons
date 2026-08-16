@@ -96,4 +96,61 @@ class SecretTrackerTest {
         // And a line stamped after the reading it is compared against is not about it.
         assertNull(SecretTracker.chatAttribution(runTicks = 100, chatAt = 101, chatMine = true))
     }
+
+    /**
+     * `ownsecrets-001` added two signals — a secret you walk over and a bat you kill. The bat's
+     * decision is `entity is Bat` and there is nothing to test in it; the pickup's is
+     * [SecretTracker.secretItem], and it is the whole of the feature's judgement. The name arrives
+     * from the item stack exactly as Hypixel wrote it — legacy colour codes in front, which are what
+     * the count parser above trips over too.
+     */
+    @Test
+    fun `a secret item is recognised through its colour codes`() {
+        assertEquals("Spirit Leap", SecretTracker.secretItem("§9Spirit Leap"))
+        assertEquals("Superboom TNT", SecretTracker.secretItem("§9Superboom TNT"))
+        // Lower-cased only to compare; what comes back is what Hypixel wrote, which is what gets
+        // logged — so a floor that renames an item shows the rename rather than this mod's guess.
+        assertEquals("DECOY", SecretTracker.secretItem("§aDECOY"))
+        assertEquals("Defuse Kit", SecretTracker.secretItem("  §aDefuse   Kit  "))
+    }
+
+    /**
+     * **The one that decides whether this feature is safe to ship.** A dungeon floor is full of
+     * pickups that are not secrets, and a credit invented here is a permanent wrong record where the
+     * missing one it replaces is not. So the rule is exact match against a whitelist, and the cases
+     * that matter are the near misses: substring or prefix matching would take every one of these.
+     */
+    @Test
+    fun `ordinary loot is not a secret and neither is a name that merely contains one`() {
+        assertNull(SecretTracker.secretItem("§fRotten Flesh"))
+        assertNull(SecretTracker.secretItem("§9Enchanted Book"))
+        assertNull(SecretTracker.secretItem("§5Undead Essence"))
+        assertNull(SecretTracker.secretItem(""))
+        // Prefix and suffix: `Decoy` and `Superboom TNT` are in the list, these are not.
+        assertNull(SecretTracker.secretItem("§9Enchanted Superboom TNT"))
+        assertNull(SecretTracker.secretItem("§aDecoy Wand"))
+    }
+
+    /**
+     * The unknown-name log is the only thing that can ever correct the vocabulary, since no build
+     * has ever looked at an item name and the logs on disk therefore cannot contain the answer. It
+     * is fed by every pickup in a dungeon, so it has to say each name once and then stop: the
+     * failure it guards against is a debug file on the user's disk growing without bound.
+     */
+    @Test
+    fun `an unknown pickup is reported once, and the report is bounded`() {
+        SecretTracker.reset()
+        assertTrue(SecretTracker.noteUnmatched("§fRotten Flesh"))
+        assertFalse(SecretTracker.noteUnmatched("§fRotten Flesh"), "same item, second time")
+        assertFalse(SecretTracker.noteUnmatched("Rotten  Flesh"), "same item, normalised")
+        assertTrue(SecretTracker.noteUnmatched("§7Bone"), "a different item is still worth one line")
+        // 2 distinct names so far; the cap is 32, and past it nothing is reported at all.
+        repeat(30) { assertTrue(SecretTracker.noteUnmatched("filler $it")) }
+        assertFalse(SecretTracker.noteUnmatched("one too many"))
+        // A new run starts the vocabulary over — the item that was noisy last floor may be the one
+        // that matters on this one.
+        SecretTracker.reset()
+        assertTrue(SecretTracker.noteUnmatched("one too many"))
+        SecretTracker.reset()
+    }
 }
