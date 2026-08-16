@@ -563,6 +563,35 @@
         }
       ],
       "notes": "Paired with the receiver's `idle-001`, deployed first (`skyblock-server` master 1a7f435): both keys are in its RUN_OPTIONAL, so v5 reports in backlogs still validate. Definitions are SETUP.md section 4 as written; `IdleTime.classify` is pure and is the whole decision. AMBIGUITY, resolved as written rather than softened: a DISCARDED secret run is not an active one, so a cleared room whose run was abandoned counts as idle while its leftovers are collected. Boss ticks advance runTicks and neither counter. THE CEILING: probes S and T, the per-tick call and the HUD line, need a live Minecraft."
+    },
+    {
+      "id": "critcalc-001",
+      "priority": 22,
+      "area": "events",
+      "title": "The Explosive Shot crit, per Blessing of Power",
+      "user_visible_behavior": "During the Maxor phase of M7, an Explosive Shot crit prints one line into your own chat: `Crit  12.0B  ·  power 8  ·  1.50B per power`. The announced damage is divided by the number of enemies hit, because the shot spreads it; that per-target figure is then divided by the floor's Blessing of Power (read from the tab list footer, plus 2.5 per Blessing of Time), which is what makes two crits from different runs comparable. `/sa` → chat → `crit readout` switches it off. Nothing is sent anywhere and nothing is typed into chat by the mod.",
+      "status": "passing",
+      "depends_on": [],
+      "verification_command": "./gradlew test --tests 'sighteaddons.CritMeterTest'",
+      "verification_manual": [
+        "NOT PERFORMABLE IN THIS REPOSITORY. The dev client has no Hypixel session, so none of the steps below has been run; they need a human to play an M7 with a debug build. `./gradlew runClient` was used for one thing only — that the new tab-footer mixin accessor applies at class load rather than crashing the game on startup.",
+        "Enter M7. On Maxor's opening line the window opens; land an Explosive Shot crit and confirm exactly one line appears in your own chat and that NO party or /msg line is sent (ask a party member).",
+        "Check the number: the `B` figure should be the announced damage divided by the enemy count, divided by 1e9.",
+        "Open the tab list and read the blessings. `power N` on the line must equal the Blessing of Power numeral plus 2.5 per Blessing of Time. `power unknown` means the footer was not read at all — that is the accessor half failing and is the thing most likely to be wrong.",
+        "After Goldor speaks, land another crit and confirm nothing prints.",
+        "In the session jsonl: a `crit_unparsed` event is a crit line Hypixel sent that the pattern did not match, quoted verbatim. It is the ONLY thing that will confirm or correct the strings. Zero `crit_unparsed` AND zero readouts in a run with crits means the pattern matches nothing at all, or the window never opened."
+      ],
+      "blocked_reason": "",
+      "evidence": [
+        {
+          "date": "2026-08-16",
+          "command": "./gradlew test --tests 'sighteaddons.CritMeterTest' ; ./gradlew assemble check ; ./gradlew runClient",
+          "result": "CritMeterTest 11 tests 0 failures. Suite 20 classes / 276 tests / 0 failures / 0 skipped (build/test-results/test/*.xml); main was 19/265, so +11 and nothing broken. runClient reached a full resource reload and exited 0 with zero ERROR/WARN lines, so the new @Accessor(\"footer\") applies at class load rather than crashing on startup (mixins.json is required:true).",
+          "commit": "5c83cc4",
+          "artifact": ""
+        }
+      ],
+      "notes": "Ported from a CC0-1.0 mod the user supplied. Its ApiSender (POSTed name/crit/power/ratio to a third party) and its auto /msg + party line are absent by design; the readout is local-only and RunReport is untouched, so no receiver work is owed. THE CEILING: every string is a hypothesis - nothing on disk holds one; `crit_unparsed` settles it."
     }
   ]
 }
