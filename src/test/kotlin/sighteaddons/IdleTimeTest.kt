@@ -180,7 +180,7 @@ class IdleTimeTest {
      * that is not cleared there follows the player into the next dungeon and uploads a number
      * describing two floors. `profiles/` is append-only and that line could never be corrected.
      *
-     * Calls the real `reset()` on purpose, which `ENVIRONMENT.md` warns resets half the mod: that
+     * Calls the real `reset()` on purpose, which `CLAUDE.md` warns resets half the mod: that
      * blast radius *is* the thing being checked, and the objects it touches all rebuild their state
      * in their own `@BeforeEach`. `DungeonSessionTest`'s `reset forgets the floor` does the same.
      */

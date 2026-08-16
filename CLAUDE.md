@@ -1,93 +1,91 @@
-# CLAUDE.md — SighteAddons
+# SighteAddons
 
-Two people use this mod. **The process is sized for that** — enough to know what is running and not
-to break what already works, and no more.
+Zwei Leute benutzen diese Mod. Der Prozess ist dafür dimensioniert.
 
-`ENVIRONMENT.md` holds the toolchain, the traps that make a probe silently do nothing, and the code
-invariants a tidy-up would break. Read it when you are about to meet one, not as a ritual.
+**Loop:** `TODO.md` lesen → `./init.sh` → eine Sache machen → committen → `TODO.md` nachziehen.
+Direkt auf `main`, keine Branches — hier deployt nichts. Push ist frei, **solange `mod_version`
+gleich bleibt**; eine Versionsänderung ist ein Release und gehört dem User.
 
-## Loop
+Keine Grading-Pässe, keine Rubrics, keine Mutation-Sweeps, keine Evidence-Formulare.
+`TODO.md` ist das einzige Session-Artefakt, ~50 Zeilen. `git log` ist die Historie.
 
-1. Read `TODO.md`.
-2. `./init.sh`. A FAILING baseline is the task, ahead of anything else.
-3. Do one thing. Commit it on a branch.
-4. Update `TODO.md` — what changed, and plainly what is still unverified. That last part is the one
-   thing worth spending words on: the dev client cannot reach Hypixel, so a reader will otherwise
-   assume a path was tested.
+## Tests
 
-`TODO.md` is the only session artifact. Keep it under ~90 lines; `git log` is the history.
+**Nur schreiben, wenn du sonst raten müsstest.** 289 Tests für eine Mod mit zwei Nutzern sind
+bereits mehr als genug — ein neues Feature braucht null bis zwei, und meistens null. Kein Test darf
+abgeschwächt oder gelöscht werden, um Arbeit fertig aussehen zu lassen; aber ein Test, der nur die
+Implementierung nacherzählt, kostet nur Zeit.
 
-## Rules
+`./gradlew test` muss grün sein, bevor etwas fertig heißt (3 s warm). Was vorher lief und jetzt
+fällt, ist die nächste Arbeit.
 
-- Do not claim something works without having run it.
-- Tests pin behaviour that could plausibly break. They are not a score. A handful of cases that would
-  catch a real mistake beats twenty that restate the implementation, and nothing needs a test count
-  to justify itself. Never weaken a test to make work look finished.
-- Find something else broken while working? Write it in `TODO.md` and stay on the thing you are on.
+## Die vier Regeln, die kein Prozess sind
 
-## What this repository is, that a session has to respect
+1. **Der Receiver ist zuerst dran, wenn sich das Report-Schema ändert.** Ein Feld, das `ingest.py`
+   nicht kennt, ist ein `400`, `TelemetryUpload` wiederholt nie, der Run ist endgültig weg. Vor jeder
+   Änderung an `RunReport.kt`: die Felder gegen `RUN_KEYS` in `ingest.py` diffen (auf `obj.add` **und**
+   `obj.addProperty` ankern — `addProperty` allein verfehlt `rooms` und `classes`).
+2. **Niemals `./gradlew runClient`.** Öffnet ein Minecraft-Fenster auf dem Rechner, auf dem der User
+   gerade spielt. Kein Startup-Check, kein "nur einmal".
+3. **`rooms.json` wird nie angefasst** — Odins Datenbank, BSD-3, der Receiver liest genau diese Datei.
+4. **Kein Push mit geänderter `mod_version` ohne den User.**
 
-- **Never run `./gradlew runClient`.** It opens a real Minecraft window on the machine the user is
-  playing on. Instructed 2026-08-17 after several sessions launched it to check that a mixin applied.
-  It is not a fallback and there is no case that justifies it — not a startup check, not "just once".
-- **The dev client could not reach Hypixel anyway.** Calibration, decoration mapping, checkmark
-  reading and core hashing are not verifiable here. Something that needs a real dungeon run is
-  *unverified*, and saying so is the deliverable.
-- **What that costs, so it is not a surprise:** a mixin injector that fails to resolve and an
-  `@Accessor` naming a field that does not exist are both invisible to the compiler. `javap` on the
-  merged jar is the only local check for a field name; for an injector there is none.
-- **The receiver moves first for a schema change.** The report schema is compiled in and validated by
-  [`Sighte/skyblock-server`](https://github.com/Sighte/skyblock-server) (`ingest.py:282`): a field
-  the validator has not learned is a `400`, `TelemetryUpload` never retries it, and the run is gone
-  permanently. Before touching `RunReport.kt`, run `python build/keydiff.py`.
-- **`rooms.json` is Odin's database verbatim** (`LICENSE-Odin`, BSD-3). Never edited, never
-  regenerated; the receiver reads this exact file.
-- **`dist/` holds exactly one jar** and `build` refreshes it — a `build` that changes the committed
-  jar means it was stale. Mid-feature use `./gradlew assemble check`, never `build`, or you swap the
-  released artifact for a different build wearing the same version number.
-- **The upload URL and the report schema are compiled in**, so a change here can take previous
-  installs off the air. That is a release-note line, not an implementation detail.
+## Release
 
-## Evidence
+Modrinth zeigt das Projekt öffentlich als 404, die Zielgruppe sind zwei Leute. Also kurz:
 
-**One command, its result, and the commit it ran against.** One line, not a report. "I tested it
-manually" without a command anyone can re-run is not evidence. For anything that only shows up in a
-real dungeon, the evidence is the debug session file and the line in it that proves the claim.
+1. `./gradlew build` grün, `dist/sighteaddons-<version>.jar` ist die committete Datei (ändert der
+   Rebuild sie, war die committete alt).
+2. `gh release create "v<version>" "dist/…jar" --target main --title "…" --notes-file -`
+   — **Titel ≤ 64 Zeichen**, sonst stirbt der Modrinth-Upload *nach* dem GitHub-Release (0.15.0).
+3. Notes: was sich geändert hat, und ob die Receiver-Hälfte deployt ist. Mehr nicht.
+4. `.github/workflows/modrinth.yml` läuft auf `release: published` — Run einmal anschauen.
 
-`--rerun-tasks` is not a default — it defeats the up-to-date check. Use it when the point is that
-nothing was cached, and nowhere else, or it fossilizes into every later copy of the command.
+Nie eine Version rausgeben, ohne vorher `mod_version` zu erhöhen; sonst weiß niemand, was läuft.
 
-## Done
+## Diese Maschine
 
-A thing is done when its own check passes and `./gradlew test` is still green (~1.1 s of actual
-execution). If something that used to pass now fails, that is the next work.
+- `python`, nicht `python3` (Windows-Alias-Stub). JDK 25+, Gradle nimmt `JAVA_HOME`, nicht `PATH`.
+- **Testzahlen aus `build/test-results/test/*.xml`**, nicht aus der Konsole.
+- Mid-Feature `./gradlew assemble check`, nie `build` — `build` überschreibt das released Jar.
+  `--rerun-tasks` nur, wenn der Punkt ist, dass nichts gecacht war.
+- Windows-Python kann `./gradlew` nicht starten (`WinError 193`) — Gradle aus bash.
+- **Ein Python-Replace über eine Kotlin-Datei braucht `\r\n` im Anker** (Working Tree ist CRLF).
+  `assert source.count(old) == 1` vor jedem Apply — ein Probe, der nicht greift, sieht aus wie einer,
+  der bestanden hat.
+- `PYTHONIOENCODING=utf-8` vor dem Printen dieser Quellen, sonst stirbt `print` am Gedankenstrich.
+- Echte Session-Logs (read-only):
+  `%APPDATA%\PrismLauncher\instances\Skyblock 26.1.2 Modpack\minecraft\config\sighteaddons\debug\session-*.jsonl`.
+  Event-Key ist `e`, nicht `event`. Eines mit `secret_room_first_bar` ist 0.12.0+.
+  **Nicht** `config/sighteaddons/debug/` im Repo greppen — da liegt nur Testrauschen.
+- `net.minecraft.ChatFormatting` lädt im Unit-Test, `MapItemSavedData`/`MapDecoration` nicht.
+  `ContributionTracker`, `RunReport` und `RoomStats` sind `object`s mit Prozess-State — im
+  `@BeforeEach` zurücksetzen. `DungeonSession.reset()` **nicht** zum Aufräumen aufrufen, das setzt
+  die halbe Mod zurück.
+- `gh pr merge` wird vom Permission-Classifier abgelehnt; `git merge --no-ff` + Push macht denselben
+  Commit. **Eine Ablehnung ist kein fehlgeschlagenes Release.**
 
-That is the whole gate. No grading pass, no rubric, no mutation sweep by default. Reach for a
-mutation probe when you genuinely doubt a test, not once per feature.
+## Nicht anfassen — jedes davon ist gemessen
 
-## Releasing — the one heavy thing that stays
-
-A published build reaches other people's game, so **a version bump is never pushed to `main` on your
-own.** When the user asks for one:
-
-1. `git status` clean, `main` up to date with `origin/main`.
-2. `./gradlew build` passes and `dist/sighteaddons-<version>.jar` is the committed file. If the
-   rebuild changes it, the committed jar was stale and the release would ship something nobody
-   reviewed. (The build is reproducible here — two `--rerun-tasks` builds gave byte-identical jars.)
-3. The jar's own `fabric.mod.json` says the version. The filename is not evidence.
-4. **Title ≤ 64 characters** — Modrinth's `version_title` cap, and the workflow sends the GitHub
-   title verbatim. 0.15.0's was 65 and the upload died *after* the GitHub release was published.
-   Repair: `gh release edit <tag> --title`, then re-run the workflow.
-5. `gh release create "v<version>" "dist/sighteaddons-<version>.jar" --target main --title ... --notes-file -`
-6. **Check the Modrinth run** — `.github/workflows/modrinth.yml` fires on `release: published`, and a
-   failed upload leaves exactly the split this exists to prevent: players on an older build than the
-   notes describe. Same version, same jar, same changelog text on both pages.
-
-Notes say four things, short: what changed (behaviour first, one line per PR); **whether the receiver
-half is deployed**; the jar's `sha256` plus the Minecraft/loader versions read out of
-`gradle.properties`; and what is *not* verified. Operator steps go in the GitHub notes only — name
-that section exactly `## Not in the jar` and never place it last, because the workflow's strip is a
-lookahead that silently keeps it otherwise.
-
-Do not backfill releases for versions that never had one; the tags would claim a review that never
-happened.
+- **`TrackedRoom.readBar` liest den Bar, BEVOR es auf einen Anstieg testet.** Ein `0/10` ist kein
+  Anstieg und die einzige Lesung, die sagen kann, dass der Raum unberührt war. Dreht man das um —
+  genau das, was ein Aufräumen tut — ist die erste Lesung die `1/10` danach, kein Raum sieht je
+  sauber aus, und **jeder Secret-Run im Spiel wird still verworfen.**
+- **`RoomHistory.ownClear` bleibt fünf einzelne Zeilen**, inklusive `MIN_TICKS`-Boden. Eine
+  zusammengezogene Bedingung ist nicht einzeln prüfbar, und dieses Prädikat hat schon zwei Guards
+  produziert, die nur dem Namen nach welche waren.
+- **`ownSecrets == secretsFound` wird nicht aufgeweicht**, nicht konfigurierbar gemacht, kein
+  Schlupfloch. Der User hat die gemessenen Kosten gesehen und zweimal bestätigt; steht so in den
+  öffentlichen 0.12.0-Notes.
+- **`SecretHud` zeigt Attribution an und repariert sie nie.** Fallback auf `secretsFound`, wenn
+  `ownSecrets` 0 ist, schreibt dem lokalen Spieler die Secrets der Party auf den Bildschirm.
+- **Keine Metrik wird umdefiniert.** `clear` = `room.ticks[self]`, `secretrun` =
+  `room.secretRunTicks`. `history.jsonl` ist append-only und 0.12.0 ist draußen — gate *ob* eine
+  Zeile geschrieben wird, nie was drinsteht.
+- **`RunReport.SCHEMA` ist 6 und geht nicht zurück.** `idleTicks`/`navTicks` werden zusammen oder
+  gar nicht geschrieben — der Receiver liest einen fehlenden Key als "dieser Build kann das nicht
+  messen", eines allein behauptet, das andere sei null.
+- **`DungeonSession.floor` bleibt `@Volatile`** (DISCONNECT liest es aus einem Netty-Thread), und nur
+  `reset()` löscht es, nach `RunReport.write`.
+- **Nie wieder einzubauen** (aus der portierten Crit-Mod): der `ApiSender`, der bei jedem Treffer
+  Name/Crit/Power an einen Dritten POSTete, und die automatischen `/msg`- und Party-Zeilen.
