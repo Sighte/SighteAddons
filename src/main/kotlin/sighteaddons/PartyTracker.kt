@@ -4,6 +4,7 @@ import sighteaddons.mixin.PlayerTabOverlayAccessor
 import net.minecraft.client.Minecraft
 import net.minecraft.world.level.saveddata.maps.MapDecorationTypes
 import net.minecraft.world.level.saveddata.maps.MapItemSavedData
+import java.util.UUID
 
 /**
  * [level] is the class level from the tab row, empty when the row carries none. It is the closest
@@ -76,20 +77,44 @@ object PartyTracker {
     /** Whether the map and the tab list currently disagree about who is alive. See [positions]. */
     private var skewed = false
 
+    /**
+     * Name to UUID for everyone currently on the server list, refreshed by [update].
+     *
+     * Only [SecretApi] wants it: the tab rows carry names and Hypixel's API takes ids, and the
+     * profile behind a row is where the two are already paired. Kept here rather than looked up
+     * again because [update] holds the list once a second anyway.
+     */
+    private var ids: Map<String, UUID> = emptyMap()
+
+    /** UUIDs for the current roster, for the players that have one. See [ids]. */
+    fun rosterIds(): Map<String, UUID> =
+        roster().mapNotNull { player -> ids[player.name]?.let { player.name to it } }.toMap()
+
     fun reset() {
         players.fill(null)
         lastAssignment.clear()
         localSlot = 0
         localName = null
         skewed = false
+        ids = emptyMap()
     }
 
     fun update(client: Minecraft) {
         val connection = client.connection ?: return
+        val online = connection.onlinePlayers
+        // Name to UUID for everyone the client can see, built from the list this method already has.
+        // [SecretApi] needs UUIDs and the tab rows carry only names; the profile behind each row is
+        // the one place a name is paired with an id without asking Mojang for it.
+        ids = online.associate { it.profile.name to it.profile.id }
         // Keep null rows so indices stay aligned with the tab grid.
-        val rows = connection.onlinePlayers
+        val rows = online
             .sortedWith(PlayerTabOverlayAccessor.getOrdering())
             .map { it.tabListDisplayName?.string?.trim() }
+        // The five party rows below are five entries of roughly eighty. The rest of the list carries
+        // the floor's own totals, and the sort — not the parsing — is the expensive part, so the one
+        // reader that wants the whole list is handed the list this one already built rather than
+        // sorting it a second time each second. See DungeonTab for what it takes out of it.
+        DungeonTab.observe(rows)
         for (i in players.indices) {
             val previous = players[i]
             val match = rows.getOrNull(1 + i * 4)?.let { TAB.matchEntire(it) }
@@ -134,6 +159,12 @@ object PartyTracker {
             localSlot = slot
             DebugLog.event("local_slot", "slot" to slot, "player" to self?.let(Pseudonym::of))
         }
+
+        // The opening snapshot for the run's true secret counts, taken once and only inside a
+        // dungeon — outside one the roster is whoever happens to be in the lobby. Gated on the
+        // calibration rather than on the sidebar so it cannot fire on the way in, before the party
+        // this run belongs to is the party in the list. A no-op without a key in config.json.
+        if (DungeonSession.calibrated) SecretApi.observe(rosterIds())
     }
 
     /**

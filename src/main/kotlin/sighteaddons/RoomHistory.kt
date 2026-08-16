@@ -384,12 +384,29 @@ object RoomHistory {
                 // only for the room you are standing in, so a teammate's count would be a guess —
                 // they get a dash instead, the same way the history refuses an estimated middle number.
                 val secrets = if (name == self) rooms.sumOf { it.ownSecrets } else null
+                // The floor's true party-wide total, read out of the tab list rather than summed out
+                // of the rooms this client happened to be inside. Only ever shown next to the local
+                // player's provable count, because it is a fact about the floor and not about them.
+                val ofTotal = if (name == self) DungeonTab.secretsFound else null
                 announce(
                     Component.literal("  %5.2f".format(Locale.ROOT, earned)).withStyle(ChatFormatting.AQUA)
                         .append(Component.literal("  $name ").withStyle(ChatFormatting.WHITE))
-                        .append(Component.literal(breakdown(contributed, secrets)).withStyle(ChatFormatting.DARK_GRAY)),
+                        .append(Component.literal(breakdown(contributed, secrets, ofTotal)).withStyle(ChatFormatting.DARK_GRAY)),
                 )
             }
+
+        // The true per-player counts, if a key is configured. Deliberately not waited for: this runs
+        // off the run-end chat line and a network call here would hold up the whole summary. It
+        // arrives as its own line a moment later, or not at all.
+        //
+        // `estimated` is taken here rather than inside the callback, so the comparison is against
+        // what this run measured rather than against whatever the tracker holds by the time the
+        // answer lands — which, for a player who starts the next floor quickly, is a different run.
+        // `announce` schedules onto the client thread itself, so the callback is safe where it is.
+        val estimated = rooms.sumOf { it.ownSecrets }
+        SecretApi.settle(PartyTracker.rosterIds()) { counts ->
+            announce(secretLine(counts, estimated, self))
+        }
 
         // Was `> 0.01` against an inline subtraction — the same guard against the same split residue
         // that the run report clamps, written twice and agreeing by coincidence. The figure is now a
@@ -419,9 +436,61 @@ object RoomHistory {
     /**
      * The per-player breakdown behind the points: rooms they were in long enough to earn from, and
      * the secrets they found. [secrets] is null for a teammate, whose secrets this client cannot see.
+     *
+     * [ofTotal] is the floor's **true** party-wide secret count from [DungeonTab], and it is the
+     * whole of `secretcount-001`. [secrets] alone was printed under the bare label "secrets" and read
+     * as "the secrets you found", which it is not: it is the secrets this client could *prove* were
+     * yours, and it can only prove one in a room it was standing in when the counter moved. Measured
+     * on a real 19-room M7 floor, five rooms ever produced a reading at all, so the label was wrong
+     * by more than a factor of two before attribution was even considered.
+     *
+     * `10 of 29` fixes the label rather than the number, and both halves stay true statements:
+     * 29 secrets were found on this floor, 10 of them are provably yours. **The other 19 are not
+     * claimed for anybody** — a secret this client could not attribute is unattributed, not a
+     * teammate's, and no arrangement of these two numbers may be read as saying otherwise.
+     *
+     * [secrets] keeps its meaning exactly. It is the same number [ownSecretRun] gates records on, and
+     * this is a display change: nothing here feeds a record, a report field or a history line.
+     *
+     * A null [ofTotal] falls back to the old rendering rather than printing `10 of ?`. The tab rows
+     * have never been observed on a real floor from this repository, so the fallback is the path that
+     * has to stay correct.
      */
-    internal fun breakdown(rooms: Int, secrets: Int?) =
-        "($rooms rooms · ${secrets?.toString() ?: "–"} secrets)"
+    /**
+     * The follow-up line carrying Hypixel's own per-player counts, highest first.
+     *
+     * Kept apart from the per-player rows above rather than folded into them, and the reason is
+     * honesty about provenance: those rows are what this client measured, this line is what Hypixel
+     * says. A reader can tell them apart, and when they disagree the disagreement is visible instead
+     * of resolved silently in favour of whichever arrived last.
+     *
+     * [estimated] is the local player's own provable count, printed beside the true one when the two
+     * differ. That gap is the measured cost of [SecretTracker]'s attribution — the thing
+     * `ownsecrets-001` currently has to reconstruct by hand from old logs — and putting it on screen
+     * once per run is how it stops being a guess.
+     */
+    internal fun secretLine(counts: Map<String, Int>, estimated: Int, self: String?): MutableComponent {
+        val line = Component.literal("  secrets ").withStyle(ChatFormatting.GOLD)
+            .append(Component.literal("(Hypixel) ").withStyle(ChatFormatting.DARK_GRAY))
+        counts.entries.sortedByDescending { it.value }.forEachIndexed { index, (name, found) ->
+            if (index > 0) line.append(Component.literal(", ").withStyle(ChatFormatting.DARK_GRAY))
+            line.append(Component.literal("$name ").withStyle(ChatFormatting.WHITE))
+            line.append(Component.literal("$found").withStyle(ChatFormatting.AQUA))
+            // Only for the local player, and only when it disagrees: this client cannot estimate a
+            // teammate's count at all, so there is nothing to compare theirs against.
+            if (name == self && found != estimated) {
+                line.append(Component.literal(" (counted $estimated)").withStyle(ChatFormatting.DARK_GRAY))
+            }
+        }
+        return line
+    }
+
+    internal fun breakdown(rooms: Int, secrets: Int?, ofTotal: Int? = null) = "($rooms rooms · " +
+        when {
+            secrets == null -> "–"
+            ofTotal == null -> "$secrets"
+            else -> "$secrets of $ofTotal"
+        } + " secrets)"
 
     private fun append(room: TrackedRoom, roomName: String, kind: String, ticks: Int, pb: Boolean, ts: Long) {
         val obj = JsonObject()

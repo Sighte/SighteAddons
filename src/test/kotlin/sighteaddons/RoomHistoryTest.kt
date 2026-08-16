@@ -55,6 +55,34 @@ class RoomHistoryTest {
         assertEquals("(0 rooms · 0 secrets)", RoomHistory.breakdown(0, 0))
     }
 
+    /**
+     * `secretcount-001`. The bare number was read as "the secrets you found" and is not that: it is
+     * the secrets this client could prove were yours, and it can only prove one in a room it was
+     * standing in when the counter moved. On the measured M7 floor that was 5 rooms out of 19.
+     *
+     * The floor's true party-wide count comes from [DungeonTab]. Printing the provable count against
+     * it makes both numbers true statements; the difference between them is claimed for nobody.
+     */
+    @Test
+    fun `the local player's count is shown against the floor's true total`() {
+        assertEquals("(19 rooms · 10 of 29 secrets)", RoomHistory.breakdown(19, 10, 29))
+        // Zero of a real total is a fact, not a missing reading, and must still print.
+        assertEquals("(4 rooms · 0 of 29 secrets)", RoomHistory.breakdown(4, 0, 29))
+    }
+
+    /**
+     * The tab rows have never been observed from this repository — the dev client cannot log in — so
+     * the path where they are absent is the one that has to stay correct. It is the old rendering,
+     * unchanged, rather than `10 of ?`.
+     */
+    @Test
+    fun `an unread tab list falls back to the old line rather than an empty total`() {
+        assertEquals("(19 rooms · 10 secrets)", RoomHistory.breakdown(19, 10, null))
+        // A teammate stays a dash whatever the floor total is: the total is a fact about the floor,
+        // not about them, and "– of 29" would invite reading the remainder as theirs.
+        assertEquals("(9 rooms · – secrets)", RoomHistory.breakdown(9, null, 29))
+    }
+
     @Test
     fun `a retired kind is kept in the file but gets no row in the table`() {
         val records = RoomHistory.fold(
