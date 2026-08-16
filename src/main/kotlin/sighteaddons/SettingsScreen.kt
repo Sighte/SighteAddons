@@ -49,6 +49,18 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     private var placing = false
     private var scroll = 0
 
+    /**
+     * Whether shift was held for the click currently being dispatched — the storm tick rows step
+     * backwards with it.
+     *
+     * A field rather than a parameter on [Row.click] because the modifier lives on the mouse event
+     * ([MouseButtonEvent.hasShiftDown]) and nothing else on this screen wants it: threading a
+     * `Boolean` through every row's lambda would be a dozen ignored parameters to serve two rows.
+     * Written in [mouseClicked] on the statement before the lambda runs and read inside it, both on
+     * the render thread, so the window in which it means anything is one call deep.
+     */
+    private var stepBack = false
+
     private var sortBy = RecordTable.Sort.LAST
 
     /** Newest first: after a run the rooms you just played are the ones you opened this for. */
@@ -121,6 +133,9 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     private val narrowing get() = RecordTable.narrowing(query, filter)
 
     private fun footer() = when {
+        // The stepping rows are the only thing on this screen a click does something other than
+        // toggle, and shift-clicking to go back is not discoverable anywhere else.
+        tab == Tab.HUD && Config.stormTimer -> "esc  close · click a tick count to step it · shift-click steps back"
         tab != Tab.RECORDS -> "esc  close"
         narrowing == RecordTable.Narrowing.SEARCH -> "esc  clear the search · backspace  delete"
         narrowing == RecordTable.Narrowing.CHIP -> "esc  show every room · type to filter"
@@ -283,6 +298,26 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             Row("clear popup", Config.clearPopup.word(), Config.clearPopup) {
                 Config.clearPopup = !Config.clearPopup
             },
+            // On this tab and not the chat one because it is drawn on screen — the mirror of the
+            // argument that puts "crit readout" over there.
+            Row("storm timer", Config.stormTimer.word(), Config.stormTimer) {
+                Config.stormTimer = !Config.stormTimer
+            },
+            // The two inherited numbers, steppable a tick at a time. They are rows and not constants
+            // because nobody here knows where 138 and 20 came from and a wrong one never announces
+            // itself — see StormTimer. Shown only while the timer is on: off, they are two rows of
+            // arithmetic about something that is not going to be drawn.
+        ) + if (!Config.stormTimer) emptyList() else listOf(
+            Row("  storm countdown", StormTimer.ticksLabel(Config.stormCountdownTicks)) {
+                Config.stormCountdownTicks = StormTimer.step(
+                    Config.stormCountdownTicks, StormTimer.COUNTDOWN_MIN, StormTimer.COUNTDOWN_MAX, stepBack,
+                )
+            },
+            Row("  storm shoot window", StormTimer.ticksLabel(Config.stormShootTicks)) {
+                Config.stormShootTicks = StormTimer.step(
+                    Config.stormShootTicks, StormTimer.SHOOT_MIN, StormTimer.SHOOT_MAX, stepBack,
+                )
+            },
         )
         Tab.CHAT -> listOf(
             Row("room messages", Config.roomMessages.word(), Config.roomMessages) {
@@ -424,6 +459,7 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         if (mouseX in contentLeft - GUTTER..contentLeft + content + GUTTER && index in rows.indices) {
             val row = rows[index]
             if (row.click != null) {
+                stepBack = event.hasShiftDown()
                 row.click.invoke()
                 Config.save()
             }

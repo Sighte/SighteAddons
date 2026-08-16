@@ -198,6 +198,7 @@ class SighteAddons : ClientModInitializer {
         val text = ChatFormatting.stripFormatting(message).orEmpty()
         onDungeonEvent(text)
         onCrit(text)
+        onStorm(text)
         if (summaryPrinted || !RUN_END.matches(text)) return
         summaryPrinted = true
         DebugLog.event(
@@ -304,6 +305,37 @@ class SighteAddons : ClientModInitializer {
     }
 
     /**
+     * Storm's countdown, started from his own chat line. [text] is already stripped.
+     *
+     * **Not gated on [Config.stormTimer]**, unlike the readout it feeds. The switch decides whether
+     * the countdown is *drawn* ([StormHud]), and starting a clock nobody is looking at costs one
+     * field; gating here instead would mean a player who switched the timer on mid-fight got nothing
+     * until Storm spoke again, which is a whole cast later.
+     *
+     * **Not gated on [DungeonSession.calibrated]** either, on the same argument as [onCrit]:
+     * `calibrated` requires the dungeon map to have been read, which has nothing to do with whether
+     * Storm is casting, and a floor whose calibration failed would silently lose the timer.
+     *
+     * **This function and [StormHud] are the unverified half of `stormtimer-001`.** That Fabric
+     * delivers Storm's line here with `overlay` false, that it is worded the way [StormTimer] assumes,
+     * and that `renderHud` is reached at all during a boss phase, all need a live `Minecraft` in an
+     * M7. `storm_start` is what says the first two worked; `storm_unparsed` quotes the line when they
+     * did not.
+     */
+    private fun onStorm(text: String) {
+        val client = Minecraft.getInstance()
+        if (StormTimer.onChat(text) { client.level?.gameTime }) {
+            // The positive signal. Zero of these AND zero `storm_unparsed` in an M7 where Storm spoke
+            // means the line never reached this function, which is a different fault from the wording
+            // being wrong and would be indistinguishable without both events.
+            DebugLog.event("storm_start", "countdownTicks" to Config.stormCountdownTicks)
+        }
+        // Carries no player name — `[BOSS] ` is a server-only prefix, see StormTimer.nearMiss — and
+        // it is the only thing that will ever confirm or correct the two strings.
+        StormTimer.nearMiss(text)?.let { DebugLog.event("storm_unparsed", "line" to it) }
+    }
+
+    /**
      * The tab list footer as plain text, or null when the server has not sent one.
      *
      * Read through the mixin accessor because `PlayerTabOverlay.footer` has a setter and no getter.
@@ -325,9 +357,20 @@ class SighteAddons : ClientModInitializer {
     )
 
     private fun renderHud(graphics: GuiGraphicsExtractor) {
-        if (!DungeonSession.calibrated) return
         val client = Minecraft.getInstance()
         val font = client.font
+
+        // Storm's countdown, and the only thing here drawn *before* the calibration gate below.
+        // Storm is a boss phase and `calibrated` means the dungeon map was read during the clear
+        // phase — the same argument that keeps `onCrit` off that gate. Its own state is the gate that
+        // matters and it is a far stricter one: nothing is drawn until Storm has actually spoken.
+        //
+        // No second HudElementRegistry registration, deliberately. This repository holds one, and a
+        // separate element would be a second unsynchronised read of the same fields on a callback
+        // whose ordering against this one nothing here defines.
+        StormHud.render(graphics, font, client.window.guiScaledWidth, client.window.guiScaledHeight, client.level?.gameTime)
+
+        if (!DungeonSession.calibrated) return
 
         // Drawn before the corner readout and outside its switch: a centred element that fades
         // itself out is not part of the anchored block, and must not disappear with it.

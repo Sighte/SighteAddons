@@ -103,7 +103,8 @@ content, re-emitted verbatim by every session.
 
 ## Real data
 
-- **There are fifteen real session logs on this machine**, at
+- **There are twenty real session logs on this machine** (fifteen until 2026-08-16 — re-count rather
+  than carrying this forward), at
   `%APPDATA%\PrismLauncher\instances\Skyblock 26.1.2 Modpack\minecraft\config\sighteaddons\debug\session-*.jsonl`,
   **read-only**. `docs/evidence/session-1786719912927/session-excerpt.jsonl` is a committed excerpt
   of one. Several are party floors: 30 `death`, 15 `revive`, 104 `roster_skew`, 49 `chat_secret`,

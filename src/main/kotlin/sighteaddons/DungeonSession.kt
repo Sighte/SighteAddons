@@ -80,6 +80,10 @@ object DungeonSession {
         // The Maxor window belongs to the floor it opened on. Left standing, a crit line landing in
         // the next run's entrance would be read against that run's blessings.
         CritMeter.reset()
+        // Storm's countdown belongs to the fight it started in. World time does not reset with the
+        // run, so one carried across would read as long expired rather than as running — quiet, but
+        // a run must not inherit any of the previous one's state.
+        StormTimer.reset()
         PartyTracker.reset()
         SecretTracker.reset()
         DungeonTab.reset()

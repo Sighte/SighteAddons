@@ -43,6 +43,29 @@ object Config {
      */
     var clearPopup = true
 
+    /**
+     * Storm's cast countdown — see [StormTimer]. On the HUD tab and not the CHAT one for the mirror
+     * image of [critLine]'s reason: this is drawn on screen rather than printed into chat.
+     *
+     * Its own switch rather than part of [hud], on [clearPopup]'s argument: different place on
+     * screen, different purpose, and switching off the corner readout must not silently take a
+     * combat timer with it.
+     */
+    var stormTimer = true
+
+    /**
+     * How long Storm's countdown runs, and how long `SHOOT NOW` holds after it, both in ticks.
+     *
+     * **Settings rather than constants because both are inherited and unverified.** 138 and 20 come
+     * from the decompiled mod this was ported from, which explains neither, and nothing in this
+     * repository can derive them. A wrong tick count is the quiet kind of wrong — the timer counts
+     * down and fires and looks entirely correct while being early or late — so the correction has to
+     * be reachable without a build. `/sa` → hud steps them a tick at a time; [StormTimer.step] is
+     * where the wrap is, and [StormTimer.COUNTDOWN_MIN] the range.
+     */
+    var stormCountdownTicks = 138
+    var stormShootTicks = 20
+
     var roomMessages = true
     var ownPbsOnly = false
     var runSummary = true
@@ -138,6 +161,14 @@ object Config {
             showSecrets = obj.bool("showSecrets", showSecrets)
             showIdle = obj.bool("showIdle", showIdle)
             clearPopup = obj.bool("clearPopup", clearPopup)
+            stormTimer = obj.bool("stormTimer", stormTimer)
+            // Clamped on the way in as well as on the way round in `/sa`. A hand-edited config is the
+            // other way these are set — see StormTimer — and a zero countdown would put SHOOT NOW on
+            // screen the instant Storm speaks, which looks exactly like the timer working.
+            stormCountdownTicks = obj.int("stormCountdownTicks", stormCountdownTicks)
+                .coerceIn(StormTimer.COUNTDOWN_MIN, StormTimer.COUNTDOWN_MAX)
+            stormShootTicks = obj.int("stormShootTicks", stormShootTicks)
+                .coerceIn(StormTimer.SHOOT_MIN, StormTimer.SHOOT_MAX)
             roomMessages = obj.bool("roomMessages", roomMessages)
             ownPbsOnly = obj.bool("ownPbsOnly", ownPbsOnly)
             runSummary = obj.bool("runSummary", runSummary)
@@ -164,6 +195,9 @@ object Config {
         obj.addProperty("showSecrets", showSecrets)
         obj.addProperty("showIdle", showIdle)
         obj.addProperty("clearPopup", clearPopup)
+        obj.addProperty("stormTimer", stormTimer)
+        obj.addProperty("stormCountdownTicks", stormCountdownTicks)
+        obj.addProperty("stormShootTicks", stormShootTicks)
         obj.addProperty("roomMessages", roomMessages)
         obj.addProperty("ownPbsOnly", ownPbsOnly)
         obj.addProperty("runSummary", runSummary)
