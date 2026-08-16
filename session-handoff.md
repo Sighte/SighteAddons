@@ -8,10 +8,14 @@ facts — toolchain, quoting traps, probe scripts, the code invariants a tidy-up
 **Branch state:** **0.13.0 is released** — PR #50 merged the two secret-count features, `v0.13.0`
 is tagged and published on GitHub, and Modrinth version `wS3OCLGl` carries the identical jar.
 **`idletime-001` is merged: `main` is now `3643004`** and carries `RunReport.SCHEMA` 6.
-**One branch is open: `critcalc-001`, `passing`, not pushed and not merged.** No release gate was
-pulled: `mod_version` is untouched at 0.13.0, `dist/` and `RunReport.kt` are absent from its diff.
-The leftover mutation probe once uncommitted in `RoomHistory.kt:449` is stashed, not lost:
-`git stash list`.
+**`critcalc-001` is open at `d271ae3`, `passing`, not pushed and not merged.** It pulled no release
+gate: `gradle.properties`, `dist/` and `RunReport.kt` are all absent from `3643004..critcalc-001`.
+**A SECOND SESSION IS LIVE IN THIS REPOSITORY** — worktree `../rel-wt`, on `main`, which it moved to
+`64a0f8e` "Bump to 0.14.0" (`mod_version` 0.14.0 + a refreshed `dist/` jar) mid-session. That is
+not `critcalc-001`'s doing and the two do not conflict, but **0.14.0 was cut from `3643004` and does
+NOT contain the crit readout** — its release notes must not claim it, and no `crit_unparsed` can
+appear until a later build ships. The leftover mutation probe once uncommitted in
+`RoomHistory.kt:449` is stashed, not lost: `git stash list`.
 
 **The release does not reach players and the reason is not in this repository.** The Modrinth
 project answers 404 to anyone not logged in — still awaiting review — so the build is downloadable
