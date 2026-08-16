@@ -1,12 +1,13 @@
 # Session Handoff
 
-Current state only, **<= 80 lines** — the ceiling in `CLAUDE.md`, which this header claimed as 150
-until 2026-08-16. Amend the sections that changed; do not rewrite the file from scratch. Standing
-facts — toolchain, quoting traps, probe scripts, the code invariants a tidy-up would break — are in
-`ENVIRONMENT.md`. Past sessions are in `claude-progress.md` and, beyond that, in `git log`.
+Current state only, **<= 120 lines** — the ceiling in `CLAUDE.md`, raised there on 2026-08-16 in
+`0c1e4a5` after this header had claimed 150 and then 80. Amend the sections that changed; do not
+rewrite the file from scratch. Standing facts — toolchain, quoting traps, probe scripts, the code
+invariants a tidy-up would break — are in `ENVIRONMENT.md`. Past sessions are in
+`claude-progress.md` and, beyond that, in `git log`.
 
-**Branch state: 0.14.0 is released; `critcalc-001` is merged on `main` (`b46188c`); branch
-`secretpoints-001` is open on top of it.** `secrethud-001`
+**Branch state: 0.14.0 is released; `critcalc-001` and `secretpoints-001` are both merged on `main`
+(`0c1e4a5`); branch `stormtimer-001` is open on top of it.** `secrethud-001`
 (PR #51) and `idletime-001` are in 0.14.0; `v0.14.0` is tagged and published, and Modrinth version
 `VXWw5sPF` carries the identical jar — `sha1 cea7c51b…`, 245583 bytes, compared against the local
 file rather than assumed. It is the first build sending `RunReport.SCHEMA = 6`.
@@ -26,7 +27,7 @@ is in `claude-progress.md`.
 
 - **`main` carries 0.14.0 plus the crit readout; `mod_version` is 0.14.0.** The release, its jar hashes and the
   Modrinth state are in `claude-progress.md`'s Current Verified State and are not repeated here.
-- **The suite is 276 across 20 classes on `main` (`b46188c`), 277 across 20 on `secretpoints-001`**,
+- **The suite is 277 across 20 classes on `main` (`0c1e4a5`), 286 across 21 on `stormtimer-001`**,
   0 failures and 0 skipped either way. Counts come from `build/test-results/test/*.xml`, not the
   console.
 - **`RunReport.SCHEMA` is 6 on `main` and 5 in every install, and the pair is closed.**
@@ -42,68 +43,78 @@ is in `claude-progress.md`.
 
 ## Changed This Session
 
-**`secretpoints-001`, created and implemented on branch `secretpoints-001` off `b46188c`.** A
-user-reported defect: *"in the live clear score, each secret should add 0.25, and right now nothing
-happens when they collect secrets."* No version bump, `dist/`, `gradle.properties` and
-**`RunReport.kt` untouched**; `python build/keydiff.py` CLEAN at 6, so no receiver work is owed.
+**`stormtimer-001`, created and implemented on branch `stormtimer-001` off `0c1e4a5` (`dedc98b`).**
+The second half of the `CC0-1.0` crit-mod port `critcalc-001` started. No version bump, `dist/`,
+`gradle.properties` and **`RunReport.kt` untouched**; `python build/keydiff.py` CLEAN at 6, so no
+receiver work is owed in either direction. `secretpoints-001`'s detail survives at
+`git show 0c1e4a5:session-handoff.md`.
 
-- **`ContributionTracker.weightOf` no longer pays `(room.info.secrets) * 0.25`.** That term was
-  *potential* — the database's count, credited on the clear checkmark, so a 7-secret room paid 1.75
-  whether anybody opened one or not and the live number never moved while collecting.
-- **`ContributionTracker.onOwnSecret(player)` pays 0.25 into `credited`**, called from the one line
-  in `SecretTracker.onActionBar` that does `room.ownSecrets++`. Same signal `SecretHud` shows as
-  "Your secrets", so the readout and the standings cannot disagree. `SecretTracker.onActionBar`
-  gained a `self: String` argument; `SighteAddons.onActionBar` passes `player.name.string`.
-- Both terms were **not** kept: a player who clears a room and takes all its secrets would be paid
-  for them twice. **Scores from before this change are not comparable with scores after it** — the
-  same break `clearpoints-002` documents for its own change of kind, and `Pipes` is the number that
-  shows it: 4.25 → 2.50 → **0.75**.
-- Two cases that pinned the removed term were retitled to assert the opposite
-  (`a room is not paid for secrets, found or merely present`, `an unnamed room keeps its kind`);
-  three new cases; two `unattributed` fixtures reseeded to `Ice Fill`/`Water Board`, which are what
-  makes a run outscore its rooms now that secrets do not. **No test was deleted or weakened.**
-- No probes, no mutation sweep, no grading pass — `CLAUDE.md`'s lighter process, 2026-08-16.
+- **`StormTimer.kt` keeps one number and nothing else** — `client.level.gameTime` at the trigger, in
+  a `@Volatile Long?` — and `readout(elapsed, countdown, shoot)` is a *total pure function* over the
+  ticks since. The source mod's five mutable fields and its `ClientTickEvents` callback did **not**
+  come across, and that is not tidying: `SighteAddons.onTick` returns early when the map is
+  unreadable and Storm is a boss phase, so a ticked countdown could quietly not run in the only place
+  it is ever used.
+- **`StormHud.kt` adds no second `HudElementRegistry` registration** — it draws from the existing
+  `renderHud`, before its `calibrated` gate for the reason `onCrit` is not behind one.
+- **138 and 20 are `/sa` → hud rows, not constants** (click steps a tick, shift-click back). The
+  source's position and scale settings did **not** come across: centring is what they approximated,
+  and a coordinate with one right answer is a worse setting than none.
+- Nine cases in `StormTimerTest`; `CritMeter.normalize` reused, not repeated; `DungeonSession.reset`
+  clears it. No test deleted or weakened, no probes, no sweep, no grading pass. Rationale for every
+  choice above is in `dedc98b`'s message and the KDoc at each site rather than repeated here.
 
 ## Broken Or Unverified
 
-- **`secretpoints-001`: the arithmetic is verified, the wiring never ran in a game.** Verified by
-  the suite: 0.25 per attributed secret, credited on the call rather than on a clear
-  (`roomsCleared` is 0 while the score climbs); the clear half and the secret half add once each;
-  a room pays nothing for secrets found or merely present; `Pipes` is 0.75. **Not** verified: that
-  `SighteAddons.onActionBar` → `SecretTracker.onActionBar(text, self, x, z)` delivers the local
-  player's name Hypixel's roster keys on, that the standings row for the local player exists at all
-  (it needs `PartyTracker.roster()` to contain them — pre-existing, and true of clear points too),
-  and that the HUD repaints between the find and the next clear. One played floor settles all
-  three by eye: open a chest, watch your own row rise 0.25 before the checkmark.
+- **`stormtimer-001`: TWO SEPARATE CEILINGS, and only one of them can ever announce itself.**
+  (1) **The strings.** `grep -ril storm` over `docs/evidence/` and the twenty session logs finds
+  nothing — same answer `critcalc-001` got, and for the same reason: no build ever looked. (2) **138
+  and 20**, the source mod's undocumented constants. Unlike a wrong string a wrong tick count is
+  invisible — the timer counts down, turns red and fires, just at the wrong moment — which is why
+  both are `/sa` rows and why nothing presents the countdown as authoritative. Verified by the suite:
+  both triggers start it and a pasted line does not, the state after N ticks, that `SHOOT NOW`
+  begins on the expiry tick and ends one tick after the hold, four distinct colours at three seconds
+  and one, that both tick counts actually drive it, and that `DungeonSession.reset()` shuts it
+  (the test drives `reset()` itself, so that one line is real wiring coverage). **Not** verified:
+  that Fabric delivers Storm's line to `onChat` with `overlay` false, that `client.level.gameTime`
+  advances during the boss, that `renderHud` is reached in a boss phase at all, or that either
+  `/sa` row survives a restart.
+- **Two debug events, two different faults, and the distinction is the point.** `storm_unparsed`
+  present with no `storm_start` ⇒ the strings are wrong, and the event quotes what Storm actually
+  says. **Both** absent in a run where Storm spoke ⇒ the line never reached `onChat` — a delivery or
+  stripping fault that no amount of correcting strings would fix.
+  `./gradlew runClient` was **not** run: unlike `critcalc-001` this adds no mixin and no
+  `HudElementRegistry` registration, and the dev client has no world in which a HUD would draw.
+- **`secretpoints-001` (now on `main`): the arithmetic is verified, the wiring never ran in a game.**
+  Not verified: that `onActionBar` → `SecretTracker.onActionBar(text, self, x, z)` delivers the name
+  Hypixel's roster keys on, that the local player's standings row exists at all (it needs
+  `PartyTracker.roster()` to contain them — pre-existing, true of clear points too), or that the HUD
+  repaints between the find and the next clear. One floor settles all three: open a chest, watch
+  your own row rise 0.25 before the checkmark.
 - **The under-count is inherited, not introduced.** A secret walked over is attributed to nobody, so
   it now costs 0.25 as well as a line on the HUD. That is `ownsecrets-001`, still `not_started` and
   still unclaimed; this feature spends attribution and does not touch it.
-- **`critcalc-001`: EVERY STRING IN IT IS A HYPOTHESIS AND NOTHING ON DISK CONFIRMS ONE.** Grepping
-  `docs/evidence/` and the fifteen real session logs for "explosive shot" or "blessing of power"
-  finds nothing — no build ever looked. Verified: the parse, the divide-by-enemies, the roman
-  numerals, the power sum, the window, the wording, and that `DungeonSession.reset` shuts the window
-  (the test drives `reset()` itself, so that one line is real wiring coverage). **Not** verified:
-  that Hypixel's crit, Maxor, Goldor or blessing lines look anything like what is assumed; that
-  Fabric delivers them with `overlay` false; that `getFooter()` returns blessings; that the `/sa` row
-  toggles and `critLine` survives a restart. **Zero `crit_unparsed` *and* zero readouts in an M7 with
-  crits is the failure signal** — pattern matches nothing, or the window never opened.
-- **The 2.5 per Blessing of Time is inherited, unexplained and unverifiable here.** Unlike the
-  strings it never announces itself wrong — it produces a plausible quotient. `CritMeter.TIME_WORTH`
-  is the one line to change if the user says the number is off.
-- **What must not be added back:** the source mod's `ApiSender` (POSTed name/crit/power/ratio to a
-  third party on every hit, no toggle) and its automatic `/msg` + party lines. Neither is present in
-  any form behind any flag; the readout is `addClientSystemMessage` only.
+- **`critcalc-001`: EVERY STRING IN IT IS A HYPOTHESIS AND NOTHING ON DISK CONFIRMS ONE** — the same
+  two ceilings as `stormtimer-001` above, and its `verification_manual` carries the detail. Its
+  `TIME_WORTH = 2.5` is the invisible-when-wrong one: it produces a plausible quotient, and is the
+  single line to change if the user says the number is off. **Zero `crit_unparsed` *and* zero
+  readouts in an M7 with crits** is its failure signal — pattern matches nothing, or the window
+  never opened.
 - **The tab-footer mixin was checked to *apply*, not to return anything useful.** One `runClient`
-  reached a full resource reload, exit 0, zero mixin errors — which rules out a startup crash
-  (`required: true`). **The compile does not catch a wrong `@Accessor` name**: renaming it to
+  reached a full resource reload, exit 0, zero mixin errors, which rules out a startup crash
+  (`required: true`). **The compile does not catch a wrong `@Accessor` name** — renaming it to
   `footerXYZ` still compiles clean, so `javap` on the merged jar is the only check there is.
-- **`idletime-001` (now on `main`) and `secrethud-001`'s wiring have never run in a game.** The pure
+- **What must not be added back, for BOTH halves of the port:** the source mod's `ApiSender`
+  (POSTed name/crit/power/ratio to a third party on every hit, no toggle) and its automatic `/msg`
+  + party lines. Neither is present in any form behind any flag; the crit readout is
+  `addClientSystemMessage` only and the storm timer draws to the screen only.
+- **`idletime-001` and `secrethud-001`'s wiring (both on `main`) have never run in a game.** The pure
   halves are verified; `onTick` → `IdleTime.tick` with the right room, `renderHud`, `currentRoom`,
   the `/sa` rows and `showIdle`/`showSecrets` surviving a restart are not — removing either
-  `IdleTime` wiring line passes the whole suite, by declaration. One played floor settles it by eye.
-  The definitional ambiguity stands as written: a *discarded* secret run is not an active one, so a
-  cleared room whose run was abandoned counts as **idle**; changing that is `SETUP.md` section 4
-  first and both halves after, never this side alone.
+  `IdleTime` wiring line passes the whole suite, by declaration. One floor settles it by eye. The
+  definitional ambiguity stands: a *discarded* secret run is not active, so a cleared room whose run
+  was abandoned counts as **idle**; changing that is `SETUP.md` section 4 first, never this side
+  alone.
 - **The sharpest standing risk, unchanged by anything this session did.** `recordowner-001`'s
   secret-run gate needs a **trusted `0/N`** action bar on entering a room; if Hypixel does not send
   one for a room the mod identified, secret records do not get rare, they **stop**. Hypixel is known
@@ -117,7 +128,7 @@ happens when they collect secrets."* No version bump, `dist/`, `gradle.propertie
   right-click inside `SecretTracker.OWN_WINDOW` (40 ticks, `SecretTracker.kt:42`) or a
   wither-essence chat line, so one walked over sinks the room's run — and it is the same gap that
   makes `Your secrets` under-count, which is specification and not a defect. Its first task needs no
-  dungeon: `attributedBy` and `own_interaction` in the fifteen logs on disk answer it.
+  dungeon: `attributedBy` and `own_interaction` in the **twenty** logs on disk answer it.
 - **Open and recorded, not fixed: `floorname-001`.** The receiver `fullmatch`es `floor` against
   `?|E|[FM][1-7]` (`ingest.py:93`, used at `:225`) and `DungeonSession.floor` can hold `Entrance`; a
   400 is never retried, and `keydiff.py` compares key *sets* so it will never catch this.
@@ -136,15 +147,15 @@ happens when they collect secrets."* No version bump, `dist/`, `gradle.propertie
   `trap`, so an interruption leaves a deliberate defect in the tree, which happened once. **Evaluator
   follow-up 1, still open.** `build/evalsweep.sh` and `build/idlesweep.sh` are the worked fixes, and
   `build/` is gitignored so all three are one `git clean` from gone.
-- Regressions found: **none.** The suite on the branch is 20 classes / 277 tests / 0 failures / 0
-  skipped, from 20 / 276 on `main`; every previously passing feature's class is in that run and none
+- Regressions found: **none.** The suite on the branch is 21 classes / 286 tests / 0 failures / 0
+  skipped, from 20 / 277 on `main`; every previously passing feature's class is in that run and none
   moved.
 
 ## Next Best Step
 
-- **Decide `secretpoints-001`: it is the only branch open, so a second feature here breaks
-  `single_active_feature`.** No schema change, no deploy path, nothing in `RunReport.kt`. It does
-  change what every score means, which is the one thing worth a second reader before it merges.
+- **Decide `stormtimer-001`: it is the only branch open, so a second feature here breaks
+  `single_active_feature`.** No schema change, no deploy path, nothing in `RunReport.kt`, and it
+  adds no mixin — the lightest merge on the board.
 - **READ A REAL SESSION LOG FROM 0.12.0 OR LATER — the cheapest and highest-value input on the
   board, and unlike a week ago it can actually exist.** One floor settles `recordowner-001`'s entire
   remaining ceiling: whether `secret_room_first_bar` appears at all, whether it ever carries
@@ -159,16 +170,19 @@ happens when they collect secrets."* No version bump, `dist/`, `gradle.propertie
   next feature. `build/idlesweep.sh` is the newest worked example of the `trap` form.
 - **Do not start `chatfields-001`** by editing `RunReport.kt` — its first move is a feature in
   `Sighte/skyblock-server`. `records-001` is deferred by the user, a product decision.
-- **Thirteen features exist in source only** — `critcalc-001` and `secretpoints-001` joined them.
-  Nothing breaks meanwhile, but a released build is the only thing that can produce a
-  `crit_unparsed`, or let the user see a score that moves on a chest. `stormtimer-001` still does
-  not exist; the `LBRelease/` half of the decompiled mod has never been read.
+- **Fourteen features exist in source only** — `stormtimer-001` joined them. Nothing breaks
+  meanwhile, but **a released build is the only thing that can produce a `crit_unparsed` or a
+  `storm_unparsed`**, which are the only evidence that will ever exist for either half of the port's
+  strings. The whole `LBRelease/` half of the decompiled mod has now been read and ported; nothing
+  is left in it.
 
-**This file is 174 lines against an 80-line ceiling, from 151 with a feature added.** It was
-already over when this session started and the reason has not changed: most of what remains is
-other features' standing briefs (`recordowner-001`'s trusted-`0/N` risk, `scores-fetch-001`'s
-carried list), which `CLAUDE.md` says an open feature keeps in full. Cut here: the duplicated
-process-cut paragraph (it is the end of `CLAUDE.md`) and `critcalc-001`'s implementation detail,
-which survives at `git show b46188c:session-handoff.md`. **The real prune wants those features
-closed, not another session trimming around them.**
+**This file is 186 lines against a 120-line ceiling, from 174 with a feature added — net +12, and
+that is an honest failure to hold the line rather than a reason.** Cut here to pay for most of it:
+`secretpoints-001`'s implementation detail (`git show 0c1e4a5:session-handoff.md`) and
+`critcalc-001`'s four bullets folded into one, since its detail now lives in its own
+`verification_manual`. What is left over the ceiling is other features' standing briefs —
+`recordowner-001`'s trusted-`0/N` risk, `scores-fetch-001`'s carried list, and now
+`stormtimer-001`'s two ceilings — which `CLAUDE.md` says an open feature keeps in full. **The real
+prune wants those features closed, not another session trimming around them**, and five of them are
+settled by one played floor, which is still the cheapest thing anybody can do for this repository.
 

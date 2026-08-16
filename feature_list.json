@@ -622,6 +622,35 @@
         }
       ],
       "notes": "0.25 per ATTRIBUTED secret, credited by ContributionTracker.onOwnSecret on the tick SecretTracker attributes it; weightOf's `db secrets x 0.25` term is REMOVED - keeping both would pay a fully cleared room twice. Old and new scores are NOT comparable. UNVERIFIED: the wiring never ran in a game."
+    },
+    {
+      "id": "stormtimer-001",
+      "priority": 23,
+      "area": "hud",
+      "title": "Storm's cast countdown",
+      "user_visible_behavior": "When Storm says `ENERGY HEED MY CALL!` or `THUNDER LET ME BE YOUR CATALYST!`, a large countdown appears under the crosshair: `Storm  6.9s`, blue above three seconds, yellow above one, red below. At zero it becomes `SHOOT NOW` in red for one second and then disappears. `/sa` -> hud -> `storm timer` switches it off; the two rows under it step the countdown and the SHOOT NOW window a tick at a time (shift-click steps back), because 138 and 20 are inherited numbers nobody here can derive. Nothing is sent anywhere and nothing is typed into chat by the mod.",
+      "status": "passing",
+      "depends_on": [],
+      "verification_command": "./gradlew test --tests 'sighteaddons.StormTimerTest'",
+      "verification_manual": [
+        "NOT PERFORMABLE IN THIS REPOSITORY. The dev client has no Hypixel session and no dungeon, so none of the steps below has been run; they need a human to play an M7 with a debug build. Unlike critcalc-001 this feature adds no mixin and no HudElementRegistry registration, so there was nothing for `./gradlew runClient` to prove and it was not run.",
+        "Enter M7 and reach Storm. On either of his two lines the countdown must appear under the crosshair, and NO party or /msg line may be sent (ask a party member).",
+        "Watch it change colour: blue, then yellow with three seconds left, then red with one.",
+        "At zero it must read SHOOT NOW in red for one second and then vanish. Whether that is the right MOMENT is exactly what nobody knows - see the notes.",
+        "Open /sa -> hud. `storm countdown` and `storm shoot window` must show `138 ticks - 6.90s` and `20 ticks - 1.00s`; clicking steps +1 tick, shift-clicking -1, and both must survive a game restart (they are written to config.json).",
+        "In the session jsonl, TWO events settle this and they mean different things. `storm_start` is the wiring working: the line arrived, matched, and started a clock. `storm_unparsed` quotes verbatim a `[BOSS] Storm:` line that was NOT one of the two triggers. FAILURE SIGNALS: storm_unparsed present and storm_start absent means the two strings are wrong and the event says what Storm actually says. BOTH absent in a run where Storm spoke means the line never reached SighteAddons.onChat at all - a delivery or stripping fault, not a wording one - and no amount of correcting the strings would fix it."
+      ],
+      "blocked_reason": "",
+      "evidence": [
+        {
+          "date": "2026-08-16",
+          "command": "./gradlew test --tests 'sighteaddons.StormTimerTest' ; ./gradlew assemble check ; python build/keydiff.py",
+          "result": "StormTimerTest 9 tests 0 failures. Full suite 21 classes / 286 tests / 0 failures / 0 skipped (build/test-results/test/*.xml); the branch point was 20/277, so +1 class and +9 tests and nothing broken. assemble check BUILD SUCCESSFUL; RunReport.kt, gradle.properties and dist/ untouched and KEYDIFF CLEAN at schema 6, so no receiver work is owed in either direction.",
+          "commit": "dedc98b",
+          "artifact": "build/test-results/test/"
+        }
+      ],
+      "notes": "Second half of the CC0-1.0 crit-mod port; reuses CritMeter.normalize. Its ApiSender and auto-chat are absent by design; RunReport untouched. TWO CEILINGS: every string is a hypothesis (storm_unparsed settles it), and 138/20 are inherited numbers that NEVER announce themselves wrong - hence /sa rows."
     }
   ]
 }
