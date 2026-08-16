@@ -23,6 +23,13 @@ object Config {
     var showStandings = true
 
     /**
+     * The live "your secrets" line — see [SecretHud]. Its own switch rather than part of [showRoom],
+     * because it is a standing readout about the whole run and stays true when you are between
+     * rooms, which is exactly when the current-room block has nothing to say.
+     */
+    var showSecrets = true
+
+    /**
      * The large centred line when you finish a room yourself. Separate from [hud] on purpose:
      * different place on screen and a different purpose, so switching off the corner readout must
      * not silently take it along.
@@ -111,6 +118,7 @@ object Config {
             hudY = obj.int("hudY", hudY)
             showRoom = obj.bool("showRoom", showRoom)
             showStandings = obj.bool("showStandings", showStandings)
+            showSecrets = obj.bool("showSecrets", showSecrets)
             clearPopup = obj.bool("clearPopup", clearPopup)
             roomMessages = obj.bool("roomMessages", roomMessages)
             ownPbsOnly = obj.bool("ownPbsOnly", ownPbsOnly)
@@ -134,6 +142,7 @@ object Config {
         obj.addProperty("hudY", hudY)
         obj.addProperty("showRoom", showRoom)
         obj.addProperty("showStandings", showStandings)
+        obj.addProperty("showSecrets", showSecrets)
         obj.addProperty("clearPopup", clearPopup)
         obj.addProperty("roomMessages", roomMessages)
         obj.addProperty("ownPbsOnly", ownPbsOnly)

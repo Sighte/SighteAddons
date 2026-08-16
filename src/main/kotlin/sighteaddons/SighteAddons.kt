@@ -285,6 +285,19 @@ class SighteAddons : ClientModInitializer {
             WHITE,
         )
 
+        // Standing, and directly under the header on purpose: the header is the one line that is
+        // always drawn, so anchoring here is what keeps this readout from moving up and down the
+        // screen as another toggle changes. Its own switch rather than a part of `showRoom` — it is
+        // about the run as much as about the room, and it still says something while you are walking
+        // between rooms, which is when the room block below has nothing at all.
+        //
+        // Both reads are of state the client thread owns and the block around it already reads —
+        // `currentRoom` is `ContributionTracker.roomAt`, and `visitedRooms()` is the same snapshot
+        // `ContributionTracker.tick` takes every tick. Nothing off-thread mutates that map: the
+        // DISCONNECT path deliberately does not reset (see the comment on its registration above),
+        // which is what makes this a read of the existing shared state rather than a new one.
+        if (Config.showSecrets) line(SecretHud.line(currentRoom(client), ContributionTracker.visitedRooms()), WHITE)
+
         if (Config.showRoom) currentRoom(client)?.let { room ->
             val self = client.player?.name?.string
             val inRoom = self?.let { room.ticks[it] } ?: 0
