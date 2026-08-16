@@ -534,6 +534,35 @@
         }
       ],
       "notes": "Display only. `SecretHud.line` is pure over tracker state and formats `TrackedRoom.ownSecrets`; it does not decide whether a secret is yours, so `SecretTracker` and `ownsecrets-001` are untouched. It UNDER-COUNTS as much as attribution does today — a secret walked over is nobody's — and that is deliberately not compensated for. The label `Your secrets` stays true when `ownsecrets-001` raises the number under it. No report field: `RunReport.kt` is absent from the diff, SCHEMA stays 5, no receiver work owed. THE CEILING: `renderHud`'s wiring needs a live `Minecraft` and has never run in a game."
+    },
+    {
+      "id": "idletime-001",
+      "priority": 21,
+      "area": "telemetry",
+      "title": "Where the run's time went: idle and navigation",
+      "user_visible_behavior": "Two counters that climb through the run, live on the HUD as `Idle  0:24.5  ·  Nav  1:07.0` and stored in the run report. `idleTicks` is time spent inside a room that was already cleared — a `preCleared` one counts — with no secret run active; `navTicks` is time inside no room at all: corridors, doorways, dead space. Two and not one because standing still in a finished room and walking between rooms are different problems and one number cannot say which you have. `/sa` → HUD → `idle & nav` switches the line off.",
+      "status": "passing",
+      "depends_on": [],
+      "verification_command": "./gradlew test --tests 'sighteaddons.IdleTimeTest' --tests 'sighteaddons.RunReportTest'",
+      "verification_manual": [
+        "Play a floor and watch the line: `Nav` climbs while you are in a corridor and stops the moment you are inside a room; `Idle` climbs while you stand in a room that already carries a checkmark and stops while you are hunting its secrets.",
+        "Stand in the entrance before moving: it is `preCleared`, so `Idle` must climb there.",
+        "Fight through an uncleared room and confirm NEITHER counter moves — that time is work, and the two are a lower bound on wasted time rather than an accounting of the whole run.",
+        "Reach the boss and confirm neither counter moves while the run clock keeps going.",
+        "On the box, after a run: `jq '{v, runTicks, idleTicks, navTicks}' profiles/<id>.jsonl | tail -1` — v is 6, both keys are present, and `idleTicks + navTicks <= runTicks`. The receiver deliberately does not enforce that inequality, so this side is the only place it can be checked.",
+        "Play a second floor without restarting and confirm the counters start at zero rather than inheriting the first floor's."
+      ],
+      "blocked_reason": "",
+      "evidence": [
+        {
+          "date": "2026-08-16",
+          "command": "./gradlew test --tests 'sighteaddons.IdleTimeTest' --tests 'sighteaddons.RunReportTest' ; ./gradlew test --rerun-tasks ; python build/keydiff.py ; bash build/idlesweep.sh",
+          "result": "IdleTimeTest 11 tests, RunReportTest 34, 0 failures. Regression, uncached: 19 classes / 265 tests / 0 failures / 0 skipped (build/test-results/test/*.xml); main was 18/252. keydiff CLEAN at SCHEMA 6. Sweep: A-H and U all CAUGHT, S and T UNCAUGHT by declaration, SWEEP OK.",
+          "commit": "7b17342",
+          "artifact": "build/idleprobe.py"
+        }
+      ],
+      "notes": "Paired with the receiver's `idle-001`, deployed first (`skyblock-server` master 1a7f435): both keys are in its RUN_OPTIONAL, so v5 reports in backlogs still validate. Definitions are SETUP.md section 4 as written; `IdleTime.classify` is pure and is the whole decision. AMBIGUITY, resolved as written rather than softened: a DISCARDED secret run is not an active one, so a cleared room whose run was abandoned counts as idle while its leftovers are collected. Boss ticks advance runTicks and neither counter. THE CEILING: probes S and T, the per-tick call and the HUD line, need a live Minecraft."
     }
   ]
 }
