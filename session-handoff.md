@@ -7,8 +7,9 @@ it. Past sessions are in `claude-progress.md` and, beyond the last two, in `git 
 
 **Branch state:** **0.13.0 is released** — PR #50 merged the two secret-count features, `v0.13.0`
 is tagged and published on GitHub, and Modrinth version `wS3OCLGl` carries the identical jar.
-**One branch is open: `secrethud-001`** at `07b8fd4`, off `main` at `530f470`, not pushed and not
-merged; the feature is `passing` on it. The leftover mutation probe that sat uncommitted in
+**`secrethud-001` merged via PR #51 → `cdc980d` on `main`** on 2026-08-16; no branch is open, and the
+merge cut no release — `mod_version` is untouched at 0.13.0, `dist/` and `RunReport.kt` absent from
+the diff. The leftover mutation probe that sat uncommitted in
 `RoomHistory.kt:449` (it made the `ofTotal == null` arm print "of null") is stashed, not lost:
 `git stash list`.
 
@@ -19,18 +20,19 @@ downloadable by direct CDN link and by nothing else. See Current Verified State 
 
 ## Verified Now
 
-- **`main` is at `530f470` and `mod_version` is 0.13.0.** The 0.13.0 release, its jar hashes and the
+- **`main` is at `cdc980d` and `mod_version` is 0.13.0.** The 0.13.0 release, its jar hashes and the
   Modrinth state are in `claude-progress.md`'s Current Verified State and are not repeated here. The
   0.12.0 release-gate output this section used to carry survives at
   `git show 530f470:session-handoff.md`.
 - **The build is reproducible on this machine.** Two `./gradlew build --rerun-tasks` of one tree gave
   byte-identical jars, which is what makes CLAUDE.md's second pre-publish check meaningful here
   rather than vacuous.
-- **The suite is 252 across 18 classes on `secrethud-001`, 247 across 17 on `main`**, 0 failures and
-  0 skipped either way. Counts come from `build/test-results/test/*.xml`, not the console — take
-  them from the branch you are on.
-- **`RunReport.SCHEMA` is 5 and `RunReport.kt` is absent from the `secrethud-001` diff.** No receiver
-  work is owed, none was done, `Sighte/skyblock-server` was not touched this session at all.
+- **The suite is 252 across 18 classes on `main`**, 0 failures and 0 skipped, from 247 across 17
+  before the merge. Counts come from `build/test-results/test/*.xml`, not the console.
+- **`RunReport.SCHEMA` is 5, and the receiver is ahead of it on purpose.** `skyblock-server`'s
+  `master` is `1a7f435`, deployed and verified on the box 2026-08-16: it accepts run-level
+  `idleTicks` and `navTicks` (schema 6, optional) and nothing sends them. That unblocks
+  `idletime-001`.
 - **`secrethud-001` is display only and was verified as such.** `SecretHud.line` is pure over tracker
   state; `./gradlew test --tests 'sighteaddons.SecretHudTest'` is 5 tests, and
   `python build/secrethudprobe.py` sweeps three mutations of it — the run total reading
