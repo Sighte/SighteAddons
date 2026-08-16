@@ -12,6 +12,7 @@ import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements
 import net.minecraft.ChatFormatting
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.GuiGraphicsExtractor
+import sighteaddons.ui.screens.GalleryScreen
 import net.minecraft.network.chat.Component
 import net.minecraft.resources.Identifier
 import sighteaddons.mixin.PlayerTabOverlayAccessor
@@ -27,12 +28,15 @@ import org.slf4j.LoggerFactory
 class SighteAddons : ClientModInitializer {
     override fun onInitializeClient() {
         Config.load()
-        // /sa opens the settings, /sa pbs jumps straight to the records table.
+        // /sa opens the settings, /sa pbs jumps straight to the records table, /sa gallery opens the
+        // UI gallery — a development screen, undocumented on purpose, that renders every design token
+        // and every motion curve so they can be checked without a dungeon.
         ClientCommandRegistrationCallback.EVENT.register { dispatcher, _ ->
             dispatcher.register(
                 ClientCommands.literal("sa")
                     .executes { open(SettingsScreen.Tab.HUD) }
-                    .then(ClientCommands.literal("pbs").executes { open(SettingsScreen.Tab.RECORDS) }),
+                    .then(ClientCommands.literal("pbs").executes { open(SettingsScreen.Tab.RECORDS) })
+                    .then(ClientCommands.literal("gallery").executes { openGallery() }),
             )
         }
         ClientTickEvents.END_CLIENT_TICK.register(::onTick)
@@ -139,6 +143,13 @@ class SighteAddons : ClientModInitializer {
     private fun open(tab: SettingsScreen.Tab): Int {
         val client = Minecraft.getInstance()
         client.schedule { client.setScreen(SettingsScreen(tab)) }
+        return 1
+    }
+
+    /** Deferred for the same reason as [open]. */
+    private fun openGallery(): Int {
+        val client = Minecraft.getInstance()
+        client.schedule { client.setScreen(GalleryScreen()) }
         return 1
     }
 
