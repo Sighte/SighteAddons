@@ -3,8 +3,8 @@
 # Read-out of the one real dungeon run this repository holds evidence of.
 #
 # Every number this prints is asserted, so the script is the evidence rather than a description of
-# it: if somebody edits session-excerpt.jsonl, or if a claim in feature_list.json is transcribed
-# from here by hand and drifts, this fails and names which number moved.
+# it: if somebody edits session-excerpt.jsonl, or if a claim elsewhere is transcribed from here by
+# hand and drifts, this fails and names which number moved.
 #
 # Run it from anywhere:  bash docs/evidence/session-1786719912927/readout.sh
 #

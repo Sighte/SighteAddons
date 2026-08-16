@@ -54,11 +54,10 @@ else
 fi
 
 echo "==> Startup command"
-printf '   '
-printf ' %q' "${START_CMD[@]}"
-printf '\n'
-echo "    Loom's dev client has no valid session, so it cannot reach Hypixel. Anything that needs a"
-echo "    real dungeon run stays unverified here — that is what the telemetry log is for."
+echo "    none. ${START_CMD[*]} is OFF THE TABLE — it opens a Minecraft window on the machine the"
+echo "    user is playing on. Its dev client has no valid session and cannot reach Hypixel anyway, so"
+echo "    anything needing a real dungeon run stays unverified here; that is what the telemetry log"
+echo "    is for. See CLAUDE.md."
 echo "==> Full verification command"
 printf '   '
 printf ' %q' "${VERIFY_CMD[@]}"

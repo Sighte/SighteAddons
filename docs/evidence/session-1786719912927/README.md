@@ -153,7 +153,7 @@ the game straight from the dungeon, so the headline never came and there was no 
 note called this a known gap; this is the first time it is a **measured loss** rather than a
 theoretical one.
 
-Recorded as `runloss-001` in `feature_list.json`. What survived is the local `history.jsonl` — 14
+Recorded as `runloss-001`, since fixed (`git log --grep runloss-001`). What survived is the local `history.jsonl` — 14
 lines, 9 clears and 5 secret runs, appended per line as they happened — so the records are intact
 locally and only the report, and therefore the receiver's copy, is gone.
 

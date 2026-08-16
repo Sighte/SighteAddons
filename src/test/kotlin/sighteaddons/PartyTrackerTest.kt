@@ -181,8 +181,8 @@ class PartyTrackerTest {
      * The harmless failure, asserted so it stays classified as harmless. Two teammates in one room
      * produce two decorations a few pixels apart; if the order mapping swaps them, each is credited
      * with the other's decoration — and both decorations resolve to the same cell, so the set of
-     * (player, room) pairs is byte-for-byte the same. `party-001`'s entry and `quality-document.md`
-     * both used to describe *this* as the defect the feature existed to fix.
+     * (player, room) pairs is byte-for-byte the same. `party-001` used to describe *this* as the
+     * defect the feature existed to fix; it does not, and the entry was corrected.
      */
     @Test
     fun `two teammates in one room resolve to one cell whichever way round they are`() {

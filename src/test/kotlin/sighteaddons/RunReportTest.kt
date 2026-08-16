@@ -473,7 +473,7 @@ class RunReportTest {
     //   3. it lands exactly once, across two call sites that can both fire for one run.
     //
     // The wiring is measured instead of tested — see the disassembly cited on [RunReport.uploader]
-    // — and named as unverified in `feature_list.json`.
+    // — and named as unverified in `TODO.md`.
 
     @org.junit.jupiter.api.BeforeEach
     fun clearTheReportedFlag() {
