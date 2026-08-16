@@ -256,8 +256,9 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     private fun renderPlacing(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
         graphics.flat("Sighte F7 3:12.5  23 rooms", mouseX, mouseY, TEXT)
         graphics.flat("Your secrets  2/5 room  ·  11 run", mouseX, mouseY + 10, TEXT)
-        graphics.flat("Water Board  0:41.2", mouseX, mouseY + 20, ACCENT)
-        graphics.flat("  cleared  02:58.6", mouseX, mouseY + 30, DIM)
+        graphics.flat("Idle  0:24.5  ·  Nav  1:07.0", mouseX, mouseY + 20, DIM)
+        graphics.flat("Water Board  0:41.2", mouseX, mouseY + 30, ACCENT)
+        graphics.flat("  cleared  02:58.6", mouseX, mouseY + 40, DIM)
         graphics.flat("left click places it · right click cancels", contentLeft, HEADER_Y, DIM)
     }
 
@@ -270,6 +271,11 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             // point of the line is that this one is about you.
             Row("your secrets", Config.showSecrets.word(), Config.showSecrets) {
                 Config.showSecrets = !Config.showSecrets
+            },
+            // "idle & nav", because the two numbers are the point: standing in a finished room and
+            // walking between rooms are different problems and one figure could not tell them apart.
+            Row("idle & nav", Config.showIdle.word(), Config.showIdle) {
+                Config.showIdle = !Config.showIdle
             },
             Row("standings", Config.showStandings.word(), Config.showStandings) {
                 Config.showStandings = !Config.showStandings

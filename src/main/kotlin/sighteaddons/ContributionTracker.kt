@@ -193,6 +193,25 @@ class TrackedRoom(val type: RoomType, val mapSegments: Set<Pos>, val cells: Set<
     val cleared get() = clearedAtTick != null
     val allSecrets get() = secretsAtTick != null
 
+    /**
+     * The room's secret race is running **right now**: a first secret has been taken, the last one
+     * has not, and the run has not been given up on. Read-only, derived from the three fields above
+     * it — it decides nothing about attribution and [SecretTracker] cannot tell it apart from any
+     * other reader.
+     *
+     * This is the "no secret run active" of `idletime-001`'s contract (the receiver's `SETUP.md`
+     * section 4), and it is deliberately about *this* room: the question is what the player standing
+     * here is doing, and the only secret run they can be in is the one under their feet.
+     *
+     * A **discarded** run reads false, so a cleared room whose run was thrown away — joined late,
+     * or gone quiet — counts as idle even while its remaining secrets are still being hunted. That
+     * is a known over-count of [IdleTime.idleTicks] and it is the specification's, not an accident:
+     * "no secret run active" is the phrase both halves are written against, and inventing a second,
+     * softer notion of "still working" here is exactly the divergence the receiver-first ordering
+     * exists to prevent.
+     */
+    val secretRunOpen get() = secretRunStart != null && secretRunTicks == null && !secretRunDiscarded
+
     fun label() = name ?: "${type.name.lowercase().replaceFirstChar { it.uppercase() }} (unknown)"
 
     /**

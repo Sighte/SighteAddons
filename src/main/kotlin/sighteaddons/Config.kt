@@ -30,6 +30,13 @@ object Config {
     var showSecrets = true
 
     /**
+     * The live "Idle · Nav" line — see [IdleTime]. Its own switch for the same reason
+     * [showSecrets] has one: it is a standing readout about the whole run, and the navigation half
+     * is at its most interesting exactly when the current-room block is empty.
+     */
+    var showIdle = true
+
+    /**
      * The large centred line when you finish a room yourself. Separate from [hud] on purpose:
      * different place on screen and a different purpose, so switching off the corner readout must
      * not silently take it along.
@@ -119,6 +126,7 @@ object Config {
             showRoom = obj.bool("showRoom", showRoom)
             showStandings = obj.bool("showStandings", showStandings)
             showSecrets = obj.bool("showSecrets", showSecrets)
+            showIdle = obj.bool("showIdle", showIdle)
             clearPopup = obj.bool("clearPopup", clearPopup)
             roomMessages = obj.bool("roomMessages", roomMessages)
             ownPbsOnly = obj.bool("ownPbsOnly", ownPbsOnly)
@@ -143,6 +151,7 @@ object Config {
         obj.addProperty("showRoom", showRoom)
         obj.addProperty("showStandings", showStandings)
         obj.addProperty("showSecrets", showSecrets)
+        obj.addProperty("showIdle", showIdle)
         obj.addProperty("clearPopup", clearPopup)
         obj.addProperty("roomMessages", roomMessages)
         obj.addProperty("ownPbsOnly", ownPbsOnly)

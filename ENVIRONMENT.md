@@ -198,7 +198,15 @@ suite while a test name claimed otherwise.
   **`ChatEvents.nearMiss` must not be widened to log every chat line.**
   **`SecretTracker.chatAttribution` returns `Boolean?` and the null is load-bearing.**
 - **`unattributed` must stay a count of *rooms*.**
-- **`RunReport.SCHEMA`, 5, must not move and must not go back down.**
+- **`RunReport.SCHEMA` is 6 and must not go back down.** 6 is `idletime-001`'s `idleTicks` and
+  `navTicks`; the receiver learned both as **optional** keys first and is deployed
+  (`skyblock-server` `master` `1a7f435`), which is what keeps the v5 reports in uploaders' backlogs
+  from `400`-ing. `roomstats.py` routes `enterTick` on `v >= 5`, so 6 keeps its `clearStay` bucket.
+- **`idleTicks` and `navTicks` are written together or not at all**, and `TrackedRoom.secretRunOpen`
+  keeps its `!secretRunDiscarded` clause. The receiver reads an absent key as "this build cannot
+  measure it", so one alone claims the other was zero. Measured: probes F and E of
+  `build/idleprobe.py` — **E was uncaught on the first attempt**, because the test set up a run that
+  was never *started* and so never reached the discard clause at all.
 - **The seed keys are `rooms.json`'s spelling** — `Ice Fill` and `Water Board`, two words each. **The
   metric is `clearStay` and only `clearStay`.**
 - **Do not re-add a bundled snapshot of `roomstats.json` to the jar.**

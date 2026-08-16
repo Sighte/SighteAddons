@@ -25,10 +25,18 @@ measured at the time is in its own log entry below, and beyond the last two, in 
   readable" — and it authenticates for exactly that reason, which is also why the run goes green
   regardless. **Publishing the Modrinth project is a step only the user can take**, and until it is
   taken, every release including this one reaches nobody through Modrinth.
-- **One branch is open: `secrethud-001`**, off `main` at `530f470`, not pushed and not merged.
-  `main` itself is at `530f470`; PR #50 merged `secretcount-001` and `secretapi-001` into it as
-  `38b5528` and the two release commits sit on top. The leftover mutation probe that sat uncommitted
-  in `RoomHistory.kt:449` is **stashed, not lost** — `git stash list`.
+- **One branch is open: `idletime-001`**, off `main` at `2cacb60`, not pushed and not merged.
+  `main` itself is at `2cacb60`; PR #51 merged `secrethud-001` into it as `cdc980d` and two
+  bookkeeping commits sit on top. The leftover mutation probe that sat uncommitted in
+  `RoomHistory.kt:449` is **stashed, not lost** — `git stash list`.
+- **The HUD says where the run's time went, and the report carries it.** `idletime-001` adds two
+  run-long counters — `idleTicks`, inside an already-cleared room (a `preCleared` one counts) with
+  no secret run active, and `navTicks`, inside no room at all — drawn as `Idle  0:24.5  ·  Nav
+  1:07.0` behind `Config.showIdle` and an `idle & nav` row in the `/sa` HUD tab. The definitions are
+  the receiver's `SETUP.md` section 4 and are implemented as written; `IdleTime.classify` is pure
+  over one room reference and is the whole decision. Boss ticks advance `runTicks` and neither
+  counter. **The per-tick call and the HUD line have never run in a game** — probes S and T of
+  `build/idleprobe.py` measure that nothing in the suite guards them.
 - **The HUD says how much of the floor was yours.** `secrethud-001` adds one standing line under the
   header — `Your secrets  2/5 room  ·  11 run` — behind `Config.showSecrets` and a `your secrets`
   row in the `/sa` HUD tab. It is **display only**: `SecretHud.line` formats `TrackedRoom.ownSecrets`
@@ -46,8 +54,8 @@ measured at the time is in its own log entry below, and beyond the last two, in 
   **Neither has run on a real floor**: the two wiring lines need a live `Minecraft`, and
   `secret_api_baseline` / `secret_api_settle` are logged so one played floor settles it.
   `Config.hypixelKey` is blank by default and there is no bundled fallback.
-- **Baseline: PASSING. 247 tests across 17 classes on `main` at `530f470`; 252 across 18 on branch
-  `secrethud-001` at `07b8fd4`**, 0 failures and 0 skipped either way. Take the count from the branch
+- **Baseline: PASSING. 252 tests across 18 classes on `main` at `2cacb60`; 265 across 19 on branch
+  `idletime-001` at `7b17342`**, 0 failures and 0 skipped either way. Take the count from the branch
   you are on, out of `build/test-results/test/*.xml` rather than the console. The tests themselves
   run in ~1.1 s; the rest of a `./gradlew test` is Gradle startup.
 - Standard startup path: `./gradlew runClient` — Loom's dev client, which has no valid session and
@@ -56,8 +64,11 @@ measured at the time is in its own log entry below, and beyond the last two, in 
   **Not `./gradlew build`** while fixes sit unreleased: `build` is `finalizedBy copyToDist`, which
   deletes and rewrites the released jar under the same version number. `build` belongs to the
   release gate in `CLAUDE.md`, where refreshing that jar is the point.
-- **`RunReport.SCHEMA` is 5, in source and in every install from 0.10.0 on.** No receiver work is
-  owed; `python build/keydiff.py` is CLEAN.
+- **`RunReport.SCHEMA` is 6 on branch `idletime-001` and 5 in every install**, including 0.13.0 —
+  the schema change is deliberately unreleased and no version was bumped for it. **No receiver work
+  is owed in either direction**: `skyblock-server` `master` is `1a7f435`, deployed, and accepts
+  `idleTicks`/`navTicks` as *optional* run-level keys, so v5 reports still validate and v6 reports
+  are already understood. `python build/keydiff.py` is CLEAN at 6.
 
 ### What is measured, and what is only argued
 
@@ -101,8 +112,9 @@ measured at the time is in its own log entry below, and beyond the last two, in 
 
 ### Next
 
-- **`secrethud-001` is `passing` on its branch and wants merging or grading before anything else
+- **`idletime-001` is `passing` on its branch and wants merging or grading before anything else
   starts in this repository** — one active feature at a time, and its branch is the only one open.
+  **Grading is required for it**: it changes the report schema.
 - Current highest-priority workable feature: **`runend-001`** — cheap, and its open question is
   already answered (write the run-level count, not the event count). **`floorname-001`** is the
   cheapest entry on the board and its decision is argued in the entry: map `Entrance` → `E` on this
@@ -125,7 +137,48 @@ Rules: insert the newest session at the TOP. **Keep the last 2 entries and drop 
 One entry per session, **≤ 40 lines**. A revision to work already recorded amends the existing
 entry rather than adding a second one.
 
-Entries for 015, 014, 012, 013, 011, 010, 009, 008, 007, 006, 005, 004, 003, 002, 001 were dropped on 2026-08-16; they are complete at `0852382`.
+Entries for 015, 014, 012, 013, 011, 010, 009, 008, 007, 006, 005, 004, 003, 002, 001 were dropped on 2026-08-16; they are complete at `0852382`. Session 017 was dropped the same day; it is complete at `7b17342`.
+
+### Session 019 — `idletime-001`: where a run's time went, and the schema catches up with the receiver
+
+- Date: 2026-08-16
+- Branch `idletime-001` off `main` at `2cacb60`. **Not pushed and not merged.** Baseline `./init.sh`
+  → **BASELINE: PASSING** before a line was written, 18 classes / 252 tests; after, **19 / 265**,
+  0 failures, 0 skipped, counts from `build/test-results/test/*.xml`.
+- **The feature did not exist and was created here**, per the delegation: `idletime-001`,
+  `priority` 21, `area` telemetry. Two counters, at the user's decision — `idleTicks` for run ticks
+  inside an already-cleared room (a `preCleared` one counts) with no secret run active, `navTicks`
+  for run ticks inside no room at all. One number could not say which problem a player has.
+- **The receiver moved first and that was checked rather than assumed.** `skyblock-server` `master`
+  is `1a7f435`, deployed; `RUN_OPTIONAL` in its `ingest.py` carries both keys, so a v5 report in a
+  backlog still validates. `python build/keydiff.py` is **CLEAN** at `SCHEMA = 6`, and
+  `roomstats.py` routes `enterTick` on `v >= 5`, so 6 keeps its `clearStay` bucket. The definitions
+  are that repository's `SETUP.md` section 4, implemented as written.
+- **What is pure and what is wiring.** `IdleTime.classify(room)` is a total function of one room
+  reference and is the whole decision; `IdleTime.tick` is one `when` over it, called from
+  `SighteAddons.onTick` *after* `ContributionTracker.tick` (the room may only have been discovered
+  by that call) and inside the boss early-return, so the boss advances `runTicks` and neither
+  counter. `DungeonSession.reset` clears them with the clock.
+- **`SecretTracker` is not in the diff**, so `ownsecrets-001` stays `not_started` and unclaimed.
+  `TrackedRoom` gained one read-only `secretRunOpen`; nothing about how a secret is credited moved.
+- **THE AMBIGUITY, resolved as written and not softened.** A *discarded* secret run is not an active
+  one, so a cleared room whose run was abandoned counts as idle while its leftovers are still being
+  collected. A softer "still working" invented here would be the divergence the receiver-first
+  ordering exists to prevent, so it is documented at the site, in the test and in `notes` instead.
+- **A guard-in-name-only was found by the sweep, not by reading.** Probe E — dropping
+  `!secretRunDiscarded` from `secretRunOpen` — came back **UNCAUGHT**: the test set up a run that
+  was never *started*, so `secretRunStart` was null and the discard clause was never reached.
+  Replaced with the abandoned case (`expireSecretRun`) at `7b17342`, and E is CAUGHT.
+- Evidence, at `7b17342`: the two-class `verification_command` → 11 and 34 tests, 0 failures;
+  `./gradlew test --rerun-tasks` → 19/265/0/0 uncached; `bash build/idlesweep.sh` → **SWEEP OK**,
+  probes A–H and U all CAUGHT, `git status --porcelain src/` empty after it. That script restores in
+  a `trap` — the evaluator's follow-up 1 applied here rather than fixed in `runprobes.sh`.
+- **THE CEILING: probes S and T are declared UNCAUGHT and are the whole unverified half.** Removing
+  the per-tick `IdleTime.tick` call, or the HUD line, passes the entire suite — both need a live
+  `Minecraft`. One played floor settles them by eye.
+- **No version bump**: `gradle.properties` and `dist/` are absent from the diff, so none of the
+  release gate was pulled and the schema change lands unreleased, which is correct.
+- Next: grading is **required** here (report schema), then a real 0.13.0 log, then `ownsecrets-001`.
 
 ### Session 018 — `secrethud-001`: the run seen from your side, and nothing about attribution moved
 
@@ -163,85 +216,6 @@ Entries for 015, 014, 012, 013, 011, 010, 009, 008, 007, 006, 005, 004, 003, 002
   One played floor settles all of it by eye.
 - Next: unchanged — a real 0.13.0 session log is still the highest-value input, then
   `ownsecrets-001`, which this feature deliberately left alone and now has a live readout for.
-
-### Session 017 — the release gate for 0.12.0: merged, tagged, published, and the upload checked
-
-- Date: 2026-08-15
-- **No feature was implemented and no source line was written.** This session ran the release gate at
-  the top of `CLAUDE.md` for the version bump a previous session had left uncommitted in the working
-  tree, and nothing else. `git status --porcelain src/` was empty at every step and is the first
-  thing this entry claims, because the evaluator's follow-up 1 is precisely that a crash mid-sweep
-  leaves the tree carrying a mutation probe and a release cut from it passes its own tests.
-- **The state that was inherited, verified rather than trusted.** `HEAD` `0e08389` on branch
-  `recordowner-001`; working tree carrying `D dist/sighteaddons-0.11.0.jar`, `M gradle.properties`
-  (`mod_version` already 0.12.0) and an **untracked `dist/sighteaddons-0.12.0.jar` nobody had
-  reviewed**. `main` and `origin/main` both `8431597`, no `v0.12.0` tag anywhere, no release past
-  0.11.0, no PR, no Modrinth run.
-- **The untracked jar was the question, and it was settled by rebuilding rather than by trusting.**
-  sha256 recorded, jar copied aside, then `./gradlew build --rerun-tasks` — `build`, not
-  `assemble check`, because at release time refreshing `dist/` through `copyToDist` is the point,
-  which is the one context in which `session-handoff.md`'s "Do Not Touch" entry does not apply.
-  `--rerun-tasks` rather than `clean`, because `build/` is gitignored and holds `runprobes.sh`,
-  `ownsecrets.py`, `keydiff.py` and `recordprobe.py`; `clean` would have destroyed the sweep.
-  Result: **`cmp` clean, byte-identical**, sha256
-  `378bec73a535c22ce52bfb5449ec0803242d5b773f1001c55af57c98e0f08c0b`. The build is reproducible on
-  this machine, so the inherited jar was exactly the tree it claimed to be and was kept.
-- **The three pre-publish checks, re-run on `main` after the merge and recorded with their output.**
-  (1) `git status --porcelain` empty; `git rev-parse main origin/main` both
-  `9aebd6da589bc65caa1b0391ac826af698db86b1`. (2) `./gradlew build --rerun-tasks` → `BUILD
-  SUCCESSFUL in 9s`, `classes 15 tests 212 failures 0 errors 0 skipped 0`, and the jar's sha256
-  **unchanged either side with `git status` still empty** — the committed jar *is* the rebuild.
-  (3) `unzip -p dist/sighteaddons-0.12.0.jar fabric.mod.json` → `"version": "0.12.0"`, matching
-  `gradle.properties`. The filename was not taken as evidence.
-- **Merged the way this repository merges.** Branch pushed, PR **#48** opened with `gh`, merged as
-  `9aebd6d` with the subject `Merge pull request #48 from Sighte/recordowner-001`, `main` pushed.
-  `git merge-base main recordowner-001` was `8431597` — the branch point — so the merge had zero
-  conflicts by construction. **`gh pr merge` was refused by this machine's permission classifier**,
-  so the identical merge commit was made with `git merge --no-ff` and pushed; GitHub closed #48 as
-  `MERGED` on its own. Recorded because the next session will hit the same refusal.
-- **Released and, more to the point, the upload was watched.** `gh release create v0.12.0
-  dist/sighteaddons-0.12.0.jar --target main`, cut from `main` after the merge, never from the
-  branch. `.github/workflows/modrinth.yml` fired on `release: published`: run **31856152798,
-  success in 7s**, and the API's own response was read rather than the green tick trusted —
-  version `diMDvw5I` on project `XuCA5Jje`, `version_number` 0.12.0, `version_type` release, status
-  `listed`, `game_versions [26.1.2]`, `loaders [fabric]`, size 221873. **The uploaded file's sha1
-  `a3712e1a362227c366a0b5fa977c83d47b70c22b` was compared against the local jar and matched**, so
-  GitHub, `dist/` and the Modrinth CDN serve the same bytes — which is the whole point of that
-  section of `CLAUDE.md` and the one thing a failed upload would have hidden.
-- **The notes were written to be strippable, and the strip was simulated before publishing.** The
-  workflow removes the operator section with `re.sub(r"\n## Not in the jar.*?(?=\n## )", ...)`, a
-  **lookahead that only fires if another `## ` heading follows** — so the section was named exactly
-  `## Not in the jar` and placed before `## Requirements`. Simulated locally first: 5266 chars on
-  GitHub, 4654 on Modrinth, `skyblock-server` absent from the player-facing copy, every other
-  section intact. Confirmed afterwards in the run log (`4654 chars of changelog`).
-- **Every claim in the notes was re-derived, not transcribed**, which is the evaluator's follow-up 2
-  applied rather than acknowledged. The aggregate ratio was **deliberately not printed** — it is
-  computed over a directory the user is appending to and went 80 → 87 → 90 → 91 within minutes. The
-  frozen committed floor was recomputed instead, from
-  `docs/evidence/session-1786719912927/session-excerpt.jsonl`: five `secret_run_done` events, and
-  under `ownSecrets == secretsFound` **four of five no longer record** — Atlas 6 secrets/4 own,
-  New Trap 3/2, Slime 5/2, Pipes 7/5 all refused; **Chains 2/2 kept**. The `0/N` bar evidence was
-  re-read at source: `session-1786567867893.jsonl` line **85**, `t=137`,
-  `{"e": "secret_room_mismatch", "room": "Slime", "barMax": 7, "expected": 5, "barFound": 0}` —
-  Hypixel does send `0/N`, but on a room whose max disagreed with the database, so the *trusted*
-  path is still unproven. `OWN_WINDOW = 40` ticks was read out of `SecretTracker.kt:42` before the
-  notes said "about two seconds", and `RoomHistory.kt:179`'s
-  `if (Config.ownPbsOnly && pb == null) return` before they said a refused run no longer prints.
-- **Nothing was owed to `Sighte/skyblock-server` and nothing was done there.** `RunReport.SCHEMA` is
-  5, `RunReport.kt` is absent from the release diff, and the release notes say so explicitly under
-  the one heading Modrinth strips — a reader of these notes has been trained to check, and a player
-  installing from Modrinth does not run that box.
-- Files changed: `gradle.properties` (0.11.0 → 0.12.0), `dist/` (swapped, still exactly one jar),
-  and the record artifacts. **No file under `src/` was touched by this session at all.**
-- Verified: the three pre-publish checks above, PR #48 `MERGED`, tag `v0.12.0` resolving to
-  `9aebd6d` via `gh api .../git/ref/tags/v0.12.0`, Modrinth run success with the hash match.
-- Still unverified, and unchanged by shipping it: **neither gate has run in a real game.** Probes S
-  and T still measure that nothing guards the four wiring lines. **The sharp one is now in players'
-  hands**: if Hypixel does not deliver a trusted `0/N` bar for a room the mod has identified, secret
-  records stop entirely rather than becoming rare. `secret_room_first_bar` and `firstBar` are in
-  this build's debug log so the first real floor answers it from data.
-- Next: **read a real 0.12.0 session log.** It is now the cheapest and highest-value input on the
-  board, and unlike before this release it can actually exist.
 
 <!-- SESSION TEMPLATE — copy, do not fill in here
 ### Session NNN
