@@ -6,17 +6,17 @@ rewrite the file from scratch. Standing facts — toolchain, quoting traps, prob
 invariants a tidy-up would break — are in `ENVIRONMENT.md`. Past sessions are in
 `claude-progress.md` and, beyond that, in `git log`.
 
-**Branch state: 0.14.0 is released; `critcalc-001` and `secretpoints-001` are both merged on `main`
-(`0c1e4a5`); branch `stormtimer-001` is open on top of it.** `secrethud-001`
-(PR #51) and `idletime-001` are in 0.14.0; `v0.14.0` is tagged and published, and Modrinth version
-`VXWw5sPF` carries the identical jar — `sha1 cea7c51b…`, 245583 bytes, compared against the local
-file rather than assumed. It is the first build sending `RunReport.SCHEMA = 6`.
+**Branch state: 0.15.0 is released and `main` is `b5ad8e1`. No branch is open.** It carries
+`critcalc-001`, `stormtimer-001` and `secretpoints-001` on top of 0.14.0's secret readout and idle
+counters. `v0.15.0` is tagged and published, and Modrinth version `YNlbBvlI` carries the identical
+jar — `sha1 de94c224…`, 260722 bytes, compared against the local file rather than assumed.
+`RunReport.SCHEMA` is 6 and unchanged since 0.14.0, so the receiver is owed nothing. The leftover
+mutation probe once uncommitted in `RoomHistory.kt:449` is stashed, not lost: `git stash list`.
 
-**0.14.0 was cut from `3643004` and does NOT contain the crit readout.** Its notes do not claim it,
-and **no `crit_unparsed` event can appear in a log until a later build ships** — a silent 0.14.0 says
-nothing about `critcalc-001`. That readout is on `main` now and reaches nobody until 0.15.0, which is
-the user's call, as does the score change on this branch. The leftover mutation probe once
-uncommitted in `RoomHistory.kt:449` is stashed, not lost: `git stash list`.
+**The Modrinth upload failed once on the way and the repair is written into `CLAUDE.md`:**
+`version_title` is capped at 64 characters, 0.15.0's was 65, and the 400 landed *after* the GitHub
+release was published. `gh release edit --title` plus a workflow re-run fixed it without touching the
+tag, the jar or the notes.
 
 **The release does not reach players and the reason is not in this repository.** The Modrinth
 project answers 404 to anyone not logged in — still awaiting review — so the build is downloadable

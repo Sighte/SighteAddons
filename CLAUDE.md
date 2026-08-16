@@ -57,6 +57,13 @@ section exists to prevent, and nothing else will tell you.
   of the same source is a different `sha256`, and then neither number identifies anything.
 - **Same `version_type`** and the same changelog text, so the two pages cannot tell different stories
   about one build.
+- **The release title must be ≤ 64 characters**, because Modrinth's `version_title` is and the
+  workflow sends the GitHub title verbatim. Measured on 2026-08-16: 0.14.0's title was exactly 64 and
+  passed, 0.15.0's was 65 and the upload died with
+  `Field version_title failed validation with error: length` — a 400 *after* the GitHub release was
+  already published, which is precisely the split this section exists to prevent. The repair is
+  `gh release edit <tag> --title` and then re-running the workflow; the tag, the jar and the notes
+  are untouched by it. Count the title before publishing.
 - **`loaders`, `game_versions` and dependencies** come out of `fabric.mod.json` in the jar being
   uploaded rather than from memory — that file is the only place that cannot be out of date with the
   artifact.
