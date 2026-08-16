@@ -14,6 +14,7 @@ import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.GuiGraphicsExtractor
 import net.minecraft.network.chat.Component
 import net.minecraft.resources.Identifier
+import sighteaddons.mixin.PlayerTabOverlayAccessor
 import java.util.Locale
 import org.slf4j.LoggerFactory
 
@@ -194,6 +195,7 @@ class SighteAddons : ClientModInitializer {
         // would silently stop arriving the moment somebody reorders this function.
         val text = ChatFormatting.stripFormatting(message).orEmpty()
         onDungeonEvent(text)
+        onCrit(text)
         if (summaryPrinted || !RUN_END.matches(text)) return
         summaryPrinted = true
         DebugLog.event(
@@ -256,6 +258,57 @@ class SighteAddons : ClientModInitializer {
             is ChatEvents.Event.PuzzleFailed -> attributed("puzzle_failed", resolve(event.player))
         }
     }
+
+    /**
+     * The Explosive Shot crit readout, printed into the local player's own chat. [text] is already
+     * stripped.
+     *
+     * **Local only, and that is the whole design constraint.** `addClientSystemMessage` writes into
+     * this client's chat buffer and sends nothing; the mod this was ported from typed the same figure
+     * into `/msg` and party chat and POSTed it to a third-party server, and none of that is here (see
+     * [CritMeter]). Nothing about a crit is written to [RunReport] either, so no receiver change is
+     * owed in either direction.
+     *
+     * **Not gated on [DungeonSession.calibrated]**, unlike [onDungeonEvent]. [CritMeter]'s own combat
+     * window is the gate that matters and it is a stricter one — nothing is read until Maxor's line
+     * has arrived — while `calibrated` would additionally require the dungeon map to have been read,
+     * which has nothing to do with whether a crit landed and would silently cost the reading on a
+     * floor where calibration failed.
+     *
+     * The near-miss check runs outside the toggle on purpose: it writes to the debug log and not to
+     * the screen, and a player who switched the readout off has not asked for the diagnostic that
+     * tells the next session the pattern is wrong to stop as well.
+     *
+     * **This function is the unverified half.** That Fabric delivers Hypixel's crit line here with
+     * `overlay` false, and that the accessor below returns a footer containing blessing rows, needs a
+     * live `Minecraft` in an M7 — the dev client cannot reach Hypixel. Everything [CritMeter] decides
+     * is driven by `CritMeterTest` instead.
+     */
+    private fun onCrit(text: String) {
+        if (Config.critLine) {
+            CritMeter.onChat(text, ::tabFooter)?.let { line ->
+                val client = Minecraft.getInstance()
+                client.schedule {
+                    client.gui.chat.addClientSystemMessage(
+                        Component.literal(line).withStyle(ChatFormatting.AQUA),
+                    )
+                }
+            }
+        }
+        // A crit line Hypixel sent and CritMeter could not read. Carries no player name — see
+        // CritMeter.nearMiss for why that makes it safe to log unredacted — and it is the only thing
+        // that will ever tell anybody the ported pattern is wrong.
+        CritMeter.nearMiss(text)?.let { DebugLog.event("crit_unparsed", "line" to it) }
+    }
+
+    /**
+     * The tab list footer as plain text, or null when the server has not sent one.
+     *
+     * Read through the mixin accessor because `PlayerTabOverlay.footer` has a setter and no getter.
+     * Nothing here writes it.
+     */
+    private fun tabFooter(): String? =
+        (Minecraft.getInstance().gui.tabList as PlayerTabOverlayAccessor).footer?.string
 
     /**
      * Logs an event against the player it names and the room they were last seen in.

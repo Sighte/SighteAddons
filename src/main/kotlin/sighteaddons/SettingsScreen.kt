@@ -292,6 +292,9 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
                 Config.ownPbsOnly = !Config.ownPbsOnly
             },
             Row("run summary", Config.runSummary.word(), Config.runSummary) { Config.runSummary = !Config.runSummary },
+            // "crit readout", not "crit": the number the line exists for is the one per Blessing of
+            // Power, and nothing about it is sent anywhere — see CritMeter.
+            Row("crit readout", Config.critLine.word(), Config.critLine) { Config.critLine = !Config.critLine },
             Row("history is always written", "history.jsonl"),
         )
         Tab.DEBUG -> listOf(
