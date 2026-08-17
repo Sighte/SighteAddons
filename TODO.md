@@ -49,7 +49,12 @@ kein Chat. `[BOSS] ` ist als Signal verbrannt: The Watcher steht im Blood-Room u
 Prefix. Zweites Standbein bleibt „Map 2 s weg" (nicht in Odin). Das Log sagt mit `boss_phase`,
 welches von beiden gefeuert hat — **wenn dort `by: "map"` steht, haben die Koordinaten wieder
 nicht gegriffen**, und dann ist die Sidebar-Zeile `Cleared: X%` der nächste Kandidat.
-- [ ] Phase 3b HUD-Editor (Anchor+Offset statt `hudX`/`hudY`), StormHud/ClearPopup umstellen
+- [x] **HUD-Editor** — die Karte steht an ihrer echten Position und wird gezogen (Grab-Offset,
+  Clamp gegen die echte Kartengröße), Hintergrund ist ein 48/255-Scrim statt `surfaceBase`, das
+  Live-Overlay steht währenddessen still (`HudRoot.editing`, in `removed()` gelöscht).
+  Anchor+Offset statt `hudX`/`hudY` steht weiter aus — heute sind es absolute Pixel, die bei
+  einem Auflösungswechsel wandern.
+- [ ] Phase 3b Rest: StormHud/ClearPopup auf das Design-System umstellen
 - [ ] Phase 2 Komponenten · 4 Stats · 5 Config+Migration · 6 Chat · 7 Politur
 
 Zwei Sachen aus Phase 1, die nicht in der Vorlage standen:
