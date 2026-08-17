@@ -1,6 +1,5 @@
 package sighteaddons
 
-import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.GuiGraphicsExtractor
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.input.CharacterEvent
@@ -8,30 +7,49 @@ import net.minecraft.client.input.KeyEvent
 import net.minecraft.client.input.MouseButtonEvent
 import net.minecraft.network.chat.Component
 import org.lwjgl.glfw.GLFW
+import sighteaddons.ui.Format
+import sighteaddons.ui.components.Anim
+import sighteaddons.ui.components.Controls
+import sighteaddons.ui.components.Sparkline
+import sighteaddons.ui.hud.HudRoot
+import sighteaddons.ui.motion.Clock
+import sighteaddons.ui.motion.Easing
+import sighteaddons.ui.motion.Motion
+import sighteaddons.ui.render.DevicePixels
+import sighteaddons.ui.render.Surface
+import sighteaddons.ui.screens.HudPreview
+import sighteaddons.ui.theme.Density
+import sighteaddons.ui.theme.Tokens
 import java.util.concurrent.TimeUnit
 
 /**
  * The `/sa` screen: settings and the room history.
  *
- * Drawn entirely from filled rectangles and font calls — no textures, no widget library, no
- * dependency. The style is deliberately flat: a dark wash over the world, hairline rules, one accent
- * colour, everything on a 14px row grid. Minecraft's font is a 9px bitmap and the GUI scale changes
- * under it, so the layout carries the identity, not the typography.
+ * Rebuilt on the design system in `ui/`. What changed is layout and drawing — a left nav rail instead
+ * of top tabs, real controls instead of the word "on", a sparkline instead of a bar per attempt, and
+ * motion on everything that changes state. What did not change is any of the behaviour underneath:
+ * the rows, the search, the sort, the accordion and every config key are the same code they were.
  *
- * Rows are rebuilt from [RecordTable] and reused for hit testing, which keeps the drawing and the
- * click targets from drifting apart — there is no widget tree that could disagree with what is on
- * screen. Nothing here is a glyph outside the bitmap font's own range: the sort arrows and the
- * progression bars are rectangles, because ▲ and ▁ come from the Unifont fallback and stand out
- * against everything around them.
+ * Three rules from the previous version are load-bearing and survive verbatim:
+ *
+ * 1. **One arrangement at a time.** A chip says *which* rooms, a column says *in which order*, and
+ *    neither touches the other. Two controls that each reorder the table is two ways to reach a state
+ *    neither of them describes.
+ * 2. **Type to filter, no input box.** Any character starts a search; escape undoes one narrowing at a
+ *    time and only closes the screen once the table shows everything again. A filtered table is a
+ *    state you leave, and closing the whole screen to get out of it loses your place.
+ * 3. **Hit testing re-derives the drawing layout.** There is still no widget tree, so nothing can
+ *    disagree with what is on screen about where it is.
  */
 class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal("Sighte Addons")) {
-    /** [label] rather than the enum name: the rest of this screen is lower case throughout. */
-    enum class Tab(val label: String) { HUD("hud"), CHAT("chat"), RECORDS("history"), DEBUG("debug") }
 
-    /** [on] drives the value colour; null means the row is plain information. */
+    /** [label] rather than the enum name: the rest of this screen is lower case throughout. */
+    enum class Tab(val label: String) { HUD("hud"), CHAT("chat"), RECORDS("rooms"), DEBUG("debug") }
+
+    /** [on] drives the control; null means the row carries a value or is plain information. */
     private class Row(val label: String, val value: String, val on: Boolean? = null, val click: (() -> Unit)? = null)
 
-    /** A line under an expanded room: a label, its text, and the progression bars on the first one. */
+    /** A line under an expanded room: a label, its text, and the progression on the first one. */
     private class Detail(val label: String, val text: String, val spark: List<RoomHistory.Attempt>?, val cap: Int)
 
     /** One rendered line of the history: the room's own row, or one line of its expanded detail. */
@@ -53,11 +71,9 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
      * Whether shift was held for the click currently being dispatched — the storm tick rows step
      * backwards with it.
      *
-     * A field rather than a parameter on [Row.click] because the modifier lives on the mouse event
-     * ([MouseButtonEvent.hasShiftDown]) and nothing else on this screen wants it: threading a
-     * `Boolean` through every row's lambda would be a dozen ignored parameters to serve two rows.
-     * Written in [mouseClicked] on the statement before the lambda runs and read inside it, both on
-     * the render thread, so the window in which it means anything is one call deep.
+     * A field rather than a parameter on [Row.click] because the modifier lives on the mouse event and
+     * nothing else on this screen wants it: threading a `Boolean` through every row's lambda would be
+     * a dozen ignored parameters to serve two rows.
      */
     private var stepBack = false
 
@@ -81,29 +97,45 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     private var cachedTotal = 0
     private var cachedMatches = 0
 
-    private val content get() = minOf(CONTENT_MAX, width - 2 * GUTTER - 8)
-    private val contentLeft get() = (width - content) / 2
+    private val anim = Anim()
+    private val previewHud = HudRoot()
+
+    /** Chip hit zones from the last frame, so a click lands on what was drawn. */
+    private val chipHits = ArrayList<Triple<RecordTable.Filter, Int, Int>>()
+
+    // --- Layout -----------------------------------------------------------------------------
+
+    private val frameWidth get() = minOf(RAIL + GAP + CONTENT_MAX, width - MARGIN * 2)
+    private val frameLeft get() = (width - frameWidth) / 2
+    private val contentLeft get() = frameLeft + RAIL + GAP
+    private val content get() = frameWidth - RAIL - GAP
+
+    private val headerY get() = MARGIN + Tokens.SPACE_12
+    private val bodyTop get() = headerY + Tokens.SPACE_32
+    private val chipsY get() = bodyTop
+    private val columnsY get() = bodyTop + Tokens.SPACE_24
+    private val firstRow get() = columnsY + Tokens.SPACE_16
+    private val listBottom get() = height - MARGIN - Tokens.SPACE_16
 
     /** Right edges of the record columns as fractions of [content], so nothing overflows at scale 4. */
     private val typeX get() = contentLeft + content * 40 / 100
-    private val clearX get() = contentLeft + content * 60 / 100
-    private val secretsX get() = contentLeft + content * 76 / 100
-    private val runsX get() = contentLeft + content * 86 / 100
+    private val clearX get() = contentLeft + content * 62 / 100
+    private val secretsX get() = contentLeft + content * 78 / 100
+    private val runsX get() = contentLeft + content * 87 / 100
     private val lastX get() = contentLeft + content
-
-    private val tabsY get() = HEADER_Y + 20
-    private val chipsY get() = HEADER_Y + 40
-    private val columnsY get() = HEADER_Y + 58
-    private val listTop get() = HEADER_Y + 40
-    private val firstRow get() = columnsY + ROW
-    private val listBottom get() = height - 24
 
     /** The `type` column is redundant once a type chip is active — it would repeat that one word. */
     private val showType get() = filter == RecordTable.Filter.ALL
 
-    /** Replaces the vanilla blur and menu texture with the flat wash the style is built on. */
+    private val narrowing get() = RecordTable.narrowing(query, filter)
+
+    // --- Rendering --------------------------------------------------------------------------
+
     override fun extractBackground(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int, delta: Float) {
-        graphics.fill(0, 0, width, height, BG)
+        val window = minecraft.window
+        Density.beginFrame(window.width, window.height, window.guiScaledWidth, window.guiScaledHeight)
+        Clock.frame(paused = false)
+        graphics.fill(0, 0, width, height, Tokens.surfaceBase)
     }
 
     override fun extractRenderState(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int, delta: Float) {
@@ -112,93 +144,155 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             return
         }
 
-        val left = contentLeft
-        graphics.flat("SIGHTE ADDONS", left, HEADER_Y, TEXT)
-        if (tab == Tab.RECORDS) renderHeadline(graphics) else graphics.right(VERSION, left + content, HEADER_Y, DIM)
-        graphics.rule(left, HEADER_Y + 13)
+        renderRail(graphics, mouseX, mouseY)
+        renderHeader(graphics)
 
-        for ((entry, x0, x1) in tabZones()) {
+        if (tab == Tab.RECORDS) renderRecords(graphics, mouseX, mouseY) else renderSettings(graphics, mouseX, mouseY)
+
+        graphics.text(font, footer(), contentLeft, height - MARGIN - Tokens.SPACE_6, Tokens.textTertiary, false)
+    }
+
+    /** The nav rail. Each entry carries its own hover and its own selected indicator. */
+    private fun renderRail(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
+        for ((entry, y) in railZones()) {
             val active = entry == tab
-            graphics.flat(entry.label, x0, tabsY, if (active) ACCENT else DIM)
-            if (active) graphics.fill(x0, tabsY + 11, x1, tabsY + 12, ACCENT)
+            val hovered = mouseX in frameLeft..(frameLeft + RAIL) && mouseY in y until (y + RAIL_ROW)
+            val hover = Controls.hover(anim.of("rail.${entry.name}"), hovered && !active)
+            val select = anim.of("railsel.${entry.name}", if (active) 1f else 0f)
+            select.animateTo(if (active) 1f else 0f, Motion.FAST, Easing.STANDARD, Motion.Kind.OPACITY)
+
+            Controls.rowHighlight(graphics, frameLeft, y, RAIL, RAIL_ROW, hover, false)
+            Controls.indicator(graphics, frameLeft, y, RAIL_ROW, select.value, Tokens.accent)
+            graphics.text(
+                font, entry.label, frameLeft + Tokens.SPACE_12, y + (RAIL_ROW - 8) / 2,
+                Controls.blend(Tokens.textTertiary, Tokens.textPrimary, maxOf(select.value, hover)),
+                false,
+            )
         }
-        graphics.rule(left, HEADER_Y + 33)
-
-        if (tab == Tab.RECORDS) renderRecords(graphics, mouseX, mouseY) else renderRows(graphics, mouseX, mouseY)
-
-        graphics.flat(footer(), left, height - 14, RULE_TEXT)
+        DevicePixels.hairlineV(graphics, frameLeft + RAIL + GAP / 2, bodyTop - Tokens.SPACE_12, listBottom - bodyTop + Tokens.SPACE_20, Tokens.borderSubtle)
     }
 
-    /** What escape is currently for. The footer names it, [keyPressed] does it, neither decides it. */
-    private val narrowing get() = RecordTable.narrowing(query, filter)
-
-    private fun footer() = when {
-        // The stepping rows are the only thing on this screen a click does something other than
-        // toggle, and shift-clicking to go back is not discoverable anywhere else.
-        tab == Tab.HUD && Config.stormTimer -> "esc  close · click a tick count to step it · shift-click steps back"
-        tab != Tab.RECORDS -> "esc  close"
-        narrowing == RecordTable.Narrowing.SEARCH -> "esc  clear the search · backspace  delete"
-        narrowing == RecordTable.Narrowing.CHIP -> "esc  show every room · type to filter"
-        else -> "esc  close · type to filter · click a row for detail"
-    }
-
-    /** Top right: the counts, or what the search is currently doing to them. */
-    private fun renderHeadline(graphics: GuiGraphicsExtractor) {
-        build()
-        if (query.isEmpty()) {
-            graphics.right("$cachedTotal rooms · ${RoomHistory.entryCount()} attempts", lastX, HEADER_Y, DIM)
+    private fun renderHeader(graphics: GuiGraphicsExtractor) {
+        graphics.label("SIGHTE ADDONS", frameLeft, headerY, Tokens.textPrimary)
+        val right = if (tab == Tab.RECORDS) {
+            build()
+            if (query.isEmpty()) {
+                "$cachedTotal rooms · ${RoomHistory.entryCount()} attempts"
+            } else {
+                "\"$query\"  $cachedMatches of $cachedTotal"
+            }
         } else {
-            graphics.right("\"$query\"  $cachedMatches of $cachedTotal", lastX, HEADER_Y, ACCENT)
+            VERSION
+        }
+        val tone = if (tab == Tab.RECORDS && query.isNotEmpty()) Tokens.textPrimary else Tokens.textTertiary
+        graphics.text(font, right, lastX - font.width(right), headerY, tone, false)
+        DevicePixels.hairlineH(graphics, frameLeft, headerY + Tokens.SPACE_16, frameWidth, Tokens.borderSubtle)
+    }
+
+    // --- Settings pages ---------------------------------------------------------------------
+
+    private fun renderSettings(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
+        val all = rows()
+        val rowHeight = settingRowHeight(all.size)
+        val toggleHeight = (rowHeight - Tokens.SPACE_6).coerceIn(8, Controls.TOGGLE_HEIGHT)
+
+        for ((index, row) in all.withIndex()) {
+            val y = bodyTop + index * rowHeight
+            val interactive = row.click != null
+            val hovered = interactive && mouseX in contentLeft..lastX && mouseY in y until (y + rowHeight)
+            val hover = Controls.hover(anim.of("row.${tab.name}.$index"), hovered)
+
+            if (interactive) {
+                Controls.rowHighlight(graphics, contentLeft - Tokens.SPACE_8, y, content + Tokens.SPACE_16, rowHeight, hover, false)
+            }
+
+            val labelY = y + (rowHeight - 8) / 2
+            graphics.text(
+                font, row.label, contentLeft, labelY,
+                if (interactive) Tokens.textPrimary else Tokens.textTertiary, false,
+            )
+
+            when {
+                // A switch gets a switch. The word "on" was the old screen's only way to say it, and a
+                // toggle says the same thing without asking anybody to read.
+                row.on != null -> {
+                    val travel = anim.spring("toggle.${tab.name}.$index", if (row.on) 1f else 0f)
+                    travel.springTo(if (row.on) 1f else 0f, Motion.BASE)
+                    Controls.toggle(
+                        graphics,
+                        lastX - Controls.toggleWidth(toggleHeight),
+                        y + (rowHeight - toggleHeight) / 2,
+                        toggleHeight, travel.value, enabled = true,
+                    )
+                }
+                // Not a switch but still clickable: the position row and the two storm steppers. The
+                // value is the control, so it reads as primary rather than as metadata.
+                interactive -> graphics.text(
+                    font, row.value, lastX - font.width(row.value), labelY,
+                    Controls.blend(Tokens.textSecondary, Tokens.textPrimary, hover), false,
+                )
+                // Plain information.
+                else -> graphics.text(font, row.value, lastX - font.width(row.value), labelY, Tokens.textTertiary, false)
+            }
         }
     }
 
-    private fun renderRows(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
-        val left = contentLeft
-        for ((index, row) in rows().withIndex()) {
-            val y = listTop + index * ROW
-            if (row.click != null && hovering(mouseX, mouseY, y)) highlight(graphics, y)
-            graphics.flat(row.label, left, y, if (row.click == null) DIM else TEXT)
-            graphics.right(row.value, left + content, y, if (row.on == true) ACCENT else DIM)
-        }
-    }
+    // --- Rooms page -------------------------------------------------------------------------
 
     private fun renderRecords(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
-        val left = contentLeft
         build()
 
-        for ((chip, x0, x1) in chipZones()) {
-            val active = chip == filter
-            graphics.flat(chip.label, x0, chipsY, if (active) ACCENT else DIM)
-            graphics.flat((cachedCounts[chip] ?: 0).toString(), x0 + font.width("${chip.label} "), chipsY, RULE_TEXT)
-            if (active) graphics.fill(x0, chipsY + 11, x1, chipsY + 12, ACCENT)
+        // Widths are derived before drawing rather than returned from it, so hover and hit testing use
+        // the same number the chip is actually drawn at. Guessing a width for the hover test is how a
+        // chip ends up highlighting from a cursor position that is not on it.
+        chipHits.clear()
+        var chipX = contentLeft
+        for (chip in RecordTable.Filter.entries) {
+            val count = cachedCounts[chip] ?: 0
+            val chipWidth = Controls.chipWidth(font, chip.label, count)
+            val active = anim.of("chip.${chip.name}", if (chip == filter) 1f else 0f)
+            active.animateTo(if (chip == filter) 1f else 0f, Motion.FAST, Easing.STANDARD, Motion.Kind.OPACITY)
+            val hovered = mouseX in chipX until (chipX + chipWidth) && mouseY in chipsY until (chipsY + CHIP_H)
+            val hover = Controls.hover(anim.of("chiphover.${chip.name}"), hovered)
+            Controls.chip(graphics, font, chipX, chipsY, CHIP_H, chip.label, count, active.value, hover)
+            chipHits.add(Triple(chip, chipX, chipX + chipWidth))
+            chipX += chipWidth + Tokens.SPACE_6
         }
-        graphics.rule(left, HEADER_Y + 54)
 
         for (column in columns()) {
             val active = column.sort == sortBy
-            graphics.flat(column.label, column.x0, columnsY, if (active) ACCENT else DIM)
+            val x = if (column.rightAligned) column.x1 - font.width(column.label) else column.x0
+            graphics.text(
+                font, column.label.uppercase(), x, columnsY,
+                if (active) Tokens.textPrimary else Tokens.textTertiary, false,
+            )
             if (active) {
-                graphics.caret(if (column.rightAligned) column.x0 - 8 else column.x1 + 3, columnsY + 3, sortDesc)
+                // The chevron rotates between the two directions rather than swapping glyphs, so the
+                // reversal is visibly the same control changing its mind.
+                val flip = anim.of("sortdir", if (sortDesc) 1f else 0f)
+                flip.animateTo(if (sortDesc) 1f else 0f, Motion.FAST, Easing.STANDARD, Motion.Kind.OPACITY)
+                caret(graphics, if (column.rightAligned) x - Tokens.SPACE_8 else column.x0 + font.width(column.label) + 3, columnsY, flip.value)
             }
         }
+        DevicePixels.hairlineH(graphics, contentLeft, columnsY + Tokens.SPACE_12, content, Tokens.borderSubtle)
 
         if (cachedLines.isEmpty()) {
             renderEmpty(graphics)
             return
         }
 
-        val visible = ((listBottom - firstRow) / ROW).coerceAtLeast(1)
+        val visible = ((listBottom - firstRow) / TABLE_ROW).coerceAtLeast(1)
         pageSize = visible
         scroll = scroll.coerceIn(0, (cachedLines.size - visible).coerceAtLeast(0))
 
         graphics.enableScissor(0, firstRow, width, listBottom)
         for ((index, line) in cachedLines.drop(scroll).take(visible).withIndex()) {
-            val y = firstRow + index * ROW
+            val y = firstRow + index * TABLE_ROW
             if (line.detail != null) renderDetail(graphics, line.detail, y) else renderRecord(graphics, line.row, y, mouseX, mouseY)
         }
         graphics.disableScissor()
 
-        renderScrollbar(graphics, visible)
+        Controls.scrollbar(graphics, lastX + Tokens.SPACE_6, firstRow, listBottom, cachedLines.size, visible, scroll)
     }
 
     private fun renderRecord(
@@ -208,74 +302,94 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         mouseX: Int,
         mouseY: Int,
     ) {
-        val left = contentLeft
         val open = row.room == expanded
-        if (hovering(mouseX, mouseY, y) || open) highlight(graphics, y, open)
+        val hovered = mouseX in contentLeft..lastX && mouseY in y until (y + TABLE_ROW)
+        val hover = Controls.hover(anim.of("rec.${row.room}"), hovered)
+        Controls.rowHighlight(graphics, contentLeft - Tokens.SPACE_8, y, content + Tokens.SPACE_16, TABLE_ROW, hover, open)
 
+        val textY = y + (TABLE_ROW - 8) / 2
         val name = font.plainSubstrByWidth(row.room, nameWidth())
-        graphics.flat(name, left, y, if (open) ACCENT else TEXT)
+        graphics.text(font, name, contentLeft, textY, if (open) Tokens.textPrimary else Tokens.textSecondary, false)
         // The full name only exists in a tooltip when the column actually cut it off.
-        if (name != row.room && hovering(mouseX, mouseY, y)) {
+        if (name != row.room && hovered) {
             graphics.setTooltipForNextFrame(font, Component.literal(row.room), mouseX, mouseY)
         }
-        if (showType) graphics.flat(row.typeLabel, typeX, y, DIM)
-        graphics.right(row.clear.time(), clearX, y, if (row.clear != null) ACCENT else RULE_TEXT)
-        graphics.right(row.secrets.time(), secretsX, y, if (row.secrets != null) DIM else RULE_TEXT)
-        graphics.right(row.runs.toString(), runsX, y, DIM)
-        graphics.right(ago(row.lastTs), lastX, y, RULE_TEXT)
+        if (showType) graphics.text(font, row.typeLabel, typeX, textY, Tokens.textTertiary, false)
+
+        // A time that exists is primary; a dash is tertiary. Weight and luminance carry the
+        // distinction, and the dash is the same width as a time so the column stays a column.
+        right(graphics, row.clear.time(), clearX, textY, row.clear != null)
+        right(graphics, row.secrets.time(), secretsX, textY, row.secrets != null)
+        right(graphics, row.runs.toString(), runsX, textY, false)
+        right(graphics, ago(row.lastTs), lastX, textY, false)
     }
 
     private fun renderDetail(graphics: GuiGraphicsExtractor, detail: Detail, y: Int) {
         val labelX = contentLeft + DETAIL_INDENT
-        graphics.flat(detail.label, labelX, y, RULE_TEXT)
+        val textY = y + (TABLE_ROW - 8) / 2
+        graphics.text(font, detail.label, labelX, textY, Tokens.textTertiary, false)
         var textX = labelX + DETAIL_LABEL
         detail.spark?.let {
-            graphics.spark(textX, y + 1, it, detail.cap)
-            textX += SPARK_MAX * SPARK_PITCH + 10
+            Sparkline.draw(graphics, textX, y + 2, SPARK_W, TABLE_ROW - 4, it, detail.cap)
+            textX += SPARK_W + Tokens.SPACE_12
         }
-        graphics.flat(detail.text, textX, y, DIM)
+        graphics.text(font, detail.text, textX, textY, Tokens.textSecondary, false)
     }
 
+    /**
+     * The empty states, built from hairline geometry rather than from a sentence alone.
+     *
+     * Same key and same words as the footer: the hint has to name which of the two narrowings escape
+     * takes off, not say "the search" while a chip is what is hiding every room.
+     */
     private fun renderEmpty(graphics: GuiGraphicsExtractor) {
-        val left = contentLeft
-        val y = firstRow + ROW
-        // Same key, same words as the footer: the hint says which of the two narrowings escape takes
-        // off, not "the search" while a chip is what is actually hiding every room.
-        if (narrowing != RecordTable.Narrowing.NONE) {
-            graphics.flat("nothing matches this filter", left, y, DIM)
-            val hint = if (narrowing == RecordTable.Narrowing.SEARCH) {
+        val boxW = 64
+        val boxH = 40
+        val boxX = contentLeft + (content - boxW) / 2
+        val boxY = firstRow + Tokens.SPACE_24
+
+        Surface.roundedBorder(graphics, boxX, boxY, boxW, boxH, Tokens.RADIUS_MD, Tokens.borderDefault)
+        // Three descending rules inside it: the shape of a table with nothing in it.
+        for (i in 0..2) {
+            DevicePixels.hairlineH(
+                graphics, boxX + Tokens.SPACE_12, boxY + Tokens.SPACE_12 + i * Tokens.SPACE_8,
+                boxW - Tokens.SPACE_24 - i * Tokens.SPACE_8, Tokens.borderDefault,
+            )
+        }
+
+        val (headline, hint) = if (narrowing != RecordTable.Narrowing.NONE) {
+            "nothing matches this filter" to if (narrowing == RecordTable.Narrowing.SEARCH) {
                 "esc clears the search · click \"all\" for every room"
             } else {
                 "esc shows every room"
             }
-            graphics.flat(hint, left, y + ROW, RULE_TEXT)
         } else {
-            graphics.flat("no history yet", left, y, DIM)
-            graphics.flat("finish a dungeon room and it lands here", left, y + ROW, RULE_TEXT)
-            graphics.flat("config/sighteaddons/history.jsonl", left, y + ROW * 2, RULE_TEXT)
+            "no history yet" to "finish a dungeon room and it lands here"
+        }
+
+        centred(graphics, headline, boxY + boxH + Tokens.SPACE_16, Tokens.textSecondary)
+        centred(graphics, hint, boxY + boxH + Tokens.SPACE_16 + Tokens.SPACE_12, Tokens.textTertiary)
+        if (narrowing == RecordTable.Narrowing.NONE) {
+            centred(graphics, "config/sighteaddons/history.jsonl", boxY + boxH + Tokens.SPACE_16 + Tokens.SPACE_24, Tokens.textTertiary)
         }
     }
 
-    /** Position as an accent thumb on a hairline track — a textured bar would break the flat style. */
-    private fun renderScrollbar(graphics: GuiGraphicsExtractor, visible: Int) {
-        if (cachedLines.size <= visible) return
-        val x = contentLeft + content + GUTTER
-        val track = listBottom - firstRow
-        graphics.fill(x, firstRow, x + 2, listBottom, RULE)
-        val bar = (track * visible / cachedLines.size).coerceAtLeast(8)
-        val offset = (track - bar) * scroll / (cachedLines.size - visible)
-        graphics.fill(x, firstRow + offset, x + 2, firstRow + offset + bar, ACCENT)
+    /**
+     * Full-screen placement mode: the next left click puts the HUD where the cursor is.
+     *
+     * Draws the real card with scripted data rather than a five-line mock of it. The old preview was
+     * five `flat` calls that happened to resemble the HUD; anything that drifted between them and the
+     * actual overlay was invisible until you placed it and looked.
+     */
+    private fun renderPlacing(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
+        previewHud.draw(graphics, font, HudPreview.at(Clock.nowMs), mouseX, mouseY)
+        graphics.text(
+            font, "left click places it · right click cancels",
+            frameLeft, headerY, Tokens.textTertiary, false,
+        )
     }
 
-    /** Full-screen placement mode: the next left click puts the HUD where the cursor is. */
-    private fun renderPlacing(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
-        graphics.flat("Sighte F7 3:12.5  23 rooms", mouseX, mouseY, TEXT)
-        graphics.flat("Your secrets  2/5 room  ·  11 run", mouseX, mouseY + 10, TEXT)
-        graphics.flat("Idle  0:24.5  ·  Nav  1:07.0", mouseX, mouseY + 20, DIM)
-        graphics.flat("Water Board  0:41.2", mouseX, mouseY + 30, ACCENT)
-        graphics.flat("  cleared  02:58.6", mouseX, mouseY + 40, DIM)
-        graphics.flat("left click places it · right click cancels", contentLeft, HEADER_Y, DIM)
-    }
+    // --- Data (unchanged from the previous version) ------------------------------------------
 
     private fun rows(): List<Row> = when (tab) {
         Tab.HUD -> listOf(
@@ -392,9 +506,14 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         if (attempts.isNotEmpty()) {
             val ticks = attempts.map { it.ticks }.sorted()
             val median = ticks[ticks.size / 2]
-            val summary = "best ${DungeonGrid.formatTicks(ticks.first())} · " +
-                "median ${DungeonGrid.formatTicks(median)} · ${attempts.size} attempts"
-            out.add(Line(row, Detail("clear", summary, attempts.takeLast(SPARK_MAX), (median * 2).coerceAtLeast(1))))
+            val summary = "best ${Format.ticks(ticks.first())} · " +
+                "median ${Format.ticks(median)} · ${attempts.size} attempts"
+            out.add(
+                Line(
+                    row,
+                    Detail("clear", summary, attempts.takeLast(Sparkline.MAX_POINTS), (median * 2).coerceAtLeast(1)),
+                ),
+            )
 
             // "?" is a line written before the floor was known; it would sort as its own floor.
             val floors = attempts.filter { it.floor != "?" }
@@ -406,12 +525,7 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
                 out.add(
                     Line(
                         row,
-                        Detail(
-                            "floors",
-                            floors.joinToString(" · ") { "${it.first} ${DungeonGrid.formatTicks(it.second)}" },
-                            null,
-                            0,
-                        ),
+                        Detail("floors", floors.joinToString(" · ") { "${it.first} ${Format.ticks(it.second)}" }, null, 0),
                     ),
                 )
             }
@@ -425,6 +539,8 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         if (out.isEmpty()) out.add(Line(row, Detail("", "only a secret run recorded for this room", null, 0)))
         return out
     }
+
+    // --- Input ------------------------------------------------------------------------------
 
     override fun mouseClicked(event: MouseButtonEvent, doubleClick: Boolean): Boolean {
         val mouseX = event.x().toInt()
@@ -441,66 +557,63 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             return true
         }
 
-        if (mouseY in tabsY until tabsY + 12) {
-            tabZones().firstOrNull { mouseX in it.second..it.third }?.let {
-                tab = it.first
+        for ((entry, y) in railZones()) {
+            if (mouseX in frameLeft..(frameLeft + RAIL) && mouseY in y until (y + RAIL_ROW)) {
+                tab = entry
                 scroll = 0
+                return true
             }
-            return true
         }
 
-        if (tab == Tab.RECORDS) return recordsClicked(mouseX, mouseY) || super.mouseClicked(event, doubleClick)
+        if (tab == Tab.RECORDS) {
+            if (mouseY in chipsY until (chipsY + CHIP_H)) {
+                chipHits.firstOrNull { mouseX in it.second..it.third }?.let {
+                    filter = it.first
+                    scroll = 0
+                    return true
+                }
+            }
+            if (mouseY in columnsY until (columnsY + Tokens.SPACE_12)) {
+                columns().firstOrNull { mouseX in it.x0 - Tokens.SPACE_4..it.x1 + Tokens.SPACE_4 }?.let {
+                    // A second click on the same column reverses it; a different column starts in its
+                    // own natural direction rather than inheriting the last one's. `last` and `runs`
+                    // are the two where the interesting end is the large one — most recent, and most
+                    // played — so they open descending and everything else opens with its fastest
+                    // time first.
+                    sortDesc = if (it.sort == sortBy) {
+                        !sortDesc
+                    } else {
+                        it.sort == RecordTable.Sort.LAST || it.sort == RecordTable.Sort.RUNS
+                    }
+                    sortBy = it.sort
+                    scroll = 0
+                    return true
+                }
+            }
+            if (mouseY >= firstRow && mouseY < listBottom) {
+                val index = scroll + (mouseY - firstRow) / TABLE_ROW
+                cachedLines.getOrNull(index)?.let { line ->
+                    expanded = if (expanded == line.row.room) null else line.row.room
+                    return true
+                }
+            }
+            return super.mouseClicked(event, doubleClick)
+        }
 
         val rows = rows()
-        // Same origin the hover band uses, or a click near a row's bottom edge would toggle the row
-        // above the one that is highlighted.
-        val bands = listTop - 3
-        val index = if (mouseY >= bands) (mouseY - bands) / ROW else -1
-        if (mouseX in contentLeft - GUTTER..contentLeft + content + GUTTER && index in rows.indices) {
-            val row = rows[index]
-            if (row.click != null) {
+        val rowHeight = settingRowHeight(rows.size)
+        for ((index, row) in rows.withIndex()) {
+            val y = bodyTop + index * rowHeight
+            if (row.click == null) continue
+            if (mouseX in contentLeft..lastX && mouseY in y until (y + rowHeight)) {
                 stepBack = event.hasShiftDown()
                 row.click.invoke()
+                stepBack = false
                 Config.save()
+                return true
             }
-            return true
         }
         return super.mouseClicked(event, doubleClick)
-    }
-
-    /**
-     * Chips, column headers and rows. Returns whether the click landed on one — unlike before, a
-     * click outside the table falls through instead of being swallowed by the tab.
-     */
-    private fun recordsClicked(mouseX: Int, mouseY: Int): Boolean {
-        if (mouseX !in contentLeft - GUTTER..contentLeft + content + GUTTER) return false
-        build()
-
-        if (mouseY in chipsY until chipsY + 12) {
-            chipZones().firstOrNull { mouseX in it.second..it.third }?.let {
-                filter = it.first
-                scroll = 0
-            }
-            return true
-        }
-
-        if (mouseY in columnsY - 3 until columnsY + ROW - 3) {
-            columns().firstOrNull { mouseX in it.x0 - 4..it.x1 + 4 }?.let {
-                // Same column twice reverses it; a new column starts in its own natural direction.
-                sortDesc = if (it.sort == sortBy) !sortDesc else it.sort == RecordTable.Sort.LAST ||
-                    it.sort == RecordTable.Sort.RUNS
-                sortBy = it.sort
-                scroll = 0
-            }
-            return true
-        }
-
-        val bands = firstRow - 3
-        if (mouseY < bands || mouseY >= listBottom) return false
-        val line = cachedLines.getOrNull((mouseY - bands) / ROW + scroll) ?: return false
-        // Clicking anywhere in the open block closes it again, detail lines included.
-        expanded = if (line.row.room == expanded) null else line.row.room
-        return true
     }
 
     override fun mouseScrolled(mouseX: Double, mouseY: Double, scrollX: Double, scrollY: Double): Boolean {
@@ -545,144 +658,118 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         return true
     }
 
-    /** Tab label hit zones, so drawing and clicking share one layout. */
-    private fun tabZones(): List<Triple<Tab, Int, Int>> {
-        var x = contentLeft
-        return Tab.entries.map { entry ->
-            val label = font.width(entry.label)
-            Triple(entry, x, x + label).also { x += label + 24 }
-        }
-    }
-
-    /** The same for the type chips, counts included — they are part of the click target. */
-    private fun chipZones(): List<Triple<RecordTable.Filter, Int, Int>> {
-        var x = contentLeft
-        return RecordTable.Filter.entries.map { chip ->
-            val label = font.width("${chip.label} ${cachedCounts[chip] ?: 0}")
-            Triple(chip, x, x + label).also { x += label + 14 }
-        }
-    }
-
-    /** Column headers, which are also the sort buttons. `type` only exists while it carries values. */
-    private fun columns(): List<Column> {
-        val left = contentLeft
-        val out = mutableListOf(Column(RecordTable.Sort.ROOM, "room", left, left + font.width("room"), false))
-        if (showType) out.add(Column(RecordTable.Sort.TYPE, "type", typeX, typeX + font.width("type"), false))
-        for ((sort, label, x) in listOf(
-            Triple(RecordTable.Sort.CLEAR, "clear", clearX),
-            Triple(RecordTable.Sort.SECRETS, "secrets", secretsX),
-            Triple(RecordTable.Sort.RUNS, "runs", runsX),
-            Triple(RecordTable.Sort.LAST, "last", lastX),
-        )) {
-            out.add(Column(sort, label, x - font.width(label), x, true))
-        }
-        return out
-    }
-
-    /** Room names stop before the next column rather than running under it. */
-    private fun nameWidth() = (if (showType) typeX else clearX - font.width("0:00.0") - 12) - contentLeft - 8
+    // --- Zones and helpers ------------------------------------------------------------------
 
     /**
-     * The name itself rather than the word "on": this row is the whole disclosure, so what would
-     * leave the machine has to be legible before the click and not only after it.
+     * How tall a settings row may be, given how many there are and how much screen there is.
      *
-     * A name switched on while reports are switched off is sent nowhere, and a row that read like it
-     * was working would be the reason somebody wonders why no leaderboard ever knows them.
+     * At GUI scale 4 a 1080p screen is 270 pixels tall. Ten rows at the comfortable 26 would run
+     * three rows off the bottom, and a switch you cannot reach is not a switch — so the grid
+     * compresses rather than overflowing. It never goes below [SETTING_ROW_MIN], because past that
+     * the label and the control start colliding; a list that long would need scrolling instead, and
+     * the longest tab here is ten rows.
      */
-    private fun uploadName(): String {
-        if (!Config.uploadName) return "off"
-        val name = Minecraft.getInstance().player?.name?.string ?: "on"
-        return if (Config.upload) name else "$name · upload is off"
+    private fun settingRowHeight(count: Int): Int {
+        if (count <= 0) return SETTING_ROW
+        val available = (listBottom - bodyTop) / count
+        return available.coerceIn(SETTING_ROW_MIN, SETTING_ROW)
     }
 
-    private fun hovering(mouseX: Int, mouseY: Int, rowY: Int) =
-        mouseY in rowY - 3 until rowY + ROW - 3 &&
-            mouseX in contentLeft - GUTTER..contentLeft + content + GUTTER
+    private fun railZones(): List<Pair<Tab, Int>> =
+        Tab.entries.mapIndexed { index, entry -> entry to (bodyTop + index * RAIL_ROW) }
 
-    /** A band plus an accent tick in the gutter — quieter than a bright band across the full width. */
-    private fun highlight(graphics: GuiGraphicsExtractor, y: Int, accent: Boolean = false) {
-        graphics.fill(contentLeft - GUTTER, y - 3, contentLeft + content + GUTTER, y + ROW - 3, HOVER)
-        if (accent) graphics.fill(contentLeft - GUTTER, y - 3, contentLeft - GUTTER + 2, y + ROW - 3, ACCENT)
+    private fun columns(): List<Column> = buildList {
+        add(Column(RecordTable.Sort.ROOM, "room", contentLeft, contentLeft + nameWidth(), false))
+        if (showType) add(Column(RecordTable.Sort.TYPE, "type", typeX, typeX + 40, false))
+        add(Column(RecordTable.Sort.CLEAR, "clear", clearX - 40, clearX, true))
+        add(Column(RecordTable.Sort.SECRETS, "secrets", secretsX - 44, secretsX, true))
+        add(Column(RecordTable.Sort.RUNS, "runs", runsX - 28, runsX, true))
+        add(Column(RecordTable.Sort.LAST, "last", lastX - 44, lastX, true))
     }
+
+    private fun nameWidth(): Int = (if (showType) typeX else clearX - 44) - contentLeft - Tokens.SPACE_8
+
+    private fun footer(): String = when {
+        tab != Tab.RECORDS -> "click a row to change it"
+        query.isNotEmpty() -> "esc clears the search"
+        filter != RecordTable.Filter.ALL -> "esc shows every room"
+        else -> "type to search · click a room for its detail"
+    }
+
+    /** The switch shows what would leave the machine, so it is legible before the click. */
+    private fun uploadName(): String = when {
+        !Config.uploadName -> "off"
+        !Config.upload -> "${minecraft.user.name} · but reports are off"
+        else -> minecraft.user.name
+    }
+
+    private fun Boolean.word() = if (this) "on" else "off"
+
+    private fun Int?.time() = this?.let(Format::ticks) ?: Format.MISSING
 
     private fun ago(ts: Long): String {
-        if (ts == 0L) return MISSING
+        if (ts == 0L) return Format.MISSING
         val days = TimeUnit.MILLISECONDS.toDays(System.currentTimeMillis() - ts)
         return when {
-            days <= 0 -> "today"
+            days <= 0L -> "today"
             days == 1L -> "yesterday"
             else -> "${days}d ago"
         }
     }
 
-    private fun Int?.time() = this?.let(DungeonGrid::formatTicks) ?: MISSING
+    private fun right(graphics: GuiGraphicsExtractor, text: String, rightX: Int, y: Int, present: Boolean) {
+        graphics.text(
+            font, text, rightX - font.width(text), y,
+            if (present) Tokens.textPrimary else Tokens.textTertiary, false,
+        )
+    }
 
-    private fun Boolean.word() = if (this) "on" else "off"
-
-    private fun GuiGraphicsExtractor.flat(str: String, x: Int, y: Int, color: Int) =
-        text(font, str, x, y, color, false)
-
-    private fun GuiGraphicsExtractor.right(str: String, rightX: Int, y: Int, color: Int) =
-        text(font, str, rightX - font.width(str), y, color, false)
-
-    private fun GuiGraphicsExtractor.rule(left: Int, y: Int) =
-        fill(left - GUTTER, y, left + content + GUTTER, y + 1, RULE)
-
-    /** Sort direction as a 5x3 triangle of rectangles. */
-    private fun GuiGraphicsExtractor.caret(x: Int, y: Int, down: Boolean) {
-        for (step in 0..2) {
-            val row = if (down) y + step else y + 2 - step
-            fill(x + step, row, x + 5 - step, row + 1, ACCENT)
-        }
+    private fun centred(graphics: GuiGraphicsExtractor, text: String, y: Int, argb: Int) {
+        graphics.text(font, text, contentLeft + (content - font.width(text)) / 2, y, argb, false)
     }
 
     /**
-     * One bar per attempt, oldest on the left, height proportional to the time — so a room you are
-     * getting faster at slopes downwards. Personal bests are the accent ones.
+     * The sort direction, as a caret that rotates between up and down.
      *
-     * [cap] is twice the median: without it a single run where the party wiped would flatten every
-     * other bar to one pixel.
+     * [flip] is `0f` for ascending and `1f` for descending; halfway through it is flat, which is what
+     * makes the reversal read as one control turning over rather than as two glyphs swapping.
      */
-    private fun GuiGraphicsExtractor.spark(x: Int, y: Int, attempts: List<RoomHistory.Attempt>, cap: Int) {
-        for ((index, attempt) in attempts.withIndex()) {
-            val bar = (SPARK_H * attempt.ticks.coerceAtMost(cap) / cap).coerceIn(1, SPARK_H)
-            val barX = x + index * SPARK_PITCH
-            fill(barX, y + SPARK_H - bar, barX + 2, y + SPARK_H, if (attempt.pb) ACCENT else RULE_TEXT)
+    private fun caret(graphics: GuiGraphicsExtractor, x: Int, y: Int, flip: Float) {
+        val lean = (flip - 0.5f) * 2f
+        for (step in 0..2) {
+            val offset = Math.round((step - 1) * lean)
+            val px = x + step * 2
+            graphics.fill(px, y + 3 + offset, px + 2, y + 4 + offset, Tokens.accent)
         }
     }
 
-    companion object {
-        /** Widest the content gets; it shrinks with the window so scale 4 does not clip the table. */
-        private const val CONTENT_MAX = 420
-        private const val GUTTER = 16
-        private const val ROW = 14
-        private const val HEADER_Y = 32
+    /** An 11px uppercase label with tracking, drawn glyph by glyph — the bitmap font has no spacing. */
+    private fun GuiGraphicsExtractor.label(value: String, x: Int, y: Int, argb: Int) {
+        var cursor = x.toFloat()
+        for (i in value.indices) {
+            val glyph = value.substring(i, i + 1)
+            text(font, glyph, Math.round(cursor), y, argb, false)
+            cursor += font.width(glyph) + Tokens.TRACKING_LABEL
+        }
+    }
 
-        private const val DETAIL_INDENT = 12
-        private const val DETAIL_LABEL = 44
+    override fun isPauseScreen(): Boolean = false
 
-        /**
-         * One mark for every kind of missing value, times and dates alike — two different dashes in
-         * adjacent columns read as two different meanings. An en dash rather than a masked `--:--.-`,
-         * because fifty of those under each other are noise; the same one the chat summary already
-         * prints for a teammate's unknown secret count.
-         */
-        private const val MISSING = "–"
+    private companion object {
+        const val MARGIN = 20
+        const val RAIL = 88
+        const val GAP = Tokens.SPACE_24
+        const val CONTENT_MAX = 460
+        const val RAIL_ROW = 24
+        const val SETTING_ROW = 26
+        const val SETTING_ROW_MIN = 14
+        const val TABLE_ROW = 20
+        const val CHIP_H = 18
+        const val DETAIL_INDENT = 16
+        const val DETAIL_LABEL = 44
+        const val SPARK_W = 72
 
-        /** Bars are 2px on a 3px pitch, so the whole progression is 72px wide. */
-        private const val SPARK_MAX = 24
-        private const val SPARK_PITCH = 3
-        private const val SPARK_H = 8
-
-        private val BG = 0xE60B0E13.toInt()
-        private val TEXT = 0xFFE8E8EA.toInt()
-        private val DIM = 0xFF8A8F98.toInt()
-        private val ACCENT = 0xFFFFC13B.toInt() // the same gold a PB gets in chat
-        private val RULE = 0xFF1E232B.toInt()
-        private val RULE_TEXT = 0xFF5C636E.toInt()
-        private val HOVER = 0x0FFFFFFF
-
-        /** Same lookup the uploader stamps its requests with; blank rather than "unknown" in a header. */
+        /** Read from the jar rather than typed, so it cannot disagree with what is actually running. */
         private val VERSION: String = TelemetryUpload.modVersion().takeUnless { it == "unknown" } ?: ""
     }
 }

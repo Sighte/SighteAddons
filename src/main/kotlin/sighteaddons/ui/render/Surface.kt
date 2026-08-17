@@ -27,9 +27,14 @@ internal object Surface {
     fun resolveRadius(radius: Int, width: Int, height: Int): Int {
         val room = minOf(width, height) / 2
         val wanted = if (radius == Tokens.RADIUS_FULL) room else minOf(radius, room)
-        if (wanted < Sheet.RADII[0]) return 0
-        return Sheet.RADII[Sheet.radiusIndex(wanted)]
+        return if (wanted < MIN_RADIUS) 0 else wanted
     }
+
+    /**
+     * Below this a corner is not worth a blit — at one pixel a rounded corner and a square one differ
+     * by a single half-lit pixel, and the fill is both cheaper and sharper.
+     */
+    private const val MIN_RADIUS = 2
 
     /**
      * A filled rounded rectangle: four corner blits plus three fills.

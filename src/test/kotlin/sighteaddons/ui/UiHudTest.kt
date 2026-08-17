@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import sighteaddons.ui.hud.HudSnapshot
+import sighteaddons.ui.render.Sheet
 import sighteaddons.ui.render.Surface
 
 /**
@@ -93,33 +94,45 @@ class UiHudTest {
     // --- Geometry ---------------------------------------------------------------------------
 
     /**
-     * A radius must snap *down* to one the sheet actually carries, and must never exceed half the
-     * shorter side — a corner larger than that overlaps its opposite and the card develops a waist.
+     * A radius is honoured exactly and capped by the box.
+     *
+     * Exactly, not snapped to an authored mask: the masks are shape, not size — each is a quarter disc
+     * filling its tile, so one blitted into an `r x r` box yields radius `r` whatever it was drawn at.
+     * The cap matters because a corner larger than half the shorter side overlaps its opposite and the
+     * card develops a waist.
      */
     @Test
-    fun `radii snap down to an authored value and never overlap`() {
-        // Exact hits stay put.
+    fun `radii are exact and never overlap`() {
         assertEquals(12, Surface.resolveRadius(12, 200, 100))
         assertEquals(4, Surface.resolveRadius(4, 200, 100))
+        assertEquals(10, Surface.resolveRadius(10, 200, 100), "a radius between two masks is still exact")
 
-        // Between two authored radii, take the smaller.
-        assertEquals(8, Surface.resolveRadius(10, 200, 100))
-
-        // Below the smallest authored corner there is no corner at all, which is a square fill.
-        assertEquals(0, Surface.resolveRadius(2, 200, 100))
+        // At one pixel a rounded corner and a square one differ by half a lit pixel; take the fill.
+        assertEquals(0, Surface.resolveRadius(1, 200, 100))
         assertEquals(0, Surface.resolveRadius(0, 200, 100))
 
         // Capped by the box: a 12px-tall row cannot carry a radius-12 corner.
-        assertEquals(4, Surface.resolveRadius(12, 200, 12))
-        assertEquals(0, Surface.resolveRadius(16, 200, 6))
+        assertEquals(6, Surface.resolveRadius(12, 200, 12))
+        assertEquals(3, Surface.resolveRadius(16, 200, 6))
     }
 
-    /** A chip asks for "as round as this allows" and gets a lozenge, never an overlap. */
+    /** A chip asks for "as round as this allows" and must get a true lozenge, never an overlap. */
     @Test
     fun `a full radius resolves to half the shorter side`() {
-        assertEquals(8, Surface.resolveRadius(-1, 200, 20), "half of 20 is 10, snapped down to 8")
-        assertEquals(16, Surface.resolveRadius(-1, 200, 40))
+        assertEquals(10, Surface.resolveRadius(-1, 200, 20), "a 20px pill needs radius 10 exactly")
+        assertEquals(20, Surface.resolveRadius(-1, 200, 40))
         assertEquals(4, Surface.resolveRadius(-1, 9, 200), "width is the shorter side here")
+    }
+
+    /** The mask chosen for a radius is the nearest authored one, so the GPU rescales as little as possible. */
+    @Test
+    fun `the nearest authored mask is used for any radius`() {
+        assertEquals(0, Sheet.radiusIndex(4), "exact")
+        assertEquals(1, Sheet.radiusIndex(8), "exact")
+        assertEquals(1, Sheet.radiusIndex(9), "9 is nearer 8 than 12")
+        assertEquals(2, Sheet.radiusIndex(11), "11 is nearer 12 than 8")
+        assertEquals(3, Sheet.radiusIndex(64), "anything huge takes the largest authored mask")
+        assertEquals(0, Sheet.radiusIndex(1), "anything tiny takes the smallest")
     }
 
     // --- Helpers ----------------------------------------------------------------------------

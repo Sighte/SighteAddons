@@ -53,13 +53,26 @@ internal object Sheet {
     /** The nine-slice border of the shadow region, in texture pixels. */
     const val SHADOW_INSET = 24
 
-    /** Index into [RADII] for the largest authored radius not exceeding [radius]. */
+    /**
+     * Index into [RADII] of the authored mask closest to [radius].
+     *
+     * Closest, not largest-not-exceeding, because the masks are shape rather than size: each is a
+     * quarter disc filling its whole tile, so blitting one into an `r x r` box produces a quarter disc
+     * of radius `r` whatever the mask was authored at. A radius of 10 is therefore exact — the choice
+     * of mask only decides how much the GPU has to rescale, and picking the nearest keeps that
+     * smallest. That is what lets a 20px-tall pill be a real pill rather than a rounded rectangle.
+     */
     fun radiusIndex(radius: Int): Int {
-        var index = 0
+        var best = 0
+        var bestDelta = Int.MAX_VALUE
         for (i in RADII.indices) {
-            if (RADII[i] <= radius) index = i
+            val delta = Math.abs(RADII[i] - radius)
+            if (delta < bestDelta) {
+                bestDelta = delta
+                best = i
+            }
         }
-        return index
+        return best
     }
 
     /**
