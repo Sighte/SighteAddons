@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test
 import sighteaddons.ui.theme.Contrast
 import sighteaddons.ui.theme.Density
 import sighteaddons.ui.theme.Palette
+import sighteaddons.ui.theme.Tokens
 import java.io.File
 
 /**
@@ -111,6 +112,71 @@ class UiThemeTest {
             val ratio = Contrast.ratio(palette.accentText, palette.accent)
             assertTrue(ratio >= Contrast.AA, "${palette.name}: accent pair is %.2f:1".format(ratio))
         }
+    }
+
+    /**
+     * The scrim, which is the only surface in this UI laid over something the mod does not own.
+     *
+     * Everything else here measures text against a surface the theme painted. The HUD card and the two
+     * centred overlays are painted over *the dungeon*, which can be a black corridor or a snow floor
+     * within one room, so the pair that has to hold is text against the scrim composited over both
+     * extremes — and it is a pair no other test in this file can see.
+     *
+     * It failed. `shadow` was doing double duty as the scrim, and a shadow is dark in both ramps by
+     * definition: in `LIGHT` the card was `#3C3F45` at 63 % with `#0A0A0B` text on it, which is
+     * **1.32:1** over a dark dungeon. The card was there and empty. Hence `Palette.scrim`, whose light
+     * value is light, and hence the floor under `Tokens.SCRIM_MIN_PERCENT` — because an opacity the
+     * player can drag to nothing is the same failure with our name on it.
+     *
+     * Both ends are asserted. That the minimum holds is the guarantee; that one percent below it does
+     * not is what makes the minimum a measurement rather than a round number somebody liked.
+     */
+    @Test
+    fun `text on the scrim clears the floor over a dark and a bright world`() {
+        for (palette in listOf(Palette.DARK, Palette.LIGHT)) {
+            val text = mapOf(
+                "textPrimary" to palette.textPrimary,
+                "textSecondary" to palette.textSecondary,
+                "textTertiary" to palette.textTertiary,
+            )
+            for ((worldName, world) in WORLDS) {
+                val backdrop = Contrast.over(
+                    Tokens.alpha(palette.scrim, Tokens.scrimAlpha(Tokens.SCRIM_MIN_PERCENT)),
+                    world,
+                )
+                for ((textName, fg) in text) {
+                    val ratio = Contrast.ratio(fg, backdrop)
+                    assertTrue(
+                        ratio >= Contrast.AA,
+                        "${palette.name}: $textName on the scrim over a $worldName world is %.2f:1"
+                            .format(ratio),
+                    )
+                }
+            }
+        }
+    }
+
+    /** One percent below the floor is under it, which is what makes the floor the floor. */
+    @Test
+    fun `the scrim minimum is the last opacity that holds`() {
+        val below = Tokens.SCRIM_MIN_PERCENT - 1
+        val backdrop = Contrast.over(
+            Tokens.alpha(Palette.LIGHT.scrim, Math.round(below * 255f / 100f)),
+            0xFF000000.toInt(),
+        )
+        val ratio = Contrast.ratio(Palette.LIGHT.textTertiary, backdrop)
+        assertTrue(
+            ratio < Contrast.AA,
+            "%d percent already clears the floor at %.2f:1 — the minimum is higher than it needs to be"
+                .format(below, ratio),
+        )
+
+        // And the clamp is what stops anybody reaching it: the setting is a percentage, not an alpha.
+        assertEquals(
+            Tokens.scrimAlpha(Tokens.SCRIM_MIN_PERCENT), Tokens.scrimAlpha(0),
+            "a scrim dragged to zero must resolve to the floor, not to nothing",
+        )
+        assertEquals(255, Tokens.scrimAlpha(Tokens.SCRIM_MAX_PERCENT))
     }
 
     /**
@@ -261,5 +327,14 @@ class UiThemeTest {
     private companion object {
         /** An eight-digit ARGB literal, and not the leading eight digits of a longer number. */
         val ARGB = Regex("0[xX][0-9a-fA-F]{8}(?![0-9a-fA-F])")
+
+        /**
+         * The two ends of what a dungeon can be behind an overlay.
+         *
+         * Not a realistic pair of screenshots — the extremes, because a scrim that holds at both holds
+         * everywhere between, and one measured against a plausible mid grey would pass while being
+         * unreadable in half the rooms of an actual floor.
+         */
+        val WORLDS = listOf("dark" to 0xFF000000.toInt(), "bright" to 0xFFFFFFFF.toInt())
     }
 }

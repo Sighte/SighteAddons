@@ -1,11 +1,14 @@
 package sighteaddons.ui
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import sighteaddons.RoomHistory
 import sighteaddons.ui.hud.HudRoot
 import sighteaddons.ui.hud.HudSnapshot
+import sighteaddons.ui.render.ScaledText
 import sighteaddons.ui.render.Sheet
 import sighteaddons.ui.render.Surface
 
@@ -28,10 +31,32 @@ class UiHudTest {
     @Test
     fun `a split always carries its sign`() {
         // 84 ticks = 4.2s faster. The minus is U+2212, not a hyphen.
-        assertEquals("−4.2s", Format.delta(-84))
-        assertEquals("+1.8s", Format.delta(36))
-        assertEquals("+0.0s", Format.delta(0), "a dead heat is not an improvement")
+        assertEquals("−0:04.2", Format.delta(-84))
+        assertEquals("+0:01.8", Format.delta(36))
+        assertEquals("+0:00.0", Format.delta(0), "a dead heat is not an improvement")
         assertTrue(Format.delta(-84).startsWith("−"), "must be a real minus sign")
+    }
+
+    /**
+     * One spelling for a duration and one for its sign, across the two surfaces that show a split in
+     * the same second.
+     *
+     * The HUD drew `−2.8s` and chat wrote `-0:02.8` — different minus signs and different clocks for
+     * the same idea, on the same screen. They measure different things (a running time against the
+     * record; by how much a new record beat the old) and that is fine; being written in two notations
+     * is not, because nothing tells the reader they are the same kind of number. So the magnitude is
+     * `DungeonGrid.formatTicks` like every other duration this mod prints, and the sign is the one
+     * minus `Chat.FIELD` picked its separator against.
+     */
+    @Test
+    fun `the hud and chat spell a split the same way`() {
+        val hud = Format.delta(-56)
+        val chat = RoomHistory.pbSuffix(previous = 880, ticks = 824).string
+
+        assertEquals("−0:02.8", hud)
+        assertTrue(chat.endsWith("−0:02.8"), "chat wrote '$chat'")
+        assertFalse(chat.contains('-'), "an ASCII hyphen is the other notation, and there is only one")
+        assertTrue(RoomHistory.pbSuffix(previous = null, ticks = 824).string.endsWith("first"))
     }
 
     /** No record, or no time yet, is not a delta of zero — it is the absence of one. */
@@ -149,7 +174,10 @@ class UiHudTest {
     @Test
     fun `nothing in the room block overlaps anything else`() {
         val clockTop = HudRoot.CLOCK_Y
-        val clockBottom = clockTop + Math.round(HudRoot.TEXT_LINE * HudRoot.CLOCK_SCALE)
+        // Through ScaledText, which is where the doubling now lives — the card had a second copy of
+        // that constant, and the point of this test is that the block's arithmetic matches what is
+        // drawn rather than what a neighbouring constant says.
+        val clockBottom = clockTop + Math.round(HudRoot.TEXT_LINE * ScaledText.SCALE)
         val nameBottom = HudRoot.NAME_Y + HudRoot.TEXT_LINE
         val deltaBottom = HudRoot.DELTA_Y + HudRoot.TEXT_LINE
 

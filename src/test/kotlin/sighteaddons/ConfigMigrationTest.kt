@@ -147,6 +147,74 @@ class ConfigMigrationTest {
         assertEquals(screenH * 2 - cardH, wide.y)
     }
 
+    /**
+     * A hand-broken `config.json` costs the key it is in and nothing else — above all not the identity.
+     *
+     * This is the expensive one, and it is not a hypothetical: `Config.hypixelKey` has no UI at all and
+     * its own documentation tells the player to edit it into the file by hand, so somebody typing in
+     * this file is a supported path and a misplaced quote is what happens on it. `Config.read` calls
+     * `migrate` as its very first statement, and `asInt` throws on a string, on a null and on an
+     * object — so one bad `version` used to take the *whole* read down into the catch-all. `installId`
+     * would then be blank, `Config.load` would mint a new UUID and save it, and every run this install
+     * has ever uploaded would be orphaned on the receiver with no way back: the old id was only in the
+     * file that had just been overwritten. There is no error to read and nothing to undo.
+     *
+     * So none of these throw, and a version nobody can parse reads as 0 — which is a redundant
+     * migration pass and idempotent, where the alternative is a lost history.
+     */
+    @Test
+    fun `a version of the wrong shape reads as zero instead of throwing`() {
+        for (broken in listOf("\"x\"", "null", "{}", "[]", "true")) {
+            val obj = JsonParser.parseString("""{"version":$broken,"hudX":40,"hudY":20}""").asJsonObject
+            assertEquals(0, ConfigMigration.versionOf(obj), "version $broken")
+
+            // And it still migrates, rather than being stuck behind a version it cannot read.
+            val migrated = ConfigMigration.migrate(obj, screenW, screenH, cardW, cardH)
+            assertEquals(1, ConfigMigration.versionOf(migrated), "version $broken did not migrate")
+        }
+
+        // A number written as a string is still a number, which is what a hand-edited file often has.
+        assertEquals(1, ConfigMigration.versionOf(JsonParser.parseString("""{"version":"1"}""").asJsonObject))
+        assertEquals(0, ConfigMigration.versionOf(JsonObject()), "no version at all is version 0")
+    }
+
+    /** The same rule on the position keys: an unreadable one is a key nobody set. */
+    @Test
+    fun `an unreadable position falls back to the default rather than throwing`() {
+        val obj = JsonParser.parseString("""{"hudX":"left","hudY":null,"installId":"abc-123"}""").asJsonObject
+        val migrated = ConfigMigration.migrate(obj, screenW, screenH, cardW, cardH)
+
+        assertEquals(HudPlacement.DEFAULT_ANCHOR.name, migrated.get("hudAnchor").asString)
+        assertEquals(HudPlacement.DEFAULT_OFFSET, migrated.get("hudOffsetX").asInt)
+        assertEquals(HudPlacement.DEFAULT_OFFSET, migrated.get("hudOffsetY").asInt)
+        assertEquals("abc-123", migrated.get("installId").asString, "the identity survives a broken neighbour")
+    }
+
+    /**
+     * The typed readers `Config` goes through, on every shape a hand-edited file can hold.
+     *
+     * A boolean is the one worth spelling out: Gson reads `"hud": "yes"` as `false` rather than
+     * throwing, which is worse than a throw — the HUD switches itself off and looks like a setting
+     * somebody made. So only a real boolean counts and everything else is "nobody set this".
+     */
+    @Test
+    fun `a value of the wrong type reads as unset`() {
+        val obj = JsonParser.parseString(
+            """{"hud":"yes","stormCountdownTicks":{},"hypixelKey":[],"installId":null}""",
+        ).asJsonObject
+
+        assertTrue(ConfigMigration.boolOr(obj, "hud", true), "a string is not a switch anybody set")
+        assertFalse(ConfigMigration.boolOr(obj, "hud", false), "and the fallback is what wins, either way")
+        assertEquals(138, ConfigMigration.intOr(obj, "stormCountdownTicks", 138))
+        assertEquals("", ConfigMigration.stringOr(obj, "hypixelKey", ""))
+        assertEquals("keep-me", ConfigMigration.stringOr(obj, "installId", "keep-me"))
+
+        val good = JsonParser.parseString("""{"hud":false,"stormCountdownTicks":90,"installId":"id"}""").asJsonObject
+        assertFalse(ConfigMigration.boolOr(good, "hud", true), "a real boolean is still read")
+        assertEquals(90, ConfigMigration.intOr(good, "stormCountdownTicks", 138))
+        assertEquals("id", ConfigMigration.stringOr(good, "installId", ""))
+    }
+
     // --- Placement --------------------------------------------------------------------------
 
     /**

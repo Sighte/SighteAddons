@@ -75,6 +75,18 @@ internal class HudSnapshot(
     val inRoom: Boolean get() = roomName.isNotEmpty()
 
     /**
+     * [roomName] as the card draws it, uppercased here rather than on the render path.
+     *
+     * A `val` with an initialiser and not a `get()`: this is computed once, when the tick builds the
+     * snapshot, which is twenty times a second at most. `uppercase()` allocates a `String` every time
+     * it is called, and the caller calling it was the HUD's largest per-frame allocation at 240 fps —
+     * `Labels.draw` says in its own note that it does not uppercase for exactly this reason, and its
+     * one HUD caller then did it anyway. This is where the string belongs: on the thing that is built
+     * once per change, not on the thing that runs once per frame.
+     */
+    val roomNameUpper: String = roomName.uppercase()
+
+    /**
      * Split against the room's clear record, or [Format.NONE] when there is nothing to compare to.
      *
      * Measured against time *in the room*, which is what `RoomHistory` stores under `clear` — not the

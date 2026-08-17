@@ -10,10 +10,10 @@ import sighteaddons.ui.motion.Clock
 import sighteaddons.ui.motion.Easing
 import sighteaddons.ui.motion.Motion
 import sighteaddons.ui.render.Effects
+import sighteaddons.ui.render.ScaledText
 import sighteaddons.ui.render.Surface
 import sighteaddons.ui.theme.Density
 import sighteaddons.ui.theme.Tokens
-import java.util.Locale
 
 /**
  * The in-run overlay.
@@ -51,9 +51,27 @@ internal class HudRoot {
     private val roomClock = Format.Cached()
     private val secretClock = Format.Cached()
     private val clearDelta = Format.Cached(Format::delta)
-    private val idleClock = Format.Cached()
-    private val navClock = Format.Cached()
     private val historyClocks = Array(HudSnapshot.HISTORY_DEPTH) { Format.Cached() }
+
+    // The rest of what this card says, on the same argument as the clocks above. Every one of these
+    // was a string template or a `String.format` evaluated per line per frame — at 240 fps, for values
+    // that change at most twenty times a second, and most of them once a room. `TODO.md` states the
+    // reachable target as zero allocation *on our side*; these are what stood between here and it.
+    private val counts = Format.Cached2 { found, total -> "$found/${if (total > 0) total else "?"}" }
+    private val ownCount = Format.Cached { "$it you" }
+    // One cache for the whole line rather than one per clock in it: two cached halves still have to be
+    // concatenated, and the concatenation is the allocation.
+    private val idleLine = Format.Cached2 { idle, nav -> "idle ${Format.ticks(idle)}   nav ${Format.ticks(nav)}" }
+    private val standingPoints = Array(STANDINGS_CAP) { Format.Cached(Format::points) }
+    private val roomNameFit = Labels.Fitter()
+    private val historyNames = Array(HudSnapshot.HISTORY_DEPTH) { Trimmed() }
+
+    // The run summary mixes a name with two counts, which is one shape more than Format.Cached2 covers
+    // and not worth a class of its own for one call site.
+    private var summaryFloor = ""
+    private var summaryRooms = Int.MIN_VALUE
+    private var summarySecrets = Int.MIN_VALUE
+    private var summaryText = ""
 
     /** Whether the run totals are open. Toggled by [HudKeys], animated here. */
     private var expanded = false
@@ -199,7 +217,10 @@ internal class HudRoot {
      */
     internal fun measure(snapshot: HudSnapshot): Int {
         var height = PADDING * 2
-        height += ROOM_BLOCK
+        // The same condition as `drawCurrentRoom`'s, and it has to be: a block measured but not drawn
+        // is a hole in the card, and one drawn but not measured is a row over the border. The switch
+        // was read nowhere at all before this — `/sa` saved it, the file kept it, and the block stayed.
+        if (Config.showRoom) height += ROOM_BLOCK
         if (Config.showSecrets) height += SECRETS_BLOCK
         if (snapshot.history.isNotEmpty()) height += Tokens.SPACE_6 + snapshot.history.size * ROW
         if (Config.showStandings || Config.showIdle) {
@@ -216,8 +237,10 @@ internal class HudRoot {
 
     private fun drawCard(graphics: GuiGraphicsExtractor, x: Int, y: Int, height: Int, appear: Float) {
         // The scrim is the backdrop, and it is opacity-configurable because how much of the dungeon a
-        // player wants to see through it is genuinely personal.
-        val scrim = Tokens.alpha(Tokens.shadow, Math.round(scrimAlpha() * appear))
+        // player wants to see through it is genuinely personal. Its own token and not `shadow`: a
+        // shadow is dark in both ramps, and a backdrop the light ramp's near-black text has to be
+        // read on cannot be. See Palette.scrim.
+        val scrim = Tokens.alpha(Tokens.scrim, Math.round(scrimAlpha() * appear))
         Surface.roundedFill(graphics, x, y, WIDTH, height, Tokens.RADIUS_CARD, scrim)
         Surface.roundedBorder(
             graphics, x, y, WIDTH, height, Tokens.RADIUS_CARD,
@@ -230,6 +253,7 @@ internal class HudRoot {
         graphics: GuiGraphicsExtractor, font: Font, snapshot: HudSnapshot,
         x: Int, y: Int, appear: Float,
     ): Int {
+        if (!Config.showRoom) return y
         val left = x + PADDING
         val right = x + WIDTH - PADDING
 
@@ -243,16 +267,18 @@ internal class HudRoot {
         // The clock is drawn first and measured before anything else is placed, because it is the
         // largest element on the card and everything else has to fit around it rather than beside a
         // guess at its width. It spans both text rows on the right; the name and the split share the
-        // left. Scaled through the pose because the bundled TTF is not in yet and the bitmap font has
-        // exactly one size — which is also why these digits are not yet truly tabular.
+        // left.
+        //
+        // Through [ScaledText] rather than its own pose: that file is where "the bitmap font has one
+        // size, so the only way up is a whole-number pose scale" is written down, and it names this
+        // clock as one of its three users. A second copy of the push/translate/scale/pop is a second
+        // place the rule "never a border inside the scaled scope" has to be remembered.
         val clock = roomClock.of(snapshot.roomTicks)
-        val clockWidth = Math.round(font.width(clock) * CLOCK_SCALE)
-        val pose = graphics.pose()
-        pose.pushMatrix()
-        pose.translate((right - clockWidth).toFloat(), (y + CLOCK_Y).toFloat())
-        pose.scale(CLOCK_SCALE, CLOCK_SCALE)
-        graphics.text(font, clock, 0, 0, Tokens.fade(Tokens.textPrimary, appear), false)
-        pose.popMatrix()
+        val clockWidth = ScaledText.width(font, clock)
+        ScaledText.draw(
+            graphics, font, clock, right - clockWidth, y + CLOCK_Y,
+            Tokens.fade(Tokens.textPrimary, appear),
+        )
 
         // The active-room mark breathes. One of only two ambient loops allowed on screen at once.
         val breathing = Effects.breathe() * appear
@@ -264,7 +290,7 @@ internal class HudRoot {
         val nameLeft = left + Glyphs.SIZE + Tokens.SPACE_6
         val nameRoom = right - clockWidth - Tokens.SPACE_8 - nameLeft
         Labels.draw(
-            graphics, font, Labels.fit(font, snapshot.roomName.uppercase(), nameRoom),
+            graphics, font, roomNameFit.of(font, snapshot.roomNameUpper, nameRoom),
             nameLeft, y + NAME_Y,
             Tokens.fade(Tokens.textPrimary, appear),
         )
@@ -292,11 +318,11 @@ internal class HudRoot {
         val right = x + WIDTH - PADDING
         val total = snapshot.secretsTotal
 
-        val counts = "${snapshot.secretsFound}/${if (total > 0) total else "?"}"
-        val own = "${snapshot.ownSecrets} you"
-        graphics.text(font, counts, left, y + COUNTS_Y, Tokens.fade(Tokens.textPrimary, appear), false)
+        val found = counts.of(snapshot.secretsFound, total)
+        val own = ownCount.of(snapshot.ownSecrets)
+        graphics.text(font, found, left, y + COUNTS_Y, Tokens.fade(Tokens.textPrimary, appear), false)
         graphics.text(
-            font, own, left + font.width(counts) + Tokens.SPACE_8, y + COUNTS_Y,
+            font, own, left + font.width(found) + Tokens.SPACE_8, y + COUNTS_Y,
             Tokens.fade(Tokens.textTertiary, appear), false,
         )
 
@@ -336,7 +362,7 @@ internal class HudRoot {
             val row = snapshot.history[i]
             // Receding opacity is what makes this read as history rather than as four equal rooms.
             val recede = RECEDE[if (i < RECEDE.size) i else RECEDE.size - 1] * appear
-            val name = font.plainSubstrByWidth(row.name, right - left - 52)
+            val name = historyNames[i].of(font, row.name, right - left - 52)
             graphics.text(font, name, left, cursor, Tokens.fade(Tokens.textSecondary, recede), false)
 
             val time = historyClocks[i].of(row.ticks)
@@ -380,7 +406,7 @@ internal class HudRoot {
         var cursor = y + Tokens.SPACE_6
 
         val floor = if (snapshot.floor.isEmpty()) "?" else snapshot.floor
-        val summary = "$floor · ${snapshot.roomsCleared} rooms · ${snapshot.runOwnSecrets} secrets"
+        val summary = summary(floor, snapshot.roomsCleared, snapshot.runOwnSecrets)
         graphics.text(font, summary, left, cursor, Tokens.fade(Tokens.textTertiary, appear), false)
 
         val run = runClock.of(snapshot.runTicks)
@@ -401,7 +427,13 @@ internal class HudRoot {
         if (Config.showStandings) {
             for (i in snapshot.standings.indices) {
                 val standing = snapshot.standings[i]
-                val points = String.format(Locale.ROOT, "%.2f", standing.points)
+                // Hundredths, so the cache is keyed on the number the reader can actually see. Keying
+                // on the raw Double would rebuild the string on every point of a fractional split.
+                val points = if (i < STANDINGS_CAP) {
+                    standingPoints[i].of(Format.hundredths(standing.points))
+                } else {
+                    Format.points(Format.hundredths(standing.points))
+                }
                 graphics.text(
                     font, points, left, cursor - slide,
                     Tokens.fade(Tokens.textSecondary, alpha), false,
@@ -415,7 +447,7 @@ internal class HudRoot {
         }
 
         if (Config.showIdle) {
-            val idle = "idle ${idleClock.of(snapshot.idleTicks)}   nav ${navClock.of(snapshot.navTicks)}"
+            val idle = idleLine.of(snapshot.idleTicks, snapshot.navTicks)
             graphics.text(font, idle, left, cursor - slide, Tokens.fade(Tokens.textTertiary, alpha), false)
             cursor += ROW
         }
@@ -423,8 +455,49 @@ internal class HudRoot {
         return cursor
     }
 
-    /** Config carries the scrim's opacity as a percentage; the spec's default range is 55–70 %. */
-    private fun scrimAlpha(): Int = 160
+    /**
+     * A history row's name, cut to the width beside its clock and held while neither has moved.
+     *
+     * `Font.plainSubstrByWidth` builds a measuring sink on every call whether or not it ends up cutting
+     * anything, and a finished room's name does not change until the row scrolls off the card. Its own
+     * class rather than [Labels.Fitter] because these rows are drawn as plain text: there is no
+     * tracking between the glyphs, so measuring them as though there were would cut a name short of
+     * the space it actually has.
+     */
+    private class Trimmed {
+        private var source = ""
+        private var width = Int.MIN_VALUE
+        private var text = ""
+
+        fun of(font: Font, value: String, maxWidth: Int): String {
+            if (maxWidth != width || value != source) {
+                source = value
+                width = maxWidth
+                text = if (maxWidth <= 0) "" else font.plainSubstrByWidth(value, maxWidth)
+            }
+            return text
+        }
+    }
+
+    /** The run summary line, rebuilt only when one of the three things it states changes. */
+    private fun summary(floor: String, rooms: Int, secrets: Int): String {
+        if (rooms != summaryRooms || secrets != summarySecrets || floor != summaryFloor) {
+            summaryFloor = floor
+            summaryRooms = rooms
+            summarySecrets = secrets
+            summaryText = "$floor · $rooms rooms · $secrets secrets"
+        }
+        return summaryText
+    }
+
+    /**
+     * The scrim's opacity, as the player set it.
+     *
+     * [Config.hudScrim] carries it as a percentage and [Tokens.scrimAlpha] is what turns that into an
+     * alpha and holds it inside the range the 4.5:1 floor survives — the clamp is deliberately not
+     * here, because the number it clamps to is a property of the palette rather than of this card.
+     */
+    private fun scrimAlpha(): Int = Tokens.scrimAlpha(Config.hudScrim)
 
     companion object {
         /** The one attached to the HUD element. */
@@ -453,7 +526,15 @@ internal class HudRoot {
         /** Vanilla's bitmap font. Every row below is placed against this. */
         const val TEXT_LINE = 9
 
-        const val CLOCK_SCALE = 2f
+        /**
+         * How many standings rows get a cache of their own.
+         *
+         * A dungeon party is five, and the roster this reads from cannot exceed it — but the array is
+         * a fixed allocation and a sixth row must not index off the end of it, so the loop falls back
+         * to formatting rather than to a crash. One row reformatting per frame in a case that cannot
+         * happen is the right price for not having to be certain that it cannot.
+         */
+        private const val STANDINGS_CAP = 5
 
         /** Where the clock's top edge sits inside the room block. */
         const val CLOCK_Y = 2

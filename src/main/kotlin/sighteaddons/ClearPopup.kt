@@ -79,13 +79,18 @@ object ClearPopup {
     private const val PAD_Y = Tokens.SPACE_6
 
     /**
-     * The scrim behind the line, matching the HUD card's.
+     * The scrim behind the line, matching the HUD card's — and now literally the same one.
      *
      * A scrim and not a blur, for the reason the HUD gives at length: `blurBeforeThisStratum()` blurs
      * everything already submitted — world, hotbar, health, hunger — and this element is attached
      * after the vanilla overlay message. There is no shaped backdrop available at all.
+     *
+     * It reads [Config.hudScrim] rather than a constant of its own because "matching the HUD card's"
+     * was already the claim, and a claim that holds until the player moves one slider is not one. Three
+     * separately-set opacities on three chips that appear within a second of each other would read as
+     * three different surfaces.
      */
-    private const val SCRIM_ALPHA = 160
+    private fun scrimAlpha(): Int = Tokens.scrimAlpha(Config.hudScrim)
 
     /** Spelled out rather than a glyph: a word survives a screenshot, a scale change and a reader. */
     private const val BADGE = "PB"
@@ -198,14 +203,25 @@ object ClearPopup {
 
         // Measured before anything is placed, because the chip is centred and every piece inside it
         // is positioned from the left edge that measurement decides.
+        //
+        // The chevron and the badge are fixed — they are there or they are not — so the screen's limit
+        // falls entirely on the two text runs, and the detail is served first. That order is the
+        // judgement here: the popup fires because *you* just finished *this* room, so which room it
+        // was is the half you already know and how long it took is the half that is news. The badge is
+        // never given up at all; a record that arrives without its `PB` is the one reading this whole
+        // chip exists to deliver.
         val markWidth = if (pb) Glyphs.SIZE + Tokens.SPACE_6 else 0
-        val nameWidth = ScaledText.width(font, name)
-        val detailWidth = ScaledText.width(font, detail)
         val badgeWidth = if (pb) Tokens.SPACE_8 + ScaledText.width(font, BADGE) else 0
+
+        val budget = textBudget(screenWidth, markWidth, badgeWidth)
+        val fittedDetail = ScaledText.fit(font, detail, budget)
+        val detailWidth = ScaledText.width(font, fittedDetail)
+        val fittedName = ScaledText.fit(font, name, budget - detailWidth)
+        val nameWidth = ScaledText.width(font, fittedName)
 
         val width = PAD_X * 2 + markWidth + nameWidth + Tokens.SPACE_8 + detailWidth + badgeWidth
         val height = ScaledText.HEIGHT + PAD_Y * 2
-        val left = (screenWidth - width) / 2
+        val left = leftEdge(screenWidth, width)
         val top = screenHeight / 2 + OFFSET_Y - PAD_Y
         val textTop = top + PAD_Y
 
@@ -216,7 +232,7 @@ object ClearPopup {
         val radius = Surface.resolveRadius(Tokens.RADIUS_CHIP, width, height)
         Surface.roundedFill(
             graphics, left, top, width, height, radius,
-            Tokens.alpha(Tokens.shadow, Math.round(SCRIM_ALPHA * appear)),
+            Tokens.alpha(Tokens.scrim, Math.round(scrimAlpha() * appear)),
         )
         Surface.roundedBorder(
             graphics, left, top, width, height, radius,
@@ -235,12 +251,37 @@ object ClearPopup {
             x += markWidth
         }
 
-        ScaledText.draw(graphics, font, name, x, textTop, Tokens.fade(Tokens.textPrimary, appear))
+        ScaledText.draw(graphics, font, fittedName, x, textTop, Tokens.fade(Tokens.textPrimary, appear))
         x += nameWidth + Tokens.SPACE_8
-        ScaledText.draw(graphics, font, detail, x, textTop, Tokens.fade(Tokens.textSecondary, appear))
+        ScaledText.draw(graphics, font, fittedDetail, x, textTop, Tokens.fade(Tokens.textSecondary, appear))
         if (pb) {
             x += detailWidth + Tokens.SPACE_8
             ScaledText.draw(graphics, font, BADGE, x, textTop, Tokens.fade(Tokens.textPrimary, appear))
         }
     }
+
+    /**
+     * The GUI pixels the room name and the detail have to share on a [screenWidth]-wide screen.
+     *
+     * Everything else on the chip is fixed — two paddings, the gap between the two runs, and the
+     * chevron and badge when there is a record — so this is what is left, and never less than nothing.
+     *
+     * There was no budget at all before this. The chip took whatever width its text asked for and was
+     * centred by `(screenWidth - width) / 2`, so a wide line simply produced a **negative** left edge:
+     * at GUI scale 4 on a 1366×768 window the screen is 342 px, and `Cobble Wall Pillar` — the longest
+     * name in Odin's database — with its detail and a `PB` measures about 439 px at this scale. The
+     * name ran off the left of the screen and the badge off the right, which is the one reading the
+     * player was owed.
+     */
+    internal fun textBudget(screenWidth: Int, markWidth: Int, badgeWidth: Int): Int =
+        (screenWidth - PAD_X * 2 - markWidth - Tokens.SPACE_8 - badgeWidth).coerceAtLeast(0)
+
+    /**
+     * Where a chip [width] wide starts on a [screenWidth]-wide screen: centred, and never off the left.
+     *
+     * The clamp is the second half of the fix and not a redundant one. [textBudget] keeps the text
+     * inside the screen, but the padding and the chevron are not text and a screen narrower than those
+     * alone still exists — a 60 px GUI-scaled window is legal and vanilla will hand it over.
+     */
+    internal fun leftEdge(screenWidth: Int, width: Int): Int = ((screenWidth - width) / 2).coerceAtLeast(0)
 }

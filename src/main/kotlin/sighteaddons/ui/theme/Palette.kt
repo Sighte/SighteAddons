@@ -46,8 +46,22 @@ internal class Palette(
     /** What sits legibly on top of [accent] — the opposite extreme. */
     val accentText: Int,
 
-    /** Scrim behind HUD text, and the base of every drop shadow. */
+    /** The base of every drop shadow. Always the dark end, because a shadow is an absence of light. */
     val shadow: Int,
+
+    /**
+     * The backdrop laid under HUD and overlay text, over whatever the world happens to be.
+     *
+     * **Its own token rather than [shadow] reused, because the two want opposite things in a light
+     * ramp.** A shadow is dark in both themes — that is what a shadow is. A scrim is a *surface* the
+     * theme's own text has to be readable on, so in the light ramp it has to be light: with `shadow`
+     * standing in for it, `LIGHT`'s `#0A0A0B` text sat on a `#3C3F45` wash and measured **1.32:1**
+     * against a dark dungeon. The card was there and empty.
+     *
+     * Opaque values, laid down at the opacity `Tokens.scrimAlpha` resolves — the alpha is the setting
+     * and belongs to the caller, not to the ramp.
+     */
+    val scrim: Int,
     /** The 1px inner top highlight that sells a raised surface without a hue. Translucent. */
     val highlight: Int,
 ) {
@@ -92,6 +106,7 @@ internal class Palette(
             accent = 0xFFFFFFFF.toInt(),
             accentText = 0xFF0A0A0B.toInt(),
             shadow = 0xFF000000.toInt(),
+            scrim = 0xFF000000.toInt(),
             highlight = 0x0FFFFFFF,
         )
 
@@ -118,6 +133,11 @@ internal class Palette(
             accent = 0xFF0A0A0B.toInt(),
             accentText = 0xFFFAFAFA.toInt(),
             shadow = 0xFF3C3F45.toInt(),
+            // Pure white rather than `surfaceBase`: this is the only surface in the ramp that has to
+            // carry text over an unknown backdrop, and every step it is darkened is a step the world
+            // underneath shows through. The floor in `Tokens.SCRIM_MIN_PERCENT` is computed against
+            // this value, and a darker one would push that floor past fully opaque.
+            scrim = 0xFFFFFFFF.toInt(),
             highlight = 0x99FFFFFF.toInt(),
         )
     }
