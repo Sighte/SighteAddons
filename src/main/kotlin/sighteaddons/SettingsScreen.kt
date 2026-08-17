@@ -115,6 +115,14 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     /** Whether the card is currently held. Only true between a press on it and the release. */
     private var dragging = false
 
+    /**
+     * Whether the scrim slider is currently held.
+     *
+     * Separate from [dragging], which belongs to the placement editor and is a different mode of the
+     * screen entirely — one field for both would make a release during placement write the scrim.
+     */
+    private var sliderHeld = false
+
     /** Where inside the card it was grabbed, so it does not jump to meet the cursor. */
     private var grabX = 0
     private var grabY = 0
@@ -247,6 +255,16 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     /** The key field's box. Derived, so [mouseClicked] hit-tests the rectangle it is drawn in. */
     private val fieldWidth get() = minOf(FIELD_MAX, content * 60 / 100)
     private val fieldX get() = lastX - fieldWidth
+
+    /**
+     * The scrim slider's track, hard against the right edge like every other control on a row.
+     *
+     * Derived rather than remembered from the draw for the same reason the field's box is, and it
+     * matters more here: the knob is grabbed by its middle, so `Slider.fractionAt` measures against the
+     * knob's *travel* rather than the track's width, and a hit test built from a second copy of the
+     * geometry would reach the maximum a knob-width before the drawing does.
+     */
+    private val sliderX get() = lastX - SLIDER_WIDTH
 
     /** The `type` column is redundant once a type chip is active — it would repeat that one word. */
     private val showType get() = filter == RecordTable.Filter.ALL
@@ -462,6 +480,23 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
                     item.value, item.fraction.coerceIn(0f, 1f),
                     minusHover = Controls.hover(anim.of("minus.${item.label}"), arm < 0),
                     plusHover = Controls.hover(anim.of("plus.${item.label}"), arm > 0),
+                )
+            }
+
+            SettingsPage.Kind.SLIDER -> {
+                // Snapped while held and sprung otherwise. A spring under the cursor is a knob that
+                // trails the hand that is moving it, which reads as the control resisting; a click on
+                // the bare track, where there is no hand to keep up with, is exactly where the spring
+                // belongs.
+                val travel = anim.spring("slider.${item.label}", item.fraction)
+                if (sliderHeld) travel.snapTo(item.fraction) else travel.springTo(item.fraction, Motion.BASE)
+                graphics.text(
+                    font, item.value, sliderX - Tokens.SPACE_8 - font.width(item.value), textY,
+                    Controls.blend(Tokens.textSecondary, Tokens.textPrimary, hover), false,
+                )
+                Slider.draw(
+                    graphics, sliderX, y + (rowHeight - Slider.HEIGHT) / 2, SLIDER_WIDTH, Slider.HEIGHT,
+                    travel.value, hover = hover, active = sliderHeld,
                 )
             }
 
@@ -786,6 +821,18 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             HudRoot.editing = true
         }
         note("the offset counts inward from the anchor")
+        // The one control on this screen that is a sweep rather than a correction, which is the whole
+        // of `Stepper` against `Slider`: nobody has a number in mind for a backdrop, they move it until
+        // the dungeon behind it looks right.
+        //
+        // **The bounds are read from Tokens and never written here.** The floor is not taste — it is
+        // where `textTertiary` on this scrim over a white world stops clearing 4.5:1, measured, and
+        // pinned in UiThemeTest. Offering 0..100 and clamping on the way in would be a control that
+        // visibly travels somewhere it does not stay, which is worse than a short one.
+        slider("scrim", Config.hudScrim, Tokens.SCRIM_MIN_PERCENT, Tokens.SCRIM_MAX_PERCENT) {
+            Config.hudScrim = it
+        }
+        note("how much of the dungeon shows through the card")
 
         section("lines on the card")
         toggle("current room", Config.showRoom) { Config.showRoom = !Config.showRoom }
@@ -953,6 +1000,27 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         SettingsPage.Item(
             SettingsPage.Kind.STEPPER, label, StormTimer.ticksLabel(value),
             fraction = Slider.fractionOf(value, min, max), step = step,
+        ),
+    )
+
+    /**
+     * A percentage swept between two bounds the caller owns.
+     *
+     * [min] and [max] are parameters and are converted here, so the only thing that ever crosses into
+     * the drawing is a `0f..1f` — no part of this screen holds a copy of a limit that was measured
+     * somewhere else and can move when the palette does.
+     */
+    private fun MutableList<SettingsPage.Item>.slider(
+        label: String,
+        value: Int,
+        min: Int,
+        max: Int,
+        set: (Int) -> Unit,
+    ) = add(
+        SettingsPage.Item(
+            SettingsPage.Kind.SLIDER, label, "$value %",
+            fraction = Slider.fractionOf(value, min, max),
+            slide = { set(Slider.valueAt(min, max, it)) },
         ),
     )
 
@@ -1162,6 +1230,17 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
                 return true
             }
 
+            // No save here, and that is the point: the file is written on release, the same decision
+            // `mouseReleased` makes about the placement drag. A sweep across the track is a hundred
+            // frames, and a hundred writes of a config nobody has finished choosing.
+            SettingsPage.Kind.SLIDER -> {
+                if (mouseX >= sliderX) {
+                    sliderHeld = true
+                    item.slide?.invoke(Slider.fractionAt(sliderX, SLIDER_WIDTH, mouseX))
+                }
+                return true
+            }
+
             SettingsPage.Kind.TOGGLE, SettingsPage.Kind.ACTION -> {
                 item.click?.invoke()
                 Config.save()
@@ -1193,16 +1272,32 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     }
 
     override fun mouseDragged(event: MouseButtonEvent, dragX: Double, dragY: Double): Boolean {
-        if (!dragging) return super.mouseDragged(event, dragX, dragY)
-        dragTo(event.x().toInt(), event.y().toInt())
-        return true
+        if (dragging) {
+            dragTo(event.x().toInt(), event.y().toInt())
+            return true
+        }
+        if (sliderHeld) {
+            // The item is found again rather than remembered from the press. Items are rebuilt every
+            // frame — they close over live config — so a held reference would be a lambda writing a
+            // value that was read before the drag started.
+            pageItems().firstOrNull { it.kind == SettingsPage.Kind.SLIDER }
+                ?.slide?.invoke(Slider.fractionAt(sliderX, SLIDER_WIDTH, event.x().toInt()))
+            return true
+        }
+        return super.mouseDragged(event, dragX, dragY)
     }
 
     /**
-     * Dropping it. Saved here rather than on every frame of the drag: [Config.save] writes the file,
-     * and a drag across the screen is a hundred writes of a config nobody asked to have written yet.
+     * Dropping it — the card, or the slider knob. Saved here rather than on every frame of the drag:
+     * [Config.save] writes the file, and a drag across the screen is a hundred writes of a config
+     * nobody asked to have written yet.
      */
     override fun mouseReleased(event: MouseButtonEvent): Boolean {
+        if (sliderHeld) {
+            sliderHeld = false
+            Config.save()
+            return true
+        }
         if (!dragging) return super.mouseReleased(event)
         dragging = false
         Config.save()
@@ -1445,6 +1540,15 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
 
         /** The key field's widest form. Beyond this it is a very long box for a 36-character string. */
         const val FIELD_MAX = 220
+
+        /**
+         * The scrim slider's track.
+         *
+         * Fixed rather than a fraction of the content column, because the range it spans is thirteen
+         * whole percents: at 120 pixels each of them is ten pixels of travel, which is a step a hand can
+         * land on. Widening it with the window would only make the same thirteen stops further apart.
+         */
+        const val SLIDER_WIDTH = 120
 
         /**
          * The longest key the field will hold.

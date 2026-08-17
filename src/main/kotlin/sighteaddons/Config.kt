@@ -63,9 +63,15 @@ object Config {
     var showStandings = true
 
     /**
-     * The live "your secrets" line — see [SecretHud]. Its own switch rather than part of [showRoom],
-     * because it is a standing readout about the whole run and stays true when you are between
-     * rooms, which is exactly when the current-room block has nothing to say.
+     * The live "your secrets" line. Its own switch rather than part of [showRoom], because it is a
+     * standing readout about the whole run and stays true when you are between rooms, which is exactly
+     * when the current-room block has nothing to say.
+     *
+     * The number it shows is attribution and never the party's count — the rule used to live in
+     * `SecretHud`, which is gone; it is now
+     * [HudSnapshot.roomOwnSecrets][sighteaddons.ui.hud.HudSnapshot.Companion.roomOwnSecrets] and
+     * [runOwnSecrets][sighteaddons.ui.hud.HudSnapshot.Companion.runOwnSecrets], where `UiHudSecretsTest`
+     * holds it.
      */
     var showSecrets = true
 
