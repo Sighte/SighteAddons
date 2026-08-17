@@ -9,27 +9,38 @@ import net.minecraft.network.chat.Component
 import org.lwjgl.glfw.GLFW
 import sighteaddons.ui.Format
 import sighteaddons.ui.components.Anim
+import sighteaddons.ui.components.Badge
 import sighteaddons.ui.components.Controls
+import sighteaddons.ui.components.EmptyState
+import sighteaddons.ui.components.Labels
+import sighteaddons.ui.components.Nav
+import sighteaddons.ui.components.ProgressBar
+import sighteaddons.ui.components.Slider
 import sighteaddons.ui.components.Sparkline
+import sighteaddons.ui.components.Stepper
+import sighteaddons.ui.components.Table
+import sighteaddons.ui.components.TextField
+import sighteaddons.ui.components.Tooltip
 import sighteaddons.ui.hud.HudRoot
 import sighteaddons.ui.hud.HudSnapshot
 import sighteaddons.ui.motion.Clock
 import sighteaddons.ui.motion.Easing
 import sighteaddons.ui.motion.Motion
-import sighteaddons.ui.render.DevicePixels
-import sighteaddons.ui.render.Surface
 import sighteaddons.ui.screens.HudPreview
+import sighteaddons.ui.screens.Scroll
+import sighteaddons.ui.screens.SettingsPage
+import sighteaddons.ui.screens.StatsOverview
 import sighteaddons.ui.theme.Density
 import sighteaddons.ui.theme.Tokens
-import java.util.concurrent.TimeUnit
 
 /**
- * The `/sa` screen: settings and the room history.
+ * The `/sa` screen: the settings, the stats overview and the room history.
  *
- * Rebuilt on the design system in `ui/`. What changed is layout and drawing — a left nav rail instead
- * of top tabs, real controls instead of the word "on", a sparkline instead of a bar per attempt, and
- * motion on everything that changes state. What did not change is any of the behaviour underneath:
- * the rows, the search, the sort, the accordion and every config key are the same code they were.
+ * Built on the design system in `ui/` and, since Phase 4/5, on the components in `ui/components/` —
+ * `Nav` for the rail, `Table` for the header cells and the accordion's detail lines, `Tooltip` instead
+ * of vanilla's purple-bordered box, `EmptyState`, `Badge`, `Stepper`, `TextField`, `Labels` for every
+ * tracked label. What did not change is any of the behaviour underneath: the rows, the search, the
+ * sort, the accordion and every config key are the same code they were.
  *
  * Three rules from the previous version are load-bearing and survive verbatim:
  *
@@ -41,17 +52,51 @@ import java.util.concurrent.TimeUnit
  *    state you leave, and closing the whole screen to get out of it loses your place.
  * 3. **Hit testing re-derives the drawing layout.** There is still no widget tree, so nothing can
  *    disagree with what is on screen about where it is.
+ *
+ * Two more earned their place in this pass:
+ *
+ * 4. **Every page is a list of [SettingsPage.Item] and scrolls.** The previous version divided the
+ *    available height by the number of rows and squeezed the result into `[14, 26]` pixels, which is
+ *    how a switch ended up 8 pixels tall at GUI scale 4. Sections and one-line explanations make that
+ *    arithmetic impossible, so the pages scroll — the mechanism the table has always had, in [Scroll],
+ *    now shared by all of them.
+ * 5. **Focus is a narrowing too.** With the key field focused, escape leaves the field rather than the
+ *    screen, for the same reason escape empties the search before it closes: the state you are in is
+ *    the state you want to leave, not the screen you are on.
  */
 class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal("Sighte Addons")) {
 
     /** [label] rather than the enum name: the rest of this screen is lower case throughout. */
-    enum class Tab(val label: String) { HUD("hud"), CHAT("chat"), RECORDS("rooms"), DEBUG("debug") }
+    enum class Tab(val label: String) {
+        HUD("hud"),
+        CHAT("chat"),
 
-    /** [on] drives the control; null means the row carries a value or is plain information. */
-    private class Row(val label: String, val value: String, val on: Boolean? = null, val click: (() -> Unit)? = null)
+        /**
+         * What the history says about the player as a whole.
+         *
+         * Its own page and not a band above the table, and the reason is arithmetic rather than taste:
+         * at GUI scale 4 a 1080p screen leaves the table 170 pixels, which is six rows. Anything
+         * permanently above it takes rows from the only list on the screen, and anything that scrolls
+         * with it is a summary you have to scroll back up to read. A page costs one rail entry, which
+         * the rail has room for at every scale the game offers, and it sits directly above `rooms`
+         * because that is what it is — the layer above the table.
+         */
+        STATS("stats"),
+        RECORDS("rooms"),
+        DEBUG("debug"),
+    }
 
-    /** A line under an expanded room: a label, its text, and the progression on the first one. */
-    private class Detail(val label: String, val text: String, val spark: List<RoomHistory.Attempt>?, val cap: Int)
+    /**
+     * A line under an expanded room: a label, its text, the progression on the first one, and whether
+     * that first one earns a badge.
+     */
+    private class Detail(
+        val label: String,
+        val text: String,
+        val spark: List<RoomHistory.Attempt>?,
+        val cap: Int,
+        val badge: Boolean = false,
+    )
 
     /** One rendered line of the history: the room's own row, or one line of its expanded detail. */
     private class Line(val row: RecordTable.Row, val detail: Detail?)
@@ -79,17 +124,14 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     private var originOffsetX = 0
     private var originOffsetY = 0
 
-    private var scroll = 0
-
     /**
-     * Whether shift was held for the click currently being dispatched — the storm tick rows step
-     * backwards with it.
+     * The current page's scroll offset — rows on the history table, pixels everywhere else.
      *
-     * A field rather than a parameter on [Row.click] because the modifier lives on the mouse event and
-     * nothing else on this screen wants it: threading a `Boolean` through every row's lambda would be
-     * a dozen ignored parameters to serve two rows.
+     * One field for all of them because only one page is on screen at a time and switching pages resets
+     * it. Two units in one field is safe for exactly that reason and for no other: nothing ever reads
+     * this without also knowing which page it belongs to.
      */
-    private var stepBack = false
+    private var scroll = 0
 
     private var sortBy = RecordTable.Sort.LAST
 
@@ -111,6 +153,40 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     private var cachedTotal = 0
     private var cachedMatches = 0
 
+    /** The stats page, rebuilt when the history grows. Keyed on the line count for the same reason. */
+    private var statsKey = -1
+    private var cachedStats: List<SettingsPage.Item> = emptyList()
+
+    /**
+     * The tooltip owed to this frame, if any: a room name the column had to cut off.
+     *
+     * Deferred rather than drawn where it is discovered, because the row that discovers it is inside the
+     * table's scissor and a tooltip clipped to the list it came from is a tooltip nobody can read. It is
+     * cleared at the top of every frame, so a stale one cannot outlive the row that asked for it.
+     */
+    private var tooltipText: String? = null
+    private var tooltipX = 0
+    private var tooltipY = 0
+
+    /**
+     * The Hypixel key's edit state, seeded from the config and committed back on blur.
+     *
+     * [Config.hypixelKey] is not written on every keystroke: [Config.save] writes the file, and typing a
+     * 36-character key would be 36 writes of a config nobody has finished editing. Committing on blur is
+     * the same decision the placement drag makes about its own hundred frames.
+     */
+    private val keyEdit = TextField.Edit(Config.hypixelKey, KEY_MAX)
+    private var keyFocused = false
+
+    /**
+     * Whether the key is currently legible.
+     *
+     * **An act and not a setting.** It is not in [Config], it is not written anywhere, and it ends the
+     * moment focus does — which is what makes a masked field the default rather than a preference the
+     * player has to know to re-set. See [Config.hypixelKey] for the objection this answers.
+     */
+    private var keyRevealed = false
+
     private val anim = Anim()
     private val previewHud = HudRoot()
 
@@ -119,10 +195,10 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
 
     // --- Layout -----------------------------------------------------------------------------
 
-    private val frameWidth get() = minOf(RAIL + GAP + CONTENT_MAX, width - MARGIN * 2)
+    private val frameWidth get() = minOf(Nav.WIDTH + GAP + CONTENT_MAX, width - MARGIN * 2)
     private val frameLeft get() = (width - frameWidth) / 2
-    private val contentLeft get() = frameLeft + RAIL + GAP
-    private val content get() = frameWidth - RAIL - GAP
+    private val contentLeft get() = frameLeft + Nav.WIDTH + GAP
+    private val content get() = frameWidth - Nav.WIDTH - GAP
 
     private val headerY get() = MARGIN + Tokens.SPACE_12
     private val bodyTop get() = headerY + Tokens.SPACE_32
@@ -131,12 +207,46 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     private val firstRow get() = columnsY + Tokens.SPACE_16
     private val listBottom get() = height - MARGIN - Tokens.SPACE_16
 
-    /** Right edges of the record columns as fractions of [content], so nothing overflows at scale 4. */
-    private val typeX get() = contentLeft + content * 40 / 100
-    private val clearX get() = contentLeft + content * 62 / 100
-    private val secretsX get() = contentLeft + content * 78 / 100
-    private val runsX get() = contentLeft + content * 87 / 100
+    /** How much vertical room a scrolling page has. The one number [Scroll] measures against. */
+    private val pageHeight get() = listBottom - bodyTop
+
+    /**
+     * Right edges of the record columns as fractions of [content], so nothing overflows at scale 4.
+     *
+     * **These are budgeted against the headers, which are wider than the values under them.** A
+     * right-aligned header is its own sort button and carries a caret eight pixels to its left, so
+     * `SECRETS` occupies 60 pixels against a time's 28 — and the previous fractions (40/62/78/87) were
+     * chosen for the values alone. At GUI scale 4 the content column is 328 pixels, and there the old
+     * numbers put the `secrets` caret two pixels inside the `clear` header and a `yesterday` nine
+     * pixels under the `runs` figure. Neither was visible until `Table.headerCell` started drawing a
+     * caret on hover as well as on sort.
+     *
+     * The budget, at 328: `last` 52 (`yesterday`, and a four-digit `1000d ago`), `runs` 40, `secrets`
+     * 60, `clear` 47, `type` 36, and whatever is left over is the room name's — 74 pixels, which is
+     * where the tooltip earns its keep. Every header is then at least two pixels clear of its
+     * neighbour and every value at least four.
+     */
+    private val typeX get() = contentLeft + content * 25 / 100
+    private val clearX get() = contentLeft + content * 51 / 100
+    private val secretsX get() = contentLeft + content * 70 / 100
+    private val runsX get() = contentLeft + content * 83 / 100
     private val lastX get() = contentLeft + content
+
+    /**
+     * Where a stats or settings row's value column ends, with the sample note to its right.
+     *
+     * A fraction of [content] rather than a constant, for the same reason the table's columns are: at
+     * GUI scale 4 the content column is 328 pixels and at scale 2 it is 460, and a figure laid out for
+     * the wider one lands underneath its own note on the narrower.
+     *
+     * 55 rather than 60 because the notes are the longer half — `none in the last week` is 21
+     * characters and every value on the page is at most eleven.
+     */
+    private val valueX get() = contentLeft + content * 55 / 100
+
+    /** The key field's box. Derived, so [mouseClicked] hit-tests the rectangle it is drawn in. */
+    private val fieldWidth get() = minOf(FIELD_MAX, content * 60 / 100)
+    private val fieldX get() = lastX - fieldWidth
 
     /** The `type` column is redundant once a type chip is active — it would repeat that one word. */
     private val showType get() = filter == RecordTable.Filter.ALL
@@ -169,37 +279,40 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             renderPlacing(graphics, mouseX, mouseY)
             return
         }
+        tooltipText = null
 
         renderRail(graphics, mouseX, mouseY)
         renderHeader(graphics)
 
-        if (tab == Tab.RECORDS) renderRecords(graphics, mouseX, mouseY) else renderSettings(graphics, mouseX, mouseY)
+        if (tab == Tab.RECORDS) renderRecords(graphics, mouseX, mouseY) else renderPage(graphics, mouseX, mouseY)
 
         graphics.text(font, footer(), contentLeft, height - MARGIN - Tokens.SPACE_6, Tokens.textTertiary, false)
+
+        // Last, and outside every scissor: a floating surface that is clipped to the list it describes
+        // is not floating.
+        tooltipText?.let { Tooltip.draw(graphics, font, tooltipX, tooltipY, width, height, listOf(it)) }
     }
 
     /** The nav rail. Each entry carries its own hover and its own selected indicator. */
     private fun renderRail(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
-        for ((entry, y) in railZones()) {
+        val onRail = mouseX in frameLeft..(frameLeft + Nav.WIDTH)
+        val over = if (onRail) Nav.rowAt(bodyTop, Tab.entries.size, mouseY) else -1
+        for ((index, entry) in Tab.entries.withIndex()) {
+            val y = Nav.rowY(bodyTop, index)
             val active = entry == tab
-            val hovered = mouseX in frameLeft..(frameLeft + RAIL) && mouseY in y until (y + RAIL_ROW)
-            val hover = Controls.hover(anim.of("rail.${entry.name}"), hovered && !active)
+            val hover = Controls.hover(anim.of("rail.${entry.name}"), index == over && !active)
             val select = anim.of("railsel.${entry.name}", if (active) 1f else 0f)
             select.animateTo(if (active) 1f else 0f, Motion.FAST, Easing.STANDARD, Motion.Kind.OPACITY)
-
-            Controls.rowHighlight(graphics, frameLeft, y, RAIL, RAIL_ROW, hover, false)
-            Controls.indicator(graphics, frameLeft, y, RAIL_ROW, select.value, Tokens.accent)
-            graphics.text(
-                font, entry.label, frameLeft + Tokens.SPACE_12, y + (RAIL_ROW - 8) / 2,
-                Controls.blend(Tokens.textTertiary, Tokens.textPrimary, maxOf(select.value, hover)),
-                false,
-            )
+            Nav.item(graphics, font, frameLeft, y, Nav.WIDTH, Nav.ROW, entry.label, select.value, hover)
         }
-        DevicePixels.hairlineV(graphics, frameLeft + RAIL + GAP / 2, bodyTop - Tokens.SPACE_12, listBottom - bodyTop + Tokens.SPACE_20, Tokens.borderSubtle)
+        Nav.divider(
+            graphics, frameLeft + Nav.WIDTH + GAP / 2, bodyTop - Tokens.SPACE_12,
+            pageHeight + Tokens.SPACE_20,
+        )
     }
 
     private fun renderHeader(graphics: GuiGraphicsExtractor) {
-        graphics.label("SIGHTE ADDONS", frameLeft, headerY, Tokens.textPrimary)
+        Labels.draw(graphics, font, "SIGHTE ADDONS", frameLeft, headerY, Tokens.textPrimary)
         val right = if (tab == Tab.RECORDS) {
             build()
             if (query.isEmpty()) {
@@ -212,53 +325,162 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         }
         val tone = if (tab == Tab.RECORDS && query.isNotEmpty()) Tokens.textPrimary else Tokens.textTertiary
         graphics.text(font, right, lastX - font.width(right), headerY, tone, false)
-        DevicePixels.hairlineH(graphics, frameLeft, headerY + Tokens.SPACE_16, frameWidth, Tokens.borderSubtle)
+        Table.divider(graphics, frameLeft, headerY + Tokens.SPACE_16, frameWidth)
     }
 
-    // --- Settings pages ---------------------------------------------------------------------
+    // --- Pages: the three settings tabs and the stats overview -------------------------------
 
-    private fun renderSettings(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
-        val all = rows()
-        val rowHeight = settingRowHeight(all.size)
-        val toggleHeight = (rowHeight - Tokens.SPACE_6).coerceIn(8, Controls.TOGGLE_HEIGHT)
+    /**
+     * One scrolling page of [SettingsPage.Item]s.
+     *
+     * Every line is drawn by this one loop and hit-tested by [SettingsPage.itemAt] against the same
+     * heights, which is rule 3 held by construction rather than by two people editing the same numbers.
+     * Lines entirely outside the viewport are skipped rather than clipped — at GUI scale 4 the debug tab
+     * is over twice the height of the space it has, and drawing the half of it nobody can see is a
+     * couple of hundred draw calls per frame spent on nothing.
+     */
+    private fun renderPage(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
+        val items = pageItems()
+        if (items.isEmpty()) {
+            renderEmpty(graphics, bodyTop + Tokens.SPACE_24)
+            return
+        }
 
-        for ((index, row) in all.withIndex()) {
-            val y = bodyTop + index * rowHeight
-            val interactive = row.click != null
-            val hovered = interactive && mouseX in contentLeft..lastX && mouseY in y until (y + rowHeight)
-            val hover = Controls.hover(anim.of("row.${tab.name}.$index"), hovered)
+        val tops = SettingsPage.tops(items)
+        val total = SettingsPage.total(items)
+        scroll = Scroll.clamp(scroll, total, pageHeight)
 
-            if (interactive) {
-                Controls.rowHighlight(graphics, contentLeft - Tokens.SPACE_8, y, content + Tokens.SPACE_16, rowHeight, hover, false)
-            }
+        graphics.enableScissor(0, bodyTop, width, listBottom)
+        for (index in items.indices) {
+            val item = items[index]
+            val y = bodyTop + tops[index] - scroll
+            if (y + item.height <= bodyTop || y >= listBottom) continue
+            drawItem(graphics, item, y, mouseX, mouseY)
+        }
+        graphics.disableScissor()
 
-            val labelY = y + (rowHeight - 8) / 2
-            graphics.text(
-                font, row.label, contentLeft, labelY,
-                if (interactive) Tokens.textPrimary else Tokens.textTertiary, false,
+        Controls.scrollbar(graphics, lastX + Tokens.SPACE_6, bodyTop, listBottom, total, pageHeight, scroll)
+    }
+
+    private fun drawItem(graphics: GuiGraphicsExtractor, item: SettingsPage.Item, y: Int, mouseX: Int, mouseY: Int) {
+        when (item.kind) {
+            SettingsPage.Kind.SECTION -> Labels.sectionHeader(
+                graphics, font, item.label.uppercase(), contentLeft, y + Tokens.SPACE_12, content,
+                item.meta.takeIf { it.isNotEmpty() },
             )
 
-            when {
-                // A switch gets a switch. The word "on" was the old screen's only way to say it, and a
-                // toggle says the same thing without asking anybody to read.
-                row.on != null -> {
-                    val travel = anim.spring("toggle.${tab.name}.$index", if (row.on) 1f else 0f)
-                    travel.springTo(if (row.on) 1f else 0f, Motion.BASE)
-                    Controls.toggle(
-                        graphics,
-                        lastX - Controls.toggleWidth(toggleHeight),
-                        y + (rowHeight - toggleHeight) / 2,
-                        toggleHeight, travel.value, enabled = true,
-                    )
-                }
-                // Not a switch but still clickable: the position row and the two storm steppers. The
-                // value is the control, so it reads as primary rather than as metadata.
-                interactive -> graphics.text(
-                    font, row.value, lastX - font.width(row.value), labelY,
-                    Controls.blend(Tokens.textSecondary, Tokens.textPrimary, hover), false,
+            // An explanation, indented under the row it explains and truncated rather than wrapped: a
+            // note that grows downward as the window narrows pushes every row under it out of the page.
+            SettingsPage.Kind.NOTE -> graphics.text(
+                font, font.plainSubstrByWidth(item.label, content - NOTE_INDENT),
+                contentLeft + NOTE_INDENT, y + (SettingsPage.NOTE - Labels.CAP) / 2,
+                Tokens.textTertiary, false,
+            )
+
+            SettingsPage.Kind.STAT -> drawStat(graphics, item, y)
+            else -> drawControl(graphics, item, y, mouseX, mouseY)
+        }
+    }
+
+    /**
+     * One figure with the sample it rests on.
+     *
+     * Three columns and not two: the label says what it is, the value is the figure, and the note says
+     * what the figure is made of — `median of 268` against `fastest of 3`. **The note is the state**, and
+     * the tone only agrees with it: a thin figure is `textSecondary` rather than `textPrimary`, which is
+     * 1.27:1 of separation and therefore not something anybody is asked to read on its own.
+     */
+    private fun drawStat(graphics: GuiGraphicsExtractor, item: SettingsPage.Item, y: Int) {
+        val textY = y + (SettingsPage.ROW - Labels.CAP) / 2
+        graphics.text(font, item.label, contentLeft, textY, Tokens.textSecondary, false)
+
+        val room = valueX - contentLeft - font.width(item.label) - Tokens.SPACE_8
+        val value = font.plainSubstrByWidth(item.value, room.coerceAtLeast(0))
+        graphics.text(
+            font, value, valueX - font.width(value), textY,
+            if (item.thin) Tokens.textSecondary else Tokens.textPrimary, false,
+        )
+
+        if (item.meta.isNotEmpty()) {
+            val meta = font.plainSubstrByWidth(item.meta, lastX - valueX - Tokens.SPACE_8)
+            graphics.text(font, meta, lastX - font.width(meta), textY, Tokens.textTertiary, false)
+        }
+        // The bar sits under the figure it qualifies rather than beside it. A ratio is the only kind of
+        // number a bar can carry honestly, and the number is already written above it — see ProgressBar.
+        if (item.fraction >= 0f) {
+            ProgressBar.draw(graphics, contentLeft, y + SettingsPage.ROW, content, ProgressBar.HEIGHT, item.fraction)
+        }
+    }
+
+    private fun drawControl(graphics: GuiGraphicsExtractor, item: SettingsPage.Item, y: Int, mouseX: Int, mouseY: Int) {
+        val rowHeight = item.height
+        val inViewport = mouseY in bodyTop until listBottom
+        val hovered = item.interactive && inViewport &&
+            mouseX in contentLeft..lastX && mouseY in y until (y + rowHeight)
+        val hover = Controls.hover(anim.of("row.${tab.name}.${item.label}"), hovered)
+
+        if (item.interactive) {
+            // Stopping at [lastX] rather than eight pixels past it: the scrollbar lives out there now,
+            // and a wash running under it makes the track look like part of the row.
+            Controls.rowHighlight(
+                graphics, contentLeft - Tokens.SPACE_8, y, content + Tokens.SPACE_8, rowHeight, hover, false,
+            )
+        }
+
+        val textY = y + (rowHeight - Labels.CAP) / 2
+        val plain = item.kind == SettingsPage.Kind.INFO || item.kind == SettingsPage.Kind.FIELD
+        graphics.text(
+            font, item.label, contentLeft, textY,
+            if (plain) Tokens.textSecondary else Tokens.textPrimary, false,
+        )
+
+        when (item.kind) {
+            // A switch gets a switch. The word "on" was the old screen's only way to say it, and a
+            // toggle says the same thing without asking anybody to read.
+            SettingsPage.Kind.TOGGLE -> {
+                val travel = anim.spring("toggle.${tab.name}.${item.label}", if (item.on) 1f else 0f)
+                travel.springTo(if (item.on) 1f else 0f, Motion.BASE)
+                Controls.toggle(
+                    graphics, lastX - Controls.toggleWidth(TOGGLE_HEIGHT), y + (rowHeight - TOGGLE_HEIGHT) / 2,
+                    TOGGLE_HEIGHT, travel.value, enabled = true,
                 )
-                // Plain information.
-                else -> graphics.text(font, row.value, lastX - font.width(row.value), labelY, Tokens.textTertiary, false)
+            }
+
+            // Not a switch but still clickable: the position row. The value is the control, so it reads
+            // as primary rather than as metadata.
+            SettingsPage.Kind.ACTION -> graphics.text(
+                font, item.value, lastX - font.width(item.value), textY,
+                Controls.blend(Tokens.textSecondary, Tokens.textPrimary, hover), false,
+            )
+
+            SettingsPage.Kind.STEPPER -> {
+                val stepperWidth = Stepper.width(font, item.value)
+                val x = lastX - stepperWidth
+                val arm = if (hovered) Stepper.armAt(x, stepperWidth, mouseX) else 0
+                Stepper.draw(
+                    graphics, font, x, y + (rowHeight - Stepper.HEIGHT) / 2, stepperWidth, Stepper.HEIGHT,
+                    item.value, item.fraction.coerceIn(0f, 1f),
+                    minusHover = Controls.hover(anim.of("minus.${item.label}"), arm < 0),
+                    plusHover = Controls.hover(anim.of("plus.${item.label}"), arm > 0),
+                )
+            }
+
+            SettingsPage.Kind.FIELD -> TextField.draw(
+                graphics, font, fieldX, y + (rowHeight - TextField.HEIGHT) / 2, fieldWidth, TextField.HEIGHT,
+                keyEdit,
+                placeholder = "paste your key",
+                mask = TextField.Mask.DOTS,
+                revealed = keyRevealed,
+                focus = Controls.hover(anim.of("keyfocus"), keyFocused),
+                hover = hover,
+                caret = TextField.caretOn(keyFocused),
+            )
+
+            // Plain information.
+            else -> {
+                val room = lastX - contentLeft - font.width(item.label) - Tokens.SPACE_8
+                val value = font.plainSubstrByWidth(item.value, room.coerceAtLeast(0))
+                graphics.text(font, value, lastX - font.width(value), textY, Tokens.textTertiary, false)
             }
         }
     }
@@ -271,10 +493,21 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         // Widths are derived before drawing rather than returned from it, so hover and hit testing use
         // the same number the chip is actually drawn at. Guessing a width for the hover test is how a
         // chip ends up highlighting from a cursor position that is not on it.
+        //
+        // **The counts come off when six chips carrying them do not fit.** At GUI scale 4 the content
+        // column is 328 pixels and six chips with two-digit counts want about 356, so the last one was
+        // being drawn past the right edge of the *screen* — the chip row has no scissor and nothing was
+        // clipping it. A chip advertises the number of rows a click produces, which is worth having and
+        // is not worth having a chip nobody can click; the counts are what goes.
+        val withCounts = RecordTable.Filter.entries.sumOf {
+            Controls.chipWidth(font, it.label, cachedCounts[it] ?: 0)
+        } + (RecordTable.Filter.entries.size - 1) * Tokens.SPACE_6
+        val showCounts = withCounts <= content
+
         chipHits.clear()
         var chipX = contentLeft
         for (chip in RecordTable.Filter.entries) {
-            val count = cachedCounts[chip] ?: 0
+            val count = if (showCounts) cachedCounts[chip] ?: 0 else -1
             val chipWidth = Controls.chipWidth(font, chip.label, count)
             val active = anim.of("chip.${chip.name}", if (chip == filter) 1f else 0f)
             active.animateTo(if (chip == filter) 1f else 0f, Motion.FAST, Easing.STANDARD, Motion.Kind.OPACITY)
@@ -285,35 +518,39 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             chipX += chipWidth + Tokens.SPACE_6
         }
 
-        for (column in columns()) {
-            val active = column.sort == sortBy
-            val x = if (column.rightAligned) column.x1 - font.width(column.label) else column.x0
-            graphics.text(
-                font, column.label.uppercase(), x, columnsY,
-                if (active) Tokens.textPrimary else Tokens.textTertiary, false,
+        // The chevron rotates between the two directions rather than swapping glyphs, so the reversal is
+        // visibly the same control changing its mind. One animatable for the whole header row: there is
+        // only ever one sorted column, so a second would be a direction nothing is pointing in.
+        val flip = anim.of("sortdir", if (sortDesc) 1f else 0f)
+        flip.animateTo(if (sortDesc) 1f else 0f, Motion.FAST, Easing.STANDARD, Motion.Kind.OPACITY)
+        val all = columns()
+        // Resolved through the same `firstOrNull` the press uses, rather than by testing each column
+        // against the cursor on its own. The zones are expanded by four pixels either side to be
+        // reachable, which makes two adjacent ones overlap — and independent tests would then light
+        // two headers for a press that can only ever land on one of them.
+        val onHeader = if (mouseY in columnsY until (columnsY + Tokens.SPACE_12)) columnAt(all, mouseX) else null
+        for (column in all) {
+            Table.headerCell(
+                graphics, font, column.label, column.x0, column.x1, columnsY, column.rightAligned,
+                sorted = column.sort == sortBy,
+                flip = flip.value,
+                hover = Controls.hover(anim.of("col.${column.sort.name}"), column.sort == onHeader?.sort),
             )
-            if (active) {
-                // The chevron rotates between the two directions rather than swapping glyphs, so the
-                // reversal is visibly the same control changing its mind.
-                val flip = anim.of("sortdir", if (sortDesc) 1f else 0f)
-                flip.animateTo(if (sortDesc) 1f else 0f, Motion.FAST, Easing.STANDARD, Motion.Kind.OPACITY)
-                caret(graphics, if (column.rightAligned) x - Tokens.SPACE_8 else column.x0 + font.width(column.label) + 3, columnsY, flip.value)
-            }
         }
-        DevicePixels.hairlineH(graphics, contentLeft, columnsY + Tokens.SPACE_12, content, Tokens.borderSubtle)
+        Table.divider(graphics, contentLeft, columnsY + Tokens.SPACE_12, content)
 
         if (cachedLines.isEmpty()) {
-            renderEmpty(graphics)
+            renderEmpty(graphics, firstRow + Tokens.SPACE_24)
             return
         }
 
-        val visible = ((listBottom - firstRow) / TABLE_ROW).coerceAtLeast(1)
+        val visible = ((listBottom - firstRow) / Table.ROW).coerceAtLeast(1)
         pageSize = visible
-        scroll = scroll.coerceIn(0, (cachedLines.size - visible).coerceAtLeast(0))
+        scroll = Scroll.clamp(scroll, cachedLines.size, visible)
 
         graphics.enableScissor(0, firstRow, width, listBottom)
         for ((index, line) in cachedLines.drop(scroll).take(visible).withIndex()) {
-            val y = firstRow + index * TABLE_ROW
+            val y = firstRow + index * Table.ROW
             if (line.detail != null) renderDetail(graphics, line.detail, y) else renderRecord(graphics, line.row, y, mouseX, mouseY)
         }
         graphics.disableScissor()
@@ -329,16 +566,18 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         mouseY: Int,
     ) {
         val open = row.room == expanded
-        val hovered = mouseX in contentLeft..lastX && mouseY in y until (y + TABLE_ROW)
+        val hovered = mouseX in contentLeft..lastX && mouseY in y until (y + Table.ROW)
         val hover = Controls.hover(anim.of("rec.${row.room}"), hovered)
-        Controls.rowHighlight(graphics, contentLeft - Tokens.SPACE_8, y, content + Tokens.SPACE_16, TABLE_ROW, hover, open)
+        Controls.rowHighlight(graphics, contentLeft - Tokens.SPACE_8, y, content + Tokens.SPACE_8, Table.ROW, hover, open)
 
-        val textY = y + (TABLE_ROW - 8) / 2
+        val textY = y + (Table.ROW - Labels.CAP) / 2
         val name = font.plainSubstrByWidth(row.room, nameWidth())
         graphics.text(font, name, contentLeft, textY, if (open) Tokens.textPrimary else Tokens.textSecondary, false)
         // The full name only exists in a tooltip when the column actually cut it off.
         if (name != row.room && hovered) {
-            graphics.setTooltipForNextFrame(font, Component.literal(row.room), mouseX, mouseY)
+            tooltipText = row.room
+            tooltipX = mouseX
+            tooltipY = mouseY
         }
         if (showType) graphics.text(font, row.typeLabel, typeX, textY, Tokens.textTertiary, false)
 
@@ -347,57 +586,72 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         right(graphics, row.clear.time(), clearX, textY, row.clear != null)
         right(graphics, row.secrets.time(), secretsX, textY, row.secrets != null)
         right(graphics, row.runs.toString(), runsX, textY, false)
-        right(graphics, ago(row.lastTs), lastX, textY, false)
-    }
-
-    private fun renderDetail(graphics: GuiGraphicsExtractor, detail: Detail, y: Int) {
-        val labelX = contentLeft + DETAIL_INDENT
-        val textY = y + (TABLE_ROW - 8) / 2
-        graphics.text(font, detail.label, labelX, textY, Tokens.textTertiary, false)
-        var textX = labelX + DETAIL_LABEL
-        detail.spark?.let {
-            Sparkline.draw(graphics, textX, y + 2, SPARK_W, TABLE_ROW - 4, it, detail.cap)
-            textX += SPARK_W + Tokens.SPACE_12
-        }
-        graphics.text(font, detail.text, textX, textY, Tokens.textSecondary, false)
+        right(graphics, Format.ago(row.lastTs, System.currentTimeMillis()), lastX, textY, false)
     }
 
     /**
-     * The empty states, built from hairline geometry rather than from a sentence alone.
+     * One line of an open room's detail, with the rule that ties it to the row above.
      *
-     * Same key and same words as the footer: the hint has to name which of the two narrowings escape
-     * takes off, not say "the search" while a chip is what is hiding every room.
+     * Drawn at [Table.detail]'s full extent rather than animated open: the growth the component offers
+     * is there so the detail reads as coming *out of* the row that was clicked, and a rule that grows
+     * past a sparkline which is already fully drawn beside it reads as two elements arriving rather than
+     * one. The connector is what earns the component its place here; the animation would need the chart
+     * to fade with it, and `Sparkline` draws at one opacity.
+     *
+     * **The `PB` badge is here rather than on the row above, and that is a size decision.** At GUI scale
+     * 4 the room column is 77 pixels — a badge is a third of it, taken from every room that has one,
+     * and the name is already the column most likely to be truncated. The detail line has 30 pixels of
+     * slack at its right edge and is where the progression lives, which is what the badge is a statement
+     * about: not "this room has a record" — every row shows one of those — but "the last run here was
+     * it", which is [RoomHistory.Attempt.pb] read straight out of the file rather than a comparison this
+     * screen would have to invent.
      */
-    private fun renderEmpty(graphics: GuiGraphicsExtractor) {
-        val boxW = 64
-        val boxH = 40
-        val boxX = contentLeft + (content - boxW) / 2
-        val boxY = firstRow + Tokens.SPACE_24
-
-        Surface.roundedBorder(graphics, boxX, boxY, boxW, boxH, Tokens.RADIUS_MD, Tokens.borderDefault)
-        // Three descending rules inside it: the shape of a table with nothing in it.
-        for (i in 0..2) {
-            DevicePixels.hairlineH(
-                graphics, boxX + Tokens.SPACE_12, boxY + Tokens.SPACE_12 + i * Tokens.SPACE_8,
-                boxW - Tokens.SPACE_24 - i * Tokens.SPACE_8, Tokens.borderDefault,
+    private fun renderDetail(graphics: GuiGraphicsExtractor, detail: Detail, y: Int) {
+        val badgeRoom = if (detail.badge) Badge.width(font, PB) + Tokens.SPACE_6 else 0
+        val plain = Table.contentX(contentLeft)
+        Table.detail(
+            graphics, font, contentLeft, y, Table.ROW, detail.label,
+            if (detail.spark == null) fit(detail.text, lastX - plain - badgeRoom) else "",
+        )
+        if (detail.badge) {
+            Badge.draw(
+                graphics, font, lastX - Badge.width(font, PB), y + (Table.ROW - Badge.HEIGHT) / 2, PB,
             )
         }
+        val spark = detail.spark ?: return
+        Sparkline.draw(graphics, plain, y + 2, sparkWidth, Table.ROW - 4, spark, detail.cap)
+        val textX = plain + sparkWidth + Tokens.SPACE_12
+        graphics.text(
+            font, fit(detail.text, lastX - textX - badgeRoom), textX, y + (Table.ROW - Labels.CAP) / 2,
+            Tokens.textSecondary, false,
+        )
+    }
 
-        val (headline, hint) = if (narrowing != RecordTable.Narrowing.NONE) {
-            "nothing matches this filter" to if (narrowing == RecordTable.Narrowing.SEARCH) {
+    /**
+     * The empty states.
+     *
+     * Same key and same words as the footer: the hint has to name which of the two narrowings escape
+     * takes off, not say "the search" while a chip is what is hiding every room. The stats page is
+     * always the third case — it has no filter of its own, and a chip left active on the table must not
+     * make it claim one.
+     */
+    private fun renderEmpty(graphics: GuiGraphicsExtractor, top: Int) {
+        if (tab == Tab.STATS || narrowing == RecordTable.Narrowing.NONE) {
+            EmptyState.draw(
+                graphics, font, contentLeft, top, content,
+                "no history yet", "finish a dungeon room and it lands here", HISTORY_FILE,
+            )
+            return
+        }
+        EmptyState.draw(
+            graphics, font, contentLeft, top, content,
+            "nothing matches this filter",
+            if (narrowing == RecordTable.Narrowing.SEARCH) {
                 "esc clears the search · click \"all\" for every room"
             } else {
                 "esc shows every room"
-            }
-        } else {
-            "no history yet" to "finish a dungeon room and it lands here"
-        }
-
-        centred(graphics, headline, boxY + boxH + Tokens.SPACE_16, Tokens.textSecondary)
-        centred(graphics, hint, boxY + boxH + Tokens.SPACE_16 + Tokens.SPACE_12, Tokens.textTertiary)
-        if (narrowing == RecordTable.Narrowing.NONE) {
-            centred(graphics, "config/sighteaddons/history.jsonl", boxY + boxH + Tokens.SPACE_16 + Tokens.SPACE_24, Tokens.textTertiary)
-        }
+            },
+        )
     }
 
     /**
@@ -494,98 +748,215 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         HudRoot.editing = false
     }
 
-    // --- Data (unchanged from the previous version) ------------------------------------------
+    // --- The pages, as data -----------------------------------------------------------------
 
-    private fun rows(): List<Row> = when (tab) {
-        Tab.HUD -> listOf(
-            Row("show HUD", Config.hud.word(), Config.hud) { Config.hud = !Config.hud },
-            // The anchor is named before the offset because it is the half that decides what the
-            // offset means — see renderPlacing.
-            Row("position", "${Config.hudAnchor.label} · ${Config.hudOffsetX}, ${Config.hudOffsetY} · move") {
-                placing = true
-                dragging = false
-                // Where to put it back if the player changes their mind.
-                originAnchor = Config.hudAnchor
-                originOffsetX = Config.hudOffsetX
-                originOffsetY = Config.hudOffsetY
-                // The live overlay stands down while its own position is being edited: it draws from
-                // the same config this is changing, so leaving it on renders two cards — the real one
-                // stuck at the old spot and the one under the cursor — and the player has to work out
-                // which of them they are moving.
-                HudRoot.editing = true
-            },
-            Row("current room", Config.showRoom.word(), Config.showRoom) { Config.showRoom = !Config.showRoom },
-            // "your secrets", not "secrets": the action bar already counts the room's, and the whole
-            // point of the line is that this one is about you.
-            Row("your secrets", Config.showSecrets.word(), Config.showSecrets) {
-                Config.showSecrets = !Config.showSecrets
-            },
-            // "idle & nav", because the two numbers are the point: standing in a finished room and
-            // walking between rooms are different problems and one figure could not tell them apart.
-            Row("idle & nav", Config.showIdle.word(), Config.showIdle) {
-                Config.showIdle = !Config.showIdle
-            },
-            Row("standings", Config.showStandings.word(), Config.showStandings) {
-                Config.showStandings = !Config.showStandings
-            },
-            Row("clear popup", Config.clearPopup.word(), Config.clearPopup) {
-                Config.clearPopup = !Config.clearPopup
-            },
-            // On this tab and not the chat one because it is drawn on screen — the mirror of the
-            // argument that puts "crit readout" over there.
-            Row("storm timer", Config.stormTimer.word(), Config.stormTimer) {
-                Config.stormTimer = !Config.stormTimer
-            },
-            // The two inherited numbers, steppable a tick at a time. They are rows and not constants
-            // because nobody here knows where 138 and 20 came from and a wrong one never announces
-            // itself — see StormTimer. Shown only while the timer is on: off, they are two rows of
-            // arithmetic about something that is not going to be drawn.
-        ) + if (!Config.stormTimer) emptyList() else listOf(
-            Row("  storm countdown", StormTimer.ticksLabel(Config.stormCountdownTicks)) {
-                Config.stormCountdownTicks = StormTimer.step(
-                    Config.stormCountdownTicks, StormTimer.COUNTDOWN_MIN, StormTimer.COUNTDOWN_MAX, stepBack,
-                )
-            },
-            Row("  storm shoot window", StormTimer.ticksLabel(Config.stormShootTicks)) {
-                Config.stormShootTicks = StormTimer.step(
-                    Config.stormShootTicks, StormTimer.SHOOT_MIN, StormTimer.SHOOT_MAX, stepBack,
-                )
-            },
-        )
-        Tab.CHAT -> listOf(
-            Row("room messages", Config.roomMessages.word(), Config.roomMessages) {
-                Config.roomMessages = !Config.roomMessages
-            },
-            Row("own PBs only", Config.ownPbsOnly.word(), Config.ownPbsOnly) {
-                Config.ownPbsOnly = !Config.ownPbsOnly
-            },
-            Row("run summary", Config.runSummary.word(), Config.runSummary) { Config.runSummary = !Config.runSummary },
-            // "crit readout", not "crit": the number the line exists for is the one per Blessing of
-            // Power, and nothing about it is sent anywhere — see CritMeter.
-            Row("crit readout", Config.critLine.word(), Config.critLine) { Config.critLine = !Config.critLine },
-            Row("history is always written", "history.jsonl"),
-        )
-        Tab.DEBUG -> listOf(
-            Row("JSONL telemetry", Config.debugLog.word(), Config.debugLog) { Config.debugLog = !Config.debugLog },
-            Row("target", "config/sighteaddons/debug/"),
-            Row("upload run reports", Config.upload.word(), Config.upload) { Config.upload = !Config.upload },
-            // Off by default and the only switch here that makes data leave identifiable. For the
-            // leaderboards: a row needs a name on it, and that is the player's to give.
-            Row("send my name", uploadName(), Config.uploadName) {
-                Config.uploadName = !Config.uploadName
-                // Reports are written at run end and only sent at the next game start, so the switch
-                // has to reach the ones already waiting — otherwise a run played minutes ago leaves
-                // anonymously despite the consent given just now.
-                RunReport.restampPending()
-            },
-            // Shown so it is the player's to give away rather than ours to hold: everything the
-            // server knows about them hangs off this string and nothing else.
-            Row("your upload id", Config.installId),
-            Row("rooms in the database", RoomDatabase.size.toString()),
-            Row("lines in the history", RoomHistory.entryCount().toString()),
-        )
+    private fun pageItems(): List<SettingsPage.Item> = when (tab) {
+        Tab.HUD -> hudItems()
+        Tab.CHAT -> chatItems()
+        Tab.STATS -> statsItems()
+        Tab.DEBUG -> debugItems()
         Tab.RECORDS -> emptyList()
     }
+
+    /**
+     * The HUD tab, in three sections: the card itself, what is written on it, and what is drawn
+     * elsewhere.
+     *
+     * The grouping is not decoration. Ten equally ranked rows is a list somebody has to read all of to
+     * find one switch, and three of these settings are not about the card at all — [Config.clearPopup]
+     * and [Config.stormTimer] each have their own KDoc saying exactly that, and both of them say it
+     * because somebody once expected switching off the card to take them with it.
+     */
+    private fun hudItems(): List<SettingsPage.Item> = buildList {
+        section("the card")
+        toggle("show HUD", Config.hud) { Config.hud = !Config.hud }
+        // The anchor is named before the offset because it is the half that decides what the offset
+        // means — see renderPlacing.
+        action("position", "${Config.hudAnchor.label} · ${Config.hudOffsetX}, ${Config.hudOffsetY} · move") {
+            placing = true
+            dragging = false
+            // Where to put it back if the player changes their mind.
+            originAnchor = Config.hudAnchor
+            originOffsetX = Config.hudOffsetX
+            originOffsetY = Config.hudOffsetY
+            // The live overlay stands down while its own position is being edited: it draws from
+            // the same config this is changing, so leaving it on renders two cards — the real one
+            // stuck at the old spot and the one under the cursor — and the player has to work out
+            // which of them they are moving.
+            HudRoot.editing = true
+        }
+        note("the offset counts inward from the anchor")
+
+        section("lines on the card")
+        toggle("current room", Config.showRoom) { Config.showRoom = !Config.showRoom }
+        // "your secrets", not "secrets": the action bar already counts the room's, and the whole
+        // point of the line is that this one is about you.
+        toggle("your secrets", Config.showSecrets) { Config.showSecrets = !Config.showSecrets }
+        note("the ones this client can prove were yours")
+        // "idle & nav", because the two numbers are the point: standing in a finished room and
+        // walking between rooms are different problems and one figure could not tell them apart.
+        toggle("idle & nav", Config.showIdle) { Config.showIdle = !Config.showIdle }
+        note("time standing still and time walking, apart")
+        toggle("standings", Config.showStandings) { Config.showStandings = !Config.showStandings }
+
+        section("elsewhere on screen")
+        toggle("clear popup", Config.clearPopup) { Config.clearPopup = !Config.clearPopup }
+        note("the centred line when you clear a room")
+        // On this tab and not the chat one because it is drawn on screen — the mirror of the
+        // argument that puts "crit readout" over there.
+        toggle("storm timer", Config.stormTimer) { Config.stormTimer = !Config.stormTimer }
+        // The two inherited numbers, steppable a tick at a time. They are rows and not constants
+        // because nobody here knows where 138 and 20 came from and a wrong one never announces
+        // itself — see StormTimer. Shown only while the timer is on: off, they are two rows of
+        // arithmetic about something that is not going to be drawn.
+        if (Config.stormTimer) {
+            note("138 and 20 are inherited and unverified")
+            stepper(
+                "countdown", Config.stormCountdownTicks, StormTimer.COUNTDOWN_MIN, StormTimer.COUNTDOWN_MAX,
+            ) { back ->
+                Config.stormCountdownTicks = StormTimer.step(
+                    Config.stormCountdownTicks, StormTimer.COUNTDOWN_MIN, StormTimer.COUNTDOWN_MAX, back,
+                )
+            }
+            stepper("shoot window", Config.stormShootTicks, StormTimer.SHOOT_MIN, StormTimer.SHOOT_MAX) { back ->
+                Config.stormShootTicks = StormTimer.step(
+                    Config.stormShootTicks, StormTimer.SHOOT_MIN, StormTimer.SHOOT_MAX, back,
+                )
+            }
+        }
+    }
+
+    private fun chatItems(): List<SettingsPage.Item> = buildList {
+        section("room lines")
+        toggle("room messages", Config.roomMessages) { Config.roomMessages = !Config.roomMessages }
+        toggle("own PBs only", Config.ownPbsOnly) { Config.ownPbsOnly = !Config.ownPbsOnly }
+        note("hides every line that was not a record of yours")
+
+        section("end of run")
+        toggle("run summary", Config.runSummary) { Config.runSummary = !Config.runSummary }
+        note("the breakdown when a floor ends")
+        // "crit readout", not "crit": the number the line exists for is the one per Blessing of
+        // Power, and nothing about it is sent anywhere — see CritMeter.
+        toggle("crit readout", Config.critLine) { Config.critLine = !Config.critLine }
+        note("per Blessing of Power, and never sent anywhere")
+
+        section("history")
+        info("history is always written", "history.jsonl")
+        note("every room you finish is appended, switch or not")
+    }
+
+    private fun debugItems(): List<SettingsPage.Item> = buildList {
+        section("logging")
+        toggle("JSONL telemetry", Config.debugLog) { Config.debugLog = !Config.debugLog }
+        info("target", "config/sighteaddons/debug/")
+
+        section("upload")
+        toggle("upload run reports", Config.upload) { Config.upload = !Config.upload }
+        // Off by default and the only switch here that makes data leave identifiable. For the
+        // leaderboards: a row needs a name on it, and that is the player's to give.
+        toggle("send my name", Config.uploadName) {
+            Config.uploadName = !Config.uploadName
+            // Reports are written at run end and only sent at the next game start, so the switch
+            // has to reach the ones already waiting — otherwise a run played minutes ago leaves
+            // anonymously despite the consent given just now.
+            RunReport.restampPending()
+        }
+        // What would actually leave the machine, which the previous version computed and then never
+        // drew: its renderer chose a toggle whenever a row had one, and the string was dead code
+        // behind a KDoc promising it was legible before the click. A note is where it fits.
+        note(uploadName())
+        info("your upload id", Config.installId)
+        note("all the server knows about you hangs off this")
+
+        section("hypixel key", if (Config.hypixelKey.isBlank()) "not set" else "set")
+        field("your key")
+        note("your own key · never logged, never uploaded")
+        note(
+            if (Config.hypixelKey.isBlank()) {
+                "blank: SecretApi and the audit stay inert"
+            } else {
+                "the run summary waits for the true counts"
+            },
+        )
+
+        section("data")
+        info("rooms in the database", RoomDatabase.roomCount.toString())
+        // Cores and not rooms, which the previous version's single "rooms in the database" row called
+        // rooms while showing this. Both are worth having and only one of them is a room count.
+        info("room cores", RoomDatabase.size.toString())
+        info("lines in the history", RoomHistory.entryCount().toString())
+    }
+
+    /**
+     * The stats overview as page items, rebuilt when the history grows.
+     *
+     * Keyed on the line count for the same reason [build] is: the aggregate reads every attempt of every
+     * room, and none of it can change between two frames without a line having been appended.
+     */
+    private fun statsItems(): List<SettingsPage.Item> {
+        val count = RoomHistory.entryCount()
+        if (count == statsKey) return cachedStats
+        statsKey = count
+        val overview = StatsOverview.of(
+            RoomHistory.records(), RoomHistory::attempts, RoomDatabase.roomCount, System.currentTimeMillis(),
+        )
+        cachedStats = buildList {
+            for (part in overview.sections) {
+                section(part.title, part.meta)
+                for (line in part.lines) {
+                    add(
+                        SettingsPage.Item(
+                            SettingsPage.Kind.STAT, line.label, line.value, line.meta,
+                            thin = line.thin, fraction = line.fraction,
+                        ),
+                    )
+                }
+            }
+        }
+        return cachedStats
+    }
+
+    // --- Item builders ----------------------------------------------------------------------
+
+    private fun MutableList<SettingsPage.Item>.section(title: String, meta: String = "") =
+        add(SettingsPage.Item(SettingsPage.Kind.SECTION, title, meta = meta))
+
+    private fun MutableList<SettingsPage.Item>.note(text: String) =
+        add(SettingsPage.Item(SettingsPage.Kind.NOTE, text))
+
+    private fun MutableList<SettingsPage.Item>.toggle(label: String, on: Boolean, click: () -> Unit) =
+        add(SettingsPage.Item(SettingsPage.Kind.TOGGLE, label, on = on, click = click))
+
+    private fun MutableList<SettingsPage.Item>.action(label: String, value: String, click: () -> Unit) =
+        add(SettingsPage.Item(SettingsPage.Kind.ACTION, label, value, click = click))
+
+    private fun MutableList<SettingsPage.Item>.info(label: String, value: String) =
+        add(SettingsPage.Item(SettingsPage.Kind.INFO, label, value))
+
+    private fun MutableList<SettingsPage.Item>.field(label: String) =
+        add(SettingsPage.Item(SettingsPage.Kind.FIELD, label))
+
+    /**
+     * A tick count, with its position in its own range under it.
+     *
+     * The range comes from [StormTimer] and the wrap still comes from [StormTimer.step], so the two
+     * numbers keep the bounds and the wrap-around they have always had — only the way a hand reaches
+     * them changed.
+     */
+    private fun MutableList<SettingsPage.Item>.stepper(
+        label: String,
+        value: Int,
+        min: Int,
+        max: Int,
+        step: (Boolean) -> Unit,
+    ) = add(
+        SettingsPage.Item(
+            SettingsPage.Kind.STEPPER, label, StormTimer.ticksLabel(value),
+            fraction = Slider.fractionOf(value, min, max), step = step,
+        ),
+    )
+
+    // --- Data -------------------------------------------------------------------------------
 
     /**
      * Rebuilds the visible lines when something they depend on changed.
@@ -612,25 +983,42 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     }
 
     /**
-     * What one room looks like when it is opened: the progression of its clear times, the best time
-     * per floor, and what the database knows about the room itself.
+     * What one room looks like when it is opened: the progression of its times, the best time per
+     * floor, and what the database knows about the room itself.
      *
      * All of it comes out of `history.jsonl`, which has recorded every attempt with its floor and a
      * personal-best flag since the first version — the table simply never read them back.
+     *
+     * **The progression follows the same kind the row's clear column shows**, blood room first, which is
+     * `RecordTable.rows`' own order. A blood room writes no `clear` line at all since 0.16.0, so reading
+     * only `clear` here left the one room with a boss fight in it showing no progression while its
+     * record sat in the column above.
      */
     private fun detailLines(row: RecordTable.Row): List<Line> {
-        val attempts = RoomHistory.attempts(row.room, RoomHistory.CLEAR)
+        val blood = RoomHistory.attempts(row.room, RoomHistory.BLOOD)
+        val label = if (blood.isNotEmpty()) "blood" else "clear"
+        val attempts = blood.ifEmpty { RoomHistory.attempts(row.room, RoomHistory.CLEAR) }
         val out = mutableListOf<Line>()
 
         if (attempts.isNotEmpty()) {
             val ticks = attempts.map { it.ticks }.sorted()
             val median = ticks[ticks.size / 2]
-            val summary = "best ${Format.ticks(ticks.first())} · " +
-                "median ${Format.ticks(median)} · ${attempts.size} attempts"
+            // The same floor the overview holds itself to, for the same reason and stated there: this
+            // "median" is the upper middle element, so on two attempts it is the slower of the two. The
+            // record itself is in the row above either way — what the detail adds is the shape of the
+            // history, and on three runs there is no shape yet, only three runs.
+            val summary = when {
+                attempts.size == 1 -> "1 attempt"
+                attempts.size < StatsOverview.MIN_SAMPLE -> "${attempts.size} attempts · no median yet"
+                else -> "median ${Format.ticks(median)} · ${attempts.size} attempts"
+            }
             out.add(
                 Line(
                     row,
-                    Detail("clear", summary, attempts.takeLast(Sparkline.MAX_POINTS), (median * 2).coerceAtLeast(1)),
+                    Detail(
+                        label, summary, attempts.takeLast(Sparkline.MAX_POINTS), (median * 2).coerceAtLeast(1),
+                        badge = attempts.last().pb,
+                    ),
                 ),
             )
 
@@ -686,10 +1074,10 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             return true
         }
 
-        for ((entry, y) in railZones()) {
-            if (mouseX in frameLeft..(frameLeft + RAIL) && mouseY in y until (y + RAIL_ROW)) {
-                tab = entry
-                scroll = 0
+        if (mouseX in frameLeft..(frameLeft + Nav.WIDTH)) {
+            val entry = Nav.rowAt(bodyTop, Tab.entries.size, mouseY)
+            if (entry >= 0) {
+                selectTab(Tab.entries[entry])
                 return true
             }
         }
@@ -703,7 +1091,7 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
                 }
             }
             if (mouseY in columnsY until (columnsY + Tokens.SPACE_12)) {
-                columns().firstOrNull { mouseX in it.x0 - Tokens.SPACE_4..it.x1 + Tokens.SPACE_4 }?.let {
+                columnAt(columns(), mouseX)?.let {
                     // A second click on the same column reverses it; a different column starts in its
                     // own natural direction rather than inheriting the last one's. `last` and `runs`
                     // are the two where the interesting end is the large one — most recent, and most
@@ -720,7 +1108,7 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
                 }
             }
             if (mouseY >= firstRow && mouseY < listBottom) {
-                val index = scroll + (mouseY - firstRow) / TABLE_ROW
+                val index = scroll + (mouseY - firstRow) / Table.ROW
                 cachedLines.getOrNull(index)?.let { line ->
                     expanded = if (expanded == line.row.room) null else line.row.room
                     return true
@@ -729,20 +1117,79 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             return super.mouseClicked(event, doubleClick)
         }
 
-        val rows = rows()
-        val rowHeight = settingRowHeight(rows.size)
-        for ((index, row) in rows.withIndex()) {
-            val y = bodyTop + index * rowHeight
-            if (row.click == null) continue
-            if (mouseX in contentLeft..lastX && mouseY in y until (y + rowHeight)) {
-                stepBack = event.hasShiftDown()
-                row.click.invoke()
-                stepBack = false
+        return clickPage(event, mouseX, mouseY, doubleClick)
+    }
+
+    /**
+     * A press on a settings or stats page.
+     *
+     * The item is resolved first and the field's focus decided from it, because "anything that is not
+     * the field commits and closes it" needs to know what was hit before it can know that — and a commit
+     * that fired before the hit test would write the config on a click that landed on the field itself.
+     */
+    private fun clickPage(event: MouseButtonEvent, mouseX: Int, mouseY: Int, doubleClick: Boolean): Boolean {
+        val items = pageItems()
+        val index = if (mouseY in bodyTop until listBottom) {
+            SettingsPage.itemAt(items, mouseY - bodyTop + scroll)
+        } else {
+            -1
+        }
+        val item = items.getOrNull(index)
+        val onField = item != null && item.kind == SettingsPage.Kind.FIELD &&
+            mouseX >= fieldX && mouseX < fieldX + fieldWidth
+        if (!onField) blurKey(commit = true)
+
+        if (item == null || mouseX < contentLeft - Tokens.SPACE_8 || mouseX > lastX) {
+            return super.mouseClicked(event, doubleClick)
+        }
+
+        when (item.kind) {
+            SettingsPage.Kind.FIELD -> {
+                if (onField) clickField(mouseX)
+                return true
+            }
+
+            SettingsPage.Kind.STEPPER -> {
+                val stepperWidth = Stepper.width(font, item.value)
+                val arm = Stepper.armAt(lastX - stepperWidth, stepperWidth, mouseX)
+                // `0` is the value between the arms, which is deliberately not a target — see
+                // Stepper.armAt. Shift no longer reverses anything here because the minus arm is what
+                // shift was standing in for.
+                if (arm != 0) {
+                    item.step?.invoke(arm < 0)
+                    Config.save()
+                }
+                return true
+            }
+
+            SettingsPage.Kind.TOGGLE, SettingsPage.Kind.ACTION -> {
+                item.click?.invoke()
                 Config.save()
                 return true
             }
+
+            // A section heading, a note or a fact: nothing to do, and nothing behind this screen for the
+            // press to reach either.
+            else -> return super.mouseClicked(event, doubleClick)
         }
-        return super.mouseClicked(event, doubleClick)
+    }
+
+    /**
+     * A press inside the key field: the reveal affordance, or the caret.
+     *
+     * The reveal rectangle is re-derived from [TextField.revealX] rather than remembered from the draw,
+     * which is rule 3 — and it matters here more than anywhere, because the affordance is laid out in
+     * the width of the longer of its two words so that pressing it does not move it out from under the
+     * cursor that pressed it.
+     */
+    private fun clickField(mouseX: Int) {
+        if (mouseX >= TextField.revealX(font, TextField.Mask.DOTS, fieldX, fieldWidth)) {
+            keyRevealed = !keyRevealed
+            return
+        }
+        keyFocused = true
+        val offset = TextField.offsetAt(fieldX, mouseX, keyEdit.scroll)
+        keyEdit.placeCaret(TextField.indexAt(font, keyEdit.text, TextField.Mask.DOTS, keyRevealed, offset))
     }
 
     override fun mouseDragged(event: MouseButtonEvent, dragX: Double, dragY: Double): Boolean {
@@ -763,9 +1210,15 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     }
 
     override fun mouseScrolled(mouseX: Double, mouseY: Double, scrollX: Double, scrollY: Double): Boolean {
-        if (tab != Tab.RECORDS) return false
-        build()
-        scroll = (scroll - scrollY.toInt() * 3).coerceIn(0, (cachedLines.size - pageSize).coerceAtLeast(0))
+        if (tab == Tab.RECORDS) {
+            build()
+            // Rows, not pixels: the table's rows are a fixed height and it has counted in them since it
+            // had a scrollbar at all.
+            scroll = Scroll.wheel(scroll, scrollY, 1, cachedLines.size, pageSize)
+            return true
+        }
+        val items = pageItems()
+        scroll = Scroll.wheel(scroll, scrollY, SettingsPage.ROW, SettingsPage.total(items), pageHeight)
         return true
     }
 
@@ -780,6 +1233,9 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             stopPlacing(keep = false)
             return true
         }
+        // The focused field is a narrowing in exactly the sense rule 2 means: escape leaves the field
+        // and the screen stays where it was.
+        if (keyFocused && editKey(event)) return true
         if (tab == Tab.RECORDS) {
             if (event.key() == GLFW.GLFW_KEY_BACKSPACE && query.isNotEmpty()) {
                 query = query.dropLast(1)
@@ -802,8 +1258,52 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         return super.keyPressed(event)
     }
 
+    /**
+     * One key for the focused field. Returns whether it was ours.
+     *
+     * **Copy and cut are swallowed rather than handled**, which is the one deliberate omission. A masked
+     * field that will hand its own contents to the clipboard is a masked field in appearance only, and
+     * the mod has no reason to be a place credentials are read *out* of — the key arrives from
+     * `config.json` or from a paste, and leaves only as a request header. Swallowing rather than
+     * ignoring, so the keystroke does not fall through to something else while the field has focus.
+     */
+    private fun editKey(event: KeyEvent): Boolean {
+        when {
+            event.key() == GLFW.GLFW_KEY_ESCAPE ||
+                event.key() == GLFW.GLFW_KEY_ENTER ||
+                event.key() == GLFW.GLFW_KEY_KP_ENTER ||
+                event.key() == GLFW.GLFW_KEY_TAB -> blurKey(commit = true)
+
+            event.key() == GLFW.GLFW_KEY_BACKSPACE -> keyEdit.backspace()
+            event.key() == GLFW.GLFW_KEY_DELETE -> keyEdit.delete()
+            event.isLeft -> keyEdit.move(-1, event.hasShiftDown())
+            event.isRight -> keyEdit.move(1, event.hasShiftDown())
+            event.key() == GLFW.GLFW_KEY_HOME -> keyEdit.home(event.hasShiftDown())
+            event.key() == GLFW.GLFW_KEY_END -> keyEdit.end(event.hasShiftDown())
+            event.isSelectAll -> keyEdit.selectAll()
+            event.isPaste -> keyEdit.insert(pasted())
+            event.isCopy || event.isCut -> Unit
+            else -> return false
+        }
+        return true
+    }
+
+    /**
+     * The clipboard, as one line.
+     *
+     * A key copied out of a browser routinely arrives with a newline on it, and `Edit.insert` truncates
+     * against its own maximum rather than refusing — so the newline would silently become the last
+     * character of a key that is then wrong by exactly one character, which fails identically to a key
+     * that was never entered.
+     */
+    private fun pasted(): String = minecraft.keyboardHandler.clipboard.filterNot { it.isWhitespace() }
+
     /** Type anywhere to filter. No input box: the query itself is the only thing worth showing. */
     override fun charTyped(event: CharacterEvent): Boolean {
+        if (keyFocused) {
+            if (event.isAllowedChatCharacter) keyEdit.insert(event.codepointAsString())
+            return true
+        }
         if (tab != Tab.RECORDS || !event.isAllowedChatCharacter) return super.charTyped(event)
         query += event.codepointAsString()
         scroll = 0
@@ -812,62 +1312,98 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
 
     // --- Zones and helpers ------------------------------------------------------------------
 
-    /**
-     * How tall a settings row may be, given how many there are and how much screen there is.
-     *
-     * At GUI scale 4 a 1080p screen is 270 pixels tall. Ten rows at the comfortable 26 would run
-     * three rows off the bottom, and a switch you cannot reach is not a switch — so the grid
-     * compresses rather than overflowing. It never goes below [SETTING_ROW_MIN], because past that
-     * the label and the control start colliding; a list that long would need scrolling instead, and
-     * the longest tab here is ten rows.
-     */
-    private fun settingRowHeight(count: Int): Int {
-        if (count <= 0) return SETTING_ROW
-        val available = (listBottom - bodyTop) / count
-        return available.coerceIn(SETTING_ROW_MIN, SETTING_ROW)
+    private fun selectTab(entry: Tab) {
+        blurKey(commit = true)
+        tab = entry
+        scroll = 0
     }
 
-    private fun railZones(): List<Pair<Tab, Int>> =
-        Tab.entries.mapIndexed { index, entry -> entry to (bodyTop + index * RAIL_ROW) }
+    /**
+     * Leaves the key field, writing it if it changed.
+     *
+     * The reveal ends with the focus, unconditionally: it is an act and not a setting, so there is no
+     * state in which it should survive walking away from the field.
+     */
+    private fun blurKey(commit: Boolean) {
+        keyRevealed = false
+        keyFocused = false
+        if (commit) commitKey()
+    }
 
+    /** Writes the key only when it actually changed, so leaving a tab is not a file write. */
+    private fun commitKey() {
+        if (keyEdit.text == Config.hypixelKey) return
+        Config.hypixelKey = keyEdit.text
+        Config.save()
+    }
+
+    /**
+     * The columns, with hit zones measured off what [Table.headerCell] will actually draw.
+     *
+     * Rule 3 at its most literal. The zones used to be round numbers — `clearX - 40`, `typeX + 40` —
+     * which is a guess at the width of a tracked uppercase label plus a caret, and two of them
+     * overlapped by enough that a press near the `clear` header sorted by `type`. Deriving them from
+     * [Labels.width] makes the button exactly the mark it is.
+     */
     private fun columns(): List<Column> = buildList {
         add(Column(RecordTable.Sort.ROOM, "room", contentLeft, contentLeft + nameWidth(), false))
-        if (showType) add(Column(RecordTable.Sort.TYPE, "type", typeX, typeX + 40, false))
-        add(Column(RecordTable.Sort.CLEAR, "clear", clearX - 40, clearX, true))
-        add(Column(RecordTable.Sort.SECRETS, "secrets", secretsX - 44, secretsX, true))
-        add(Column(RecordTable.Sort.RUNS, "runs", runsX - 28, runsX, true))
-        add(Column(RecordTable.Sort.LAST, "last", lastX - 44, lastX, true))
+        if (showType) add(Column(RecordTable.Sort.TYPE, "type", typeX, typeX + leadingWidth("type"), false))
+        add(Column(RecordTable.Sort.CLEAR, "clear", trailingX(clearX, "clear"), clearX, true))
+        add(Column(RecordTable.Sort.SECRETS, "secrets", trailingX(secretsX, "secrets"), secretsX, true))
+        add(Column(RecordTable.Sort.RUNS, "runs", trailingX(runsX, "runs"), runsX, true))
+        add(Column(RecordTable.Sort.LAST, "last", trailingX(lastX, "last"), lastX, true))
     }
 
-    private fun nameWidth(): Int = (if (showType) typeX else clearX - 44) - contentLeft - Tokens.SPACE_8
+    /** The header a press at [mouseX] lands on. Expanded either side, so a 26px word is reachable. */
+    private fun columnAt(all: List<Column>, mouseX: Int): Column? =
+        all.firstOrNull { mouseX in it.x0 - Tokens.SPACE_4..it.x1 + Tokens.SPACE_4 }
+
+    /** A left-aligned header's drawn width: the label, then the caret to its right. */
+    private fun leadingWidth(label: String): Int =
+        Labels.width(font, label.uppercase()) + Tokens.SPACE_4 + Table.CARET
+
+    /** Where a right-aligned header's leftmost drawn pixel is — the caret's, not the label's. */
+    private fun trailingX(x1: Int, label: String): Int =
+        x1 - Labels.width(font, label.uppercase()) - Tokens.SPACE_8 - Table.CARET
+
+    /**
+     * The room column's width: everything up to whatever comes next, minus a gap.
+     *
+     * Measured against the *header* to its right rather than against a column origin, because the
+     * `clear` header reaches fourteen pixels further left than the times under it — a name laid out
+     * against `clearX - 44` ran under the caret at GUI scale 4.
+     */
+    private fun nameWidth(): Int =
+        (if (showType) typeX else trailingX(clearX, "clear")) - contentLeft - Tokens.SPACE_8
+
+    /**
+     * The sparkline's width, as a fraction of the content column.
+     *
+     * Fixed at 72 it left the summary beside it 184 pixels at GUI scale 4, which the shortest honest
+     * wording does not fit into — and the overflow was invisible, because the list's scissor is the
+     * whole window and the text simply ran off the right edge of the screen.
+     */
+    private val sparkWidth get() = (content * 20 / 100).coerceIn(SPARK_MIN, SPARK_MAX)
+
+    private fun fit(text: String, room: Int): String = font.plainSubstrByWidth(text, room.coerceAtLeast(0))
 
     private fun footer(): String = when {
+        keyFocused -> "enter saves the key · esc leaves the field"
+        tab == Tab.STATS -> "everything here comes from history.jsonl"
         tab != Tab.RECORDS -> "click a row to change it"
         query.isNotEmpty() -> "esc clears the search"
         filter != RecordTable.Filter.ALL -> "esc shows every room"
         else -> "type to search · click a room for its detail"
     }
 
-    /** The switch shows what would leave the machine, so it is legible before the click. */
+    /** The switch says what would leave the machine, so it is legible before the click. */
     private fun uploadName(): String = when {
-        !Config.uploadName -> "off"
+        !Config.uploadName -> "off: reports carry the id and nothing else"
         !Config.upload -> "${minecraft.user.name} · but reports are off"
-        else -> minecraft.user.name
+        else -> "${minecraft.user.name} rides on every report"
     }
-
-    private fun Boolean.word() = if (this) "on" else "off"
 
     private fun Int?.time() = this?.let(Format::ticks) ?: Format.MISSING
-
-    private fun ago(ts: Long): String {
-        if (ts == 0L) return Format.MISSING
-        val days = TimeUnit.MILLISECONDS.toDays(System.currentTimeMillis() - ts)
-        return when {
-            days <= 0L -> "today"
-            days == 1L -> "yesterday"
-            else -> "${days}d ago"
-        }
-    }
 
     private fun right(graphics: GuiGraphicsExtractor, text: String, rightX: Int, y: Int, present: Boolean) {
         graphics.text(
@@ -876,43 +1412,19 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         )
     }
 
-    private fun centred(graphics: GuiGraphicsExtractor, text: String, y: Int, argb: Int) {
-        graphics.text(font, text, contentLeft + (content - font.width(text)) / 2, y, argb, false)
-    }
-
-    /**
-     * The sort direction, as a caret that rotates between up and down.
-     *
-     * [flip] is `0f` for ascending and `1f` for descending; halfway through it is flat, which is what
-     * makes the reversal read as one control turning over rather than as two glyphs swapping.
-     */
-    private fun caret(graphics: GuiGraphicsExtractor, x: Int, y: Int, flip: Float) {
-        val lean = (flip - 0.5f) * 2f
-        for (step in 0..2) {
-            val offset = Math.round((step - 1) * lean)
-            val px = x + step * 2
-            graphics.fill(px, y + 3 + offset, px + 2, y + 4 + offset, Tokens.accent)
-        }
-    }
-
-    /** An 11px uppercase label with tracking, drawn glyph by glyph — the bitmap font has no spacing. */
-    private fun GuiGraphicsExtractor.label(value: String, x: Int, y: Int, argb: Int) {
-        var cursor = x.toFloat()
-        for (i in value.indices) {
-            val glyph = value.substring(i, i + 1)
-            text(font, glyph, Math.round(cursor), y, argb, false)
-            cursor += font.width(glyph) + Tokens.TRACKING_LABEL
-        }
-    }
-
     /**
      * The screen going away for any reason, which is not only the ways this screen knows about.
      *
      * [HudRoot.editing] hides the live overlay, and a screen closed from under itself — by the game,
      * by a keybind that opens another one — would leave it hidden with nothing left running to turn
      * it back on. The position is kept: a drag that reached this point was released.
+     *
+     * The key field is committed here for the mirror of that reason: it is the one control on this
+     * screen whose value is not written by the click that changes it, so leaving is its commit — and
+     * leaving includes every way out that this screen never hears about.
      */
     override fun removed() {
+        blurKey(commit = true)
         HudRoot.editing = false
         super.removed()
     }
@@ -921,17 +1433,35 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
 
     private companion object {
         const val MARGIN = 20
-        const val RAIL = 88
         const val GAP = Tokens.SPACE_24
         const val CONTENT_MAX = 460
-        const val RAIL_ROW = 24
-        const val SETTING_ROW = 26
-        const val SETTING_ROW_MIN = 14
-        const val TABLE_ROW = 20
         const val CHIP_H = 18
-        const val DETAIL_INDENT = 16
-        const val DETAIL_LABEL = 44
-        const val SPARK_W = 72
+
+        /** How far an explanation is indented under the row it explains. */
+        const val NOTE_INDENT = Tokens.SPACE_12
+
+        /** A switch on a 20-pixel row, with air above and below it. */
+        const val TOGGLE_HEIGHT = 16
+
+        /** The key field's widest form. Beyond this it is a very long box for a 36-character string. */
+        const val FIELD_MAX = 220
+
+        /**
+         * The longest key the field will hold.
+         *
+         * A Hypixel key is a 36-character UUID. The cap is generous rather than exact because a format
+         * this file does not own is not a format this file should enforce — what it is for is the paste
+         * of a whole web page into a field that would otherwise try to lay out a megabyte.
+         */
+        const val KEY_MAX = 128
+
+        const val SPARK_MIN = 40
+        const val SPARK_MAX = 72
+
+        /** The badge on a room whose last attempt was its best. Two characters used nowhere else. */
+        const val PB = "PB"
+
+        const val HISTORY_FILE = "config/sighteaddons/history.jsonl"
 
         /**
          * Alpha of the scrim behind placement mode, out of 255.

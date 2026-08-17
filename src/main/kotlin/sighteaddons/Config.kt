@@ -156,9 +156,19 @@ object Config {
      * A Hypixel API key, the player's own, for the true per-player secret counts in the run summary.
      *
      * **Blank by default and there is no bundled fallback.** A key in the jar would be public on the
-     * first Modrinth upload, which is the same lesson the upload token already taught here. Edit it
-     * into `config.json` by hand; it is deliberately not in the `/sa` screen, because a text field
-     * that echoes a credential on screen is a worse default than one more step.
+     * first Modrinth upload, which is the same lesson the upload token already taught here.
+     *
+     * **There is a field for it now**, in `/sa` → debug, and the objection this comment used to raise —
+     * *"a text field that echoes a credential on screen is a worse default than one more step"* — is
+     * answered rather than overruled, because it was an objection to a field that **echoes** and not to
+     * a field. The one on that screen is masked by default; revealing it is a momentary act with a word
+     * on it and not a setting anything remembers; and it refuses copy and cut, so it takes a key and
+     * never hands one back. Hand-editing `config.json` still works and is still what
+     * [HudPlacement.Anchor.of] means by a supported way to set this file.
+     *
+     * The key is never logged, never written into a run report and never mirrored into a tooltip:
+     * [SecretApi] sends it as a request header and nothing else in the mod reads it. What the field
+     * makes visible is *whether* one is set, which is the fact a player needs and not the value.
      *
      * Blank means [SecretApi] never runs and the summary reads exactly as it did before the feature
      * existed. Nothing about this key or the counts it fetches is ever uploaded — see [SecretApi].

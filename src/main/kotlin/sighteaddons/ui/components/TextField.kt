@@ -96,6 +96,19 @@ internal object TextField {
     fun maskedIndexAt(length: Int, offsetX: Int): Int =
         if (offsetX <= 0) 0 else ((offsetX + MASK_ADVANCE / 2) / MASK_ADVANCE).coerceIn(0, length)
 
+    /**
+     * How far into the content a press at [mouseX] lands, for a field whose left edge is [x] and which
+     * is currently scrolled by [scroll].
+     *
+     * The screen's half of the hit test, here rather than there so it is the same arithmetic [draw]
+     * lays the content out with — `draw` puts the first character at `x + PADDING - scroll`, and a
+     * click handler that forgot either term would put the caret a padding or a scroll away from the
+     * character that was pressed. On a masked field that is invisible: every mark looks like every
+     * other one, so the caret landing in the wrong place cannot be seen, only felt three keystrokes
+     * later.
+     */
+    fun offsetAt(x: Int, mouseX: Int, scroll: Int): Int = mouseX - x - PADDING + scroll
+
     /** The drawn width of [value] under [mask]. */
     fun contentWidth(font: Font, value: String, mask: Mask, revealed: Boolean): Int =
         if (mask == Mask.NONE || revealed) font.width(value) else maskedWidth(value.length)
