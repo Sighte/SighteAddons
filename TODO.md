@@ -2,7 +2,7 @@
 
 ## Stand — 2026-08-17
 
-`main` = 333 Tests / 26 Klassen / grün. `mod_version` 0.15.0, released, Modrinth-Version `YNlbBvlI`
+`main` = 343 Tests / 27 Klassen / grün. `mod_version` 0.15.0, released, Modrinth-Version `YNlbBvlI`
 mit identischem Jar. `RunReport.SCHEMA` 6, Receiver (`master` `1a7f435`) akzeptiert `idleTicks`/
 `navTicks` als optional und ist deployt — **dem Receiver ist nichts geschuldet.**
 
@@ -52,10 +52,14 @@ nicht gegriffen**, und dann ist die Sidebar-Zeile `Cleared: X%` der nächste Kan
 - [x] **HUD-Editor** — die Karte steht an ihrer echten Position und wird gezogen (Grab-Offset,
   Clamp gegen die echte Kartengröße), Hintergrund ist ein 48/255-Scrim statt `surfaceBase`, das
   Live-Overlay steht währenddessen still (`HudRoot.editing`, in `removed()` gelöscht).
-  Anchor+Offset statt `hudX`/`hudY` steht weiter aus — heute sind es absolute Pixel, die bei
-  einem Auflösungswechsel wandern.
+- [x] **Anchor+Offset statt `hudX`/`hudY`** (`HudPlacement`) — neun Anker, Versatz von der Kante nach
+  innen, der Editor zieht weiter frei und leitet den Anker beim Loslassen ab. Dazu `version` in
+  `config.json` und ein geordneter, idempotenter Migrationspfad (`ConfigMigration`, rein, ohne
+  `FabricLoader`). **Ein v0-File wird erst umgerechnet, wenn eine echte `guiScaled`-Größe vorliegt** —
+  aus zwei absoluten Pixeln allein ist der Anker nicht ableitbar; bis dahin bleibt die Datei v0 und die
+  Karte steht auf demselben Pixel wie vorher.
 - [ ] Phase 3b Rest: StormHud/ClearPopup auf das Design-System umstellen
-- [ ] Phase 2 Komponenten · 4 Stats · 5 Config+Migration · 6 Chat · 7 Politur
+- [ ] Phase 2 Komponenten · 4 Stats · 5 Config-**Bildschirm** (Unterbau steht) · 6 Chat · 7 Politur
 
 Zwei Sachen aus Phase 1, die nicht in der Vorlage standen:
 

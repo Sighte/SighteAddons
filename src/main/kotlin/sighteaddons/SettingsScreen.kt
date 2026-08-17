@@ -75,8 +75,9 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     private var grabY = 0
 
     /** Where the card was when placement started, for the escape hatch. */
-    private var originX = 0
-    private var originY = 0
+    private var originAnchor = HudPlacement.DEFAULT_ANCHOR
+    private var originOffsetX = 0
+    private var originOffsetY = 0
 
     private var scroll = 0
 
@@ -414,13 +415,21 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
      */
     private fun renderPlacing(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
         val snapshot = placingSnapshot()
-        previewHud.draw(graphics, font, snapshot, Config.hudX, Config.hudY)
+        val cardHeight = previewHud.measure(snapshot)
+        val origin = cardOrigin(cardHeight)
+        previewHud.draw(graphics, font, snapshot, origin.x, origin.y)
 
         // The numbers, under the card and out of it, so a player who wants an exact position can read
         // one off while dragging rather than guessing at what they landed on.
-        val below = Config.hudY + previewHud.measure(snapshot) + Tokens.SPACE_6
+        //
+        // **The anchor is named alongside them, and it updates as the card is dragged.** What is
+        // stored is an offset from an edge, and an offset is meaningless without the edge it counts
+        // from — "8, 8" is the top left corner or the bottom right one depending on a fact the player
+        // would otherwise have to infer. Watching the label change as the card crosses into the next
+        // third is also the only way the anchoring is visible at all before a resolution change.
+        val below = origin.y + cardHeight + Tokens.SPACE_6
         graphics.text(
-            font, "${Config.hudX}, ${Config.hudY}", Config.hudX, below,
+            font, "${Config.hudAnchor.label} · ${Config.hudOffsetX}, ${Config.hudOffsetY}", origin.x, below,
             if (dragging) Tokens.textPrimary else Tokens.textTertiary, false,
         )
 
@@ -436,25 +445,39 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     private fun placingSnapshot(): HudSnapshot =
         HudSnapshot.current.takeIf { it.inDungeon } ?: HudPreview.at(Clock.nowMs)
 
+    /**
+     * The card's top-left corner on this screen, resolved from the stored anchor and offset.
+     *
+     * Everything in placement mode goes through this rather than through the stored numbers, so what
+     * is drawn, what can be grabbed and what the overlay will show in a dungeon are all the same
+     * arithmetic — [HudPlacement.origin] — applied to the same screen.
+     */
+    private fun cardOrigin(cardHeight: Int) = Config.hudOrigin(width, height, HudRoot.WIDTH, cardHeight)
+
     /** Whether ([x], [y]) is on the card, which is what can be grabbed. */
     private fun onCard(x: Int, y: Int): Boolean {
-        val height = previewHud.measure(placingSnapshot())
-        return x >= Config.hudX && x < Config.hudX + HudRoot.WIDTH &&
-            y >= Config.hudY && y < Config.hudY + height
+        val cardHeight = previewHud.measure(placingSnapshot())
+        val origin = cardOrigin(cardHeight)
+        return x >= origin.x && x < origin.x + HudRoot.WIDTH &&
+            y >= origin.y && y < origin.y + cardHeight
     }
 
     /**
-     * Moves the card so the point that was grabbed stays under the cursor.
+     * Moves the card so the point that was grabbed stays under the cursor, and re-derives the anchor
+     * it now hangs from.
      *
-     * Clamped against the card's real size rather than against a token 8 pixels, which is what the
-     * click-to-place version did: the corner it clamped was the only part of the card it knew about,
-     * so a card placed near the right edge hung off the screen by everything except its first eight
-     * pixels.
+     * **The drag stays a drag.** The card is put where the hand stopped and [HudPlacement.nearest]
+     * reads the anchor off that, rather than asking the player to choose one of nine from a list and
+     * then think in offsets from it — nobody wants to name a corner, they want the card over there.
+     *
+     * Clamped against the card's real size, which is [HudPlacement.nearest]'s job now. The clamp
+     * itself is not new and is not optional: the click-to-place version clamped a token 8 pixels,
+     * being the only part of the card it knew about, so a card placed near the right edge hung off the
+     * screen by everything except its first eight pixels.
      */
     private fun dragTo(mouseX: Int, mouseY: Int) {
         val cardHeight = previewHud.measure(placingSnapshot())
-        Config.hudX = (mouseX - grabX).coerceIn(0, (width - HudRoot.WIDTH).coerceAtLeast(0))
-        Config.hudY = (mouseY - grabY).coerceIn(0, (height - cardHeight).coerceAtLeast(0))
+        Config.placeHud(mouseX - grabX, mouseY - grabY, width, height, HudRoot.WIDTH, cardHeight)
     }
 
     /** Leaves placement mode, keeping [keep] or putting the card back where it was picked up. */
@@ -462,8 +485,9 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         if (keep) {
             Config.save()
         } else {
-            Config.hudX = originX
-            Config.hudY = originY
+            Config.hudAnchor = originAnchor
+            Config.hudOffsetX = originOffsetX
+            Config.hudOffsetY = originOffsetY
         }
         placing = false
         dragging = false
@@ -475,12 +499,15 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     private fun rows(): List<Row> = when (tab) {
         Tab.HUD -> listOf(
             Row("show HUD", Config.hud.word(), Config.hud) { Config.hud = !Config.hud },
-            Row("position", "${Config.hudX}, ${Config.hudY} · move") {
+            // The anchor is named before the offset because it is the half that decides what the
+            // offset means — see renderPlacing.
+            Row("position", "${Config.hudAnchor.label} · ${Config.hudOffsetX}, ${Config.hudOffsetY} · move") {
                 placing = true
                 dragging = false
                 // Where to put it back if the player changes their mind.
-                originX = Config.hudX
-                originY = Config.hudY
+                originAnchor = Config.hudAnchor
+                originOffsetX = Config.hudOffsetX
+                originOffsetY = Config.hudOffsetY
                 // The live overlay stands down while its own position is being edited: it draws from
                 // the same config this is changing, so leaving it on renders two cards — the real one
                 // stuck at the old spot and the one under the cursor — and the player has to work out
@@ -649,8 +676,9 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
                 // jumps so its corner meets the cursor the moment you touch it, and every drag starts
                 // by throwing the thing you were aiming at.
                 dragging = true
-                grabX = mouseX - Config.hudX
-                grabY = mouseY - Config.hudY
+                val origin = cardOrigin(previewHud.measure(placingSnapshot()))
+                grabX = mouseX - origin.x
+                grabY = mouseY - origin.y
                 return true
             }
             // Anywhere off the card means done. There is nothing else on this screen to hit.
