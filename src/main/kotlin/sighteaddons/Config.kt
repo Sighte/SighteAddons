@@ -31,9 +31,28 @@ object Config {
      * Read through [hudOrigin] rather than directly: an old config's position is only convertible once
      * a real screen exists, and that call is where it happens.
      */
-    var hudAnchor = HudPlacement.DEFAULT_ANCHOR
-    var hudOffsetX = HudPlacement.DEFAULT_OFFSET
-    var hudOffsetY = HudPlacement.DEFAULT_OFFSET
+    val hudPlacement = OverlayPlacement(
+        "hud", HudPlacement.DEFAULT_ANCHOR, HudPlacement.DEFAULT_OFFSET, HudPlacement.DEFAULT_OFFSET,
+    )
+
+    /**
+     * Where the two centred overlays sit.
+     *
+     * Three placements and not one, because they are three elements a player looks at for three
+     * different reasons and the whole point of moving one is that the other two stay put. Each carries
+     * its own default — the card in the corner, both chips on the crosshair — and [OverlayPlacement] is
+     * where the shared half lives: the keys, the drag, and the defence against a hand-edited file.
+     *
+     * There is no migration to do for either. A file written before this existed is missing three keys
+     * per chip, and a missing key is exactly the case an explicit fallback per key covers; the version
+     * only has to move when a key is *renamed*. See [ConfigMigration].
+     */
+    val clearPopupPlacement = OverlayPlacement(
+        "clearPopup", ClearPopup.DEFAULT_ANCHOR, ClearPopup.DEFAULT_OFFSET_X, ClearPopup.DEFAULT_OFFSET_Y,
+    )
+    val stormPlacement = OverlayPlacement(
+        "stormTimer", StormHud.DEFAULT_ANCHOR, StormHud.DEFAULT_OFFSET_X, StormHud.DEFAULT_OFFSET_Y,
+    )
 
     /**
      * A parsed config file still at version 0, held until there is a screen to migrate it against.
@@ -229,39 +248,29 @@ object Config {
                     pending.int("hudY", HudPlacement.DEFAULT_OFFSET),
                 )
             }
-            readHud(migrated)
+            hudPlacement.read(migrated)
             pendingHud = null
             save()
         }
-        return HudPlacement.origin(hudAnchor, hudOffsetX, hudOffsetY, screenW, screenH, cardW, cardH)
+        return hudPlacement.origin(screenW, screenH, cardW, cardH)
     }
 
     /**
-     * Puts the card's top-left corner at ([x], [y]) by deriving the anchor it reads as.
+     * Puts [slot]'s top-left corner at ([x], [y]) by deriving the anchor it reads as.
      *
      * The placement editor drags in absolute pixels because that is what a hand does; the anchor is
-     * inferred from where the hand stopped. An explicit placement also settles any pending migration —
-     * a position the player just chose outranks one an old file remembers.
-     */
-    fun placeHud(x: Int, y: Int, screenW: Int, screenH: Int, cardW: Int, cardH: Int) {
-        val placement = HudPlacement.nearest(x, y, screenW, screenH, cardW, cardH)
-        hudAnchor = placement.anchor
-        hudOffsetX = placement.offsetX
-        hudOffsetY = placement.offsetY
-        pendingHud = null
-    }
-
-    /**
-     * The three placement keys, from an object already at [ConfigMigration.CURRENT].
+     * inferred from where the hand stopped. One entry point for all three elements, and it is here
+     * rather than on [OverlayPlacement] because of the line below.
      *
-     * Its own function because it is read from two places — [read] for a file that was already
-     * current, [hudOrigin] for one that has just this second become current — and two copies of it
-     * would be two chances for a key to be spelt differently in the one path nobody exercises.
+     * An explicit placement of the *card* also settles any pending migration — a position the player
+     * just chose outranks one an old file remembers. Placing a chip must not: while [pendingHud] is set,
+     * [hudPlacement] still holds its defaults and the card's real position is inside that object.
+     * Clearing it from under a popup drag would move the card to the top left corner, which is the one
+     * thing the whole deferred migration exists to avoid.
      */
-    private fun readHud(obj: JsonObject) {
-        hudAnchor = HudPlacement.Anchor.of(obj.str("hudAnchor", hudAnchor.name))
-        hudOffsetX = obj.int("hudOffsetX", hudOffsetX)
-        hudOffsetY = obj.int("hudOffsetY", hudOffsetY)
+    fun place(slot: OverlayPlacement, x: Int, y: Int, screenW: Int, screenH: Int, w: Int, h: Int) {
+        slot.place(x, y, screenW, screenH, w, h)
+        if (slot === hudPlacement) pendingHud = null
     }
 
     private fun read() {
@@ -283,7 +292,18 @@ object Config {
             // See ConfigMigration: the HUD position is the one key whose old form cannot be read
             // without knowing what it was once measured against.
             val obj = ConfigMigration.migrate(raw, 0, 0, 0, 0)
-            if (ConfigMigration.versionOf(obj) >= ConfigMigration.CURRENT) readHud(obj) else pendingHud = obj
+            if (ConfigMigration.versionOf(obj) >= ConfigMigration.CURRENT) {
+                hudPlacement.read(obj)
+            } else {
+                pendingHud = obj
+            }
+            // The two chips have no old shape and are read whatever version the file is: their keys
+            // either exist or they are the defaults, which is true of a version-0 file as much as of a
+            // current one. Deferring them with the card would leave both chips at their defaults for the
+            // one launch that finishes the card's migration, and a popup that moves back on its own for
+            // exactly one session is worse than one that never moved.
+            clearPopupPlacement.read(obj)
+            stormPlacement.read(obj)
 
             hud = obj.bool("hud", hud)
             // Clamped on the way in for the reason the storm ticks are: `config.json` is hand-edited,
@@ -329,10 +349,13 @@ object Config {
             obj.addProperty("hudY", pending.int("hudY", HudPlacement.DEFAULT_OFFSET))
         } else {
             obj.addProperty("version", ConfigMigration.CURRENT)
-            obj.addProperty("hudAnchor", hudAnchor.name)
-            obj.addProperty("hudOffsetX", hudOffsetX)
-            obj.addProperty("hudOffsetY", hudOffsetY)
+            hudPlacement.write(obj)
         }
+        // Written whatever version the file is, for the reason [read] gives about reading them: they are
+        // not part of the shape the version describes, and a chip the player has moved must survive the
+        // launch that has not been able to migrate the card yet.
+        clearPopupPlacement.write(obj)
+        stormPlacement.write(obj)
         obj.addProperty("hud", hud)
         obj.addProperty("hudScrim", hudScrim)
         obj.addProperty("showRoom", showRoom)

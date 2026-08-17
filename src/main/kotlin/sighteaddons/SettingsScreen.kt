@@ -28,6 +28,7 @@ import sighteaddons.ui.motion.Easing
 import sighteaddons.ui.motion.Motion
 import sighteaddons.ui.screens.Frame
 import sighteaddons.ui.screens.HudPreview
+import sighteaddons.ui.screens.OverlayPreview
 import sighteaddons.ui.screens.RecordColumns
 import sighteaddons.ui.screens.Scroll
 import sighteaddons.ui.screens.SettingsPage
@@ -109,9 +110,30 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     /** One rendered line of the history: the room's own row, or one line of its expanded detail. */
     private class Line(val row: RecordTable.Row, val detail: Detail?)
 
-    private var placing = false
+    /**
+     * The three things that can be placed on screen, and the only three.
+     *
+     * Each is an [OverlayPlacement] in [Config] plus two words: [what] names it in the hint line, and
+     * [label] is the settings row it is reached from. The editor asks a [Target] for nothing else —
+     * the size and the preview are one `when` each, because a card that draws a run and a chip that
+     * draws a scripted line have nothing to share but the rectangle they end up in.
+     */
+    private enum class Target(val slot: OverlayPlacement, val what: String, val label: String) {
+        CARD(Config.hudPlacement, "card", "position"),
+        POPUP(Config.clearPopupPlacement, "popup", "popup position"),
+        TIMER(Config.stormPlacement, "countdown", "timer position"),
+    }
 
-    /** Whether the card is currently held. Only true between a press on it and the release. */
+    /**
+     * Which overlay the placement editor has, or null when this screen is its ordinary self.
+     *
+     * A target and not a flag, because there are three placeable things now. Everything the editor does
+     * — measure, draw, grab, drop, cancel — is the same code for all three and differs only in what it
+     * asks for the size and the preview of, which is [Target]'s whole content.
+     */
+    private var placing: Target? = null
+
+    /** Whether the element is currently held. Only true between a press on it and the release. */
     private var dragging = false
 
     /**
@@ -126,14 +148,12 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
      */
     private var sliderHeld = -1
 
-    /** Where inside the card it was grabbed, so it does not jump to meet the cursor. */
+    /** Where inside the element it was grabbed, so it does not jump to meet the cursor. */
     private var grabX = 0
     private var grabY = 0
 
-    /** Where the card was when placement started, for the escape hatch. */
-    private var originAnchor = HudPlacement.DEFAULT_ANCHOR
-    private var originOffsetX = 0
-    private var originOffsetY = 0
+    /** Where the element was when placement started, for the escape hatch. */
+    private var placingWas: HudPlacement.Placement? = null
 
     /**
      * The current page's scroll offset — rows on the history table, pixels everywhere else.
@@ -297,7 +317,7 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         //
         // Not nothing, either: a scrim this light leaves the world plainly readable and still gives
         // the hint line something to sit on.
-        if (placing) {
+        if (placing != null) {
             graphics.fill(0, 0, width, height, Tokens.alpha(Tokens.shadow, PLACING_SCRIM))
             return
         }
@@ -305,8 +325,8 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     }
 
     override fun extractRenderState(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int, delta: Float) {
-        if (placing) {
-            renderPlacing(graphics, mouseX, mouseY)
+        placing?.let {
+            renderPlacing(graphics, it)
             return
         }
         tooltipText = null
@@ -727,43 +747,66 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     }
 
     /**
-     * Placement mode: the card sits where it currently is and is dragged from there.
+     * Placement mode: the element sits where it currently is and is dragged from there.
      *
-     * **It shows the card at its own position rather than under the cursor, and that is the change
+     * **It shows the element at its own position rather than under the cursor, and that is the change
      * that makes this an editor.** Before, the preview followed the mouse and a click dropped its
      * top-left corner there — so the one thing a player wanted to see, where the HUD *is*, was the
      * one thing the mode never showed, and moving it three pixels meant re-aiming at nothing.
      *
-     * Draws the real card, and with the live run when there is one: [HudSnapshot.current] is what the
-     * overlay itself reads, so during a dungeon this is the actual HUD, at actual width, with the
-     * actual room in it. Outside a run there is no live data to show and the scripted preview stands
-     * in — the same one the gallery uses, so a card that drifts from the overlay is visible here too.
+     * One mode for all three, because they are one question asked about three rectangles. It draws the
+     * real element in every case: the card with the live run when there is one — [HudSnapshot.current]
+     * is what the overlay itself reads, so during a dungeon this is the actual HUD, at actual width,
+     * with the actual room in it — and each chip through the same function the game draws it with. Where
+     * there is no live data there is a scripted stand-in, the same one the gallery uses, so a preview
+     * that drifts from the overlay is visible here too.
      */
-    private fun renderPlacing(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
-        val snapshot = placingSnapshot()
-        val cardHeight = previewHud.measure(snapshot)
-        val origin = cardOrigin(cardHeight)
-        previewHud.draw(graphics, font, snapshot, origin.x, origin.y)
+    private fun renderPlacing(graphics: GuiGraphicsExtractor, target: Target) {
+        val origin = placingOrigin(target)
+        val h = placingHeight(target)
+        // Drawn through the real files, at the position the real ones read, so this is the overlay and
+        // not a picture of it. The card gets the live run when there is one; the two chips get a
+        // scripted line, because a popup needs a room you just finished and a countdown needs Storm.
+        when (target) {
+            Target.CARD -> previewHud.draw(graphics, font, placingSnapshot(), origin.x, origin.y)
+            Target.POPUP -> ClearPopup.drawAt(
+                graphics, font, width, height,
+                PLACING_POPUP.name, PLACING_POPUP.detail, PLACING_POPUP.pb, ClearPopup.PRESENT_MS,
+            )
+            Target.TIMER -> StormHud.draw(graphics, font, width, height, StormHud.sample())
+        }
 
-        // The numbers, under the card and out of it, so a player who wants an exact position can read
-        // one off while dragging rather than guessing at what they landed on.
+        // The numbers, beside the element and out of it, so a player who wants an exact position can
+        // read one off while dragging rather than guessing at what they landed on.
         //
-        // **The anchor is named alongside them, and it updates as the card is dragged.** What is
+        // **The anchor is named alongside them, and it updates as the element is dragged.** What is
         // stored is an offset from an edge, and an offset is meaningless without the edge it counts
         // from — "8, 8" is the top left corner or the bottom right one depending on a fact the player
-        // would otherwise have to infer. Watching the label change as the card crosses into the next
+        // would otherwise have to infer. Watching the label change as the element crosses into the next
         // third is also the only way the anchoring is visible at all before a resolution change.
-        val below = origin.y + cardHeight + Tokens.SPACE_6
+        val text = target.slot.label()
+        // Under it, unless there is no room under it. A bottom-anchored element has its own bottom edge
+        // against the screen's, and a label drawn below that one is a label nobody can read — which
+        // would take the numbers away in exactly the corner where they are hardest to guess.
+        val below = origin.y + h + Tokens.SPACE_6
+        val labelY = if (below + HudRoot.TEXT_LINE <= height) below else origin.y - Tokens.SPACE_12
         graphics.text(
-            font, "${Config.hudAnchor.label} · ${Config.hudOffsetX}, ${Config.hudOffsetY}", origin.x, below,
+            font, text,
+            origin.x.coerceAtMost(width - font.width(text)).coerceAtLeast(0), labelY.coerceAtLeast(0),
             if (dragging) Tokens.textPrimary else Tokens.textTertiary, false,
         )
 
+        // Two lines, because one that says all of it does not fit: at GUI scale 4 on a 1366×768 window
+        // the screen is 342 px wide, and the single line this replaced already measured about 350 before
+        // there was anything new to say on it.
         graphics.text(
             font,
-            if (dragging) "release to place it · esc cancels"
-            else "drag the card · click anywhere else when done · esc cancels",
+            if (dragging) "release to place it" else "drag the ${target.what} · arrows nudge · r resets",
             frameLeft, headerY, Tokens.textTertiary, false,
+        )
+        graphics.text(
+            font, "click off it when done · esc cancels",
+            frameLeft, headerY + HudRoot.TEXT_LINE + Tokens.SPACE_2, Tokens.textTertiary, false,
         )
     }
 
@@ -772,50 +815,116 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         HudSnapshot.current.takeIf { it.inDungeon } ?: HudPreview.at(Clock.nowMs)
 
     /**
-     * The card's top-left corner on this screen, resolved from the stored anchor and offset.
+     * How wide and how tall [target]'s overlay is on this screen — the rectangle a hand grabs.
+     *
+     * Every one of these is the same call the element makes when it draws itself: the card's measured
+     * height, and each chip's own width function. That is not tidiness. An editor that measured a chip
+     * its own way would derive an anchor from a rectangle that was never on screen, and the element
+     * would settle a few pixels from where it was dropped — the class of bug this screen's rule 3 is
+     * about, one file further out.
+     */
+    private fun placingWidth(target: Target): Int = when (target) {
+        Target.CARD -> HudRoot.WIDTH
+        Target.POPUP -> ClearPopup.width(font, PLACING_POPUP.name, PLACING_POPUP.detail, PLACING_POPUP.pb, width)
+        Target.TIMER -> StormHud.width(font, StormHud.sample())
+    }
+
+    private fun placingHeight(target: Target): Int = when (target) {
+        Target.CARD -> previewHud.measure(placingSnapshot())
+        Target.POPUP -> ClearPopup.HEIGHT
+        Target.TIMER -> StormHud.HEIGHT
+    }
+
+    /**
+     * [target]'s top-left corner on this screen, resolved from the stored anchor and offset.
      *
      * Everything in placement mode goes through this rather than through the stored numbers, so what
      * is drawn, what can be grabbed and what the overlay will show in a dungeon are all the same
      * arithmetic — [HudPlacement.origin] — applied to the same screen.
+     *
+     * The card goes via [Config.hudOrigin] because that call is also where a still-pending migration is
+     * finished, which is the one thing the two chips have no equivalent of.
      */
-    private fun cardOrigin(cardHeight: Int) = Config.hudOrigin(width, height, HudRoot.WIDTH, cardHeight)
+    private fun placingOrigin(target: Target): HudPlacement.Origin {
+        val w = placingWidth(target)
+        val h = placingHeight(target)
+        if (target == Target.CARD) return Config.hudOrigin(width, height, w, h)
+        return target.slot.origin(width, height, w, h)
+    }
 
-    /** Whether ([x], [y]) is on the card, which is what can be grabbed. */
-    private fun onCard(x: Int, y: Int): Boolean {
-        val cardHeight = previewHud.measure(placingSnapshot())
-        val origin = cardOrigin(cardHeight)
-        return x >= origin.x && x < origin.x + HudRoot.WIDTH &&
-            y >= origin.y && y < origin.y + cardHeight
+    /** Whether ([x], [y]) is on the element being placed, which is what can be grabbed. */
+    private fun onPlaced(target: Target, x: Int, y: Int): Boolean {
+        val origin = placingOrigin(target)
+        return x >= origin.x && x < origin.x + placingWidth(target) &&
+            y >= origin.y && y < origin.y + placingHeight(target)
     }
 
     /**
-     * Moves the card so the point that was grabbed stays under the cursor, and re-derives the anchor
+     * Moves the element so the point that was grabbed stays under the cursor, and re-derives the anchor
      * it now hangs from.
      *
-     * **The drag stays a drag.** The card is put where the hand stopped and [HudPlacement.nearest]
+     * **The drag stays a drag.** The element is put where the hand stopped and [HudPlacement.nearest]
      * reads the anchor off that, rather than asking the player to choose one of nine from a list and
-     * then think in offsets from it — nobody wants to name a corner, they want the card over there.
+     * then think in offsets from it — nobody wants to name a corner, they want the thing over there.
      *
-     * Clamped against the card's real size, which is [HudPlacement.nearest]'s job now. The clamp
+     * Clamped against the element's real size, which is [HudPlacement.nearest]'s job now. The clamp
      * itself is not new and is not optional: the click-to-place version clamped a token 8 pixels,
      * being the only part of the card it knew about, so a card placed near the right edge hung off the
      * screen by everything except its first eight pixels.
      */
-    private fun dragTo(mouseX: Int, mouseY: Int) {
-        val cardHeight = previewHud.measure(placingSnapshot())
-        Config.placeHud(mouseX - grabX, mouseY - grabY, width, height, HudRoot.WIDTH, cardHeight)
+    private fun dragTo(target: Target, mouseX: Int, mouseY: Int) =
+        moveTo(target, mouseX - grabX, mouseY - grabY)
+
+    /** Puts the element's top-left corner at ([x], [y]): where a drag, or a nudge, has just put it. */
+    private fun moveTo(target: Target, x: Int, y: Int) = Config.place(
+        target.slot, x, y, width, height, placingWidth(target), placingHeight(target),
+    )
+
+    /**
+     * The arrow key on [event] as a step in screen pixels, or null if it is not one.
+     *
+     * **In screen pixels and not in offsets**, because an offset's sign depends on the edge it counts
+     * from: at a right-hand anchor a larger `offsetX` moves the element *left*, and "right arrow moves
+     * it right" has to hold at all nine anchors. So a nudge is a position and goes through the same
+     * [moveTo] a drag does, anchor re-derivation included — a nudge across a boundary does what a drag
+     * across the same pixel does.
+     *
+     * A drag gets an element roughly where it belongs and cannot do the last part: the offsets worth
+     * having are *numbers* — 0 for exactly centred, 4 for the same inset the card has — and landing a
+     * hand on a number is luck. This is what makes the position adjustable rather than only movable.
+     */
+    private fun nudge(event: KeyEvent): Pair<Int, Int>? {
+        val step = if (event.hasShiftDown()) NUDGE_FAR else 1
+        return when (event.key()) {
+            GLFW.GLFW_KEY_LEFT -> -step to 0
+            GLFW.GLFW_KEY_RIGHT -> step to 0
+            GLFW.GLFW_KEY_UP -> 0 to -step
+            GLFW.GLFW_KEY_DOWN -> 0 to step
+            else -> null
+        }
     }
 
-    /** Leaves placement mode, keeping [keep] or putting the card back where it was picked up. */
+    /**
+     * Opens the editor on [target].
+     *
+     * Only the card's own overlay has to stand down: it draws from the config being edited, so leaving
+     * it on renders two cards — the real one stuck at the old spot and the one under the cursor — and
+     * the player has to work out which of them they are moving. The two chips are drawn here from the
+     * same config, so a live one would land on exactly the same pixels rather than beside them.
+     */
+    private fun startPlacing(target: Target) {
+        placing = target
+        dragging = false
+        placingWas = target.slot.snapshot()
+        HudRoot.editing = target == Target.CARD
+    }
+
+    /** Leaves placement mode, keeping [keep] or putting the element back where it was picked up. */
     private fun stopPlacing(keep: Boolean) {
-        if (keep) {
-            Config.save()
-        } else {
-            Config.hudAnchor = originAnchor
-            Config.hudOffsetX = originOffsetX
-            Config.hudOffsetY = originOffsetY
-        }
-        placing = false
+        val was = placingWas
+        if (keep) Config.save() else was?.let { placing?.slot?.set(it) }
+        placing = null
+        placingWas = null
         dragging = false
         HudRoot.editing = false
     }
@@ -842,21 +951,7 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     private fun hudItems(): List<SettingsPage.Item> = buildList {
         section("the card")
         toggle("show HUD", Config.hud) { Config.hud = !Config.hud }
-        // The anchor is named before the offset because it is the half that decides what the offset
-        // means — see renderPlacing.
-        action("position", "${Config.hudAnchor.label} · ${Config.hudOffsetX}, ${Config.hudOffsetY} · move") {
-            placing = true
-            dragging = false
-            // Where to put it back if the player changes their mind.
-            originAnchor = Config.hudAnchor
-            originOffsetX = Config.hudOffsetX
-            originOffsetY = Config.hudOffsetY
-            // The live overlay stands down while its own position is being edited: it draws from
-            // the same config this is changing, so leaving it on renders two cards — the real one
-            // stuck at the old spot and the one under the cursor — and the player has to work out
-            // which of them they are moving.
-            HudRoot.editing = true
-        }
+        place(Target.CARD)
         note("the offset counts inward from the anchor")
         // The one control on this screen that is a sweep rather than a correction, which is the whole
         // of `Stepper` against `Slider`: nobody has a number in mind for a backdrop, they move it until
@@ -889,7 +984,13 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
 
         section("elsewhere on screen")
         toggle("clear popup", Config.clearPopup) { Config.clearPopup = !Config.clearPopup }
-        note("the centred line when you clear a room")
+        note("the large line when you clear a room")
+        // Both chips are placeable now, and each row is only offered while its chip is switched on: a
+        // placement editor for something that is not going to be drawn is a mode with nothing in it.
+        // The rows carry distinct labels rather than three "position"s, because a row's hover and its
+        // toggle animation are keyed by that label — three of them would share one animation, and
+        // hovering any one would light all three.
+        if (Config.clearPopup) place(Target.POPUP)
         // On this tab and not the chat one because it is drawn on screen — the mirror of the
         // argument that puts "crit readout" over there.
         toggle("storm timer", Config.stormTimer) { Config.stormTimer = !Config.stormTimer }
@@ -898,6 +999,7 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         // itself — see StormTimer. Shown only while the timer is on: off, they are two rows of
         // arithmetic about something that is not going to be drawn.
         if (Config.stormTimer) {
+            place(Target.TIMER)
             note("138 and 20 are inherited and unverified")
             stepper(
                 "countdown", Config.stormCountdownTicks, StormTimer.COUNTDOWN_MIN, StormTimer.COUNTDOWN_MAX,
@@ -1017,6 +1119,16 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
 
     private fun MutableList<SettingsPage.Item>.action(label: String, value: String, click: () -> Unit) =
         add(SettingsPage.Item(SettingsPage.Kind.ACTION, label, value, click = click))
+
+    /**
+     * One element's position row: where it is, and the word that opens the editor on it.
+     *
+     * The anchor is named before the offset because it is the half that decides what the offset means —
+     * see [renderPlacing] — and the label comes from [OverlayPlacement.label] so this row and the one
+     * under the element being dragged cannot come to word the same fact differently.
+     */
+    private fun MutableList<SettingsPage.Item>.place(target: Target) =
+        action(target.label, "${target.slot.label()} · move") { startPlacing(target) }
 
     private fun MutableList<SettingsPage.Item>.info(label: String, value: String) =
         add(SettingsPage.Item(SettingsPage.Kind.INFO, label, value))
@@ -1164,23 +1276,24 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         val mouseX = event.x().toInt()
         val mouseY = event.y().toInt()
 
-        if (placing) {
+        val target = placing
+        if (target != null) {
             // Right click is the same cancel it has always been, and now Escape is too.
             if (event.button() != 0) {
                 stopPlacing(keep = false)
                 return true
             }
-            if (onCard(mouseX, mouseY)) {
-                // The grab offset is the whole of drag-and-drop feeling right: without it the card
+            if (onPlaced(target, mouseX, mouseY)) {
+                // The grab offset is the whole of drag-and-drop feeling right: without it the element
                 // jumps so its corner meets the cursor the moment you touch it, and every drag starts
                 // by throwing the thing you were aiming at.
                 dragging = true
-                val origin = cardOrigin(previewHud.measure(placingSnapshot()))
+                val origin = placingOrigin(target)
                 grabX = mouseX - origin.x
                 grabY = mouseY - origin.y
                 return true
             }
-            // Anywhere off the card means done. There is nothing else on this screen to hit.
+            // Anywhere off it means done. There is nothing else on this screen to hit.
             stopPlacing(keep = true)
             return true
         }
@@ -1326,8 +1439,9 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     }
 
     override fun mouseDragged(event: MouseButtonEvent, dragX: Double, dragY: Double): Boolean {
-        if (dragging) {
-            dragTo(event.x().toInt(), event.y().toInt())
+        val target = placing
+        if (dragging && target != null) {
+            dragTo(target, event.x().toInt(), event.y().toInt())
             return true
         }
         if (sliderHeld >= 0) {
@@ -1357,8 +1471,8 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
 
     override fun mouseScrolled(mouseX: Double, mouseY: Double, scrollX: Double, scrollY: Double): Boolean {
         // Placement mode draws none of this. Scrolling the page underneath it moves a list nobody can
-        // see, and leaves it somewhere else when the card is dropped.
-        if (placing) return true
+        // see, and leaves it somewhere else when the element is dropped.
+        if (placing != null) return true
         if (tab == Tab.RECORDS) {
             build()
             // Rows, not pixels: the table's rows are a fixed height and it has counted in them since it
@@ -1376,11 +1490,27 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
      * is a state you leave, and closing the whole screen to get out of it loses your place.
      */
     override fun keyPressed(event: KeyEvent): Boolean {
-        // Escape out of placing puts the card back, rather than closing the screen with a position
+        // Escape out of placing puts the element back, rather than closing the screen with a position
         // the player was in the middle of changing their mind about.
-        if (placing && event.key() == GLFW.GLFW_KEY_ESCAPE) {
-            stopPlacing(keep = false)
-            return true
+        val target = placing
+        if (target != null) {
+            if (event.key() == GLFW.GLFW_KEY_ESCAPE) {
+                stopPlacing(keep = false)
+                return true
+            }
+            // Back to the default, which for the two chips is the crosshair and is otherwise unreachable
+            // by hand: the offset that means "exactly centred" is zero, and landing a drag on zero takes
+            // more patience than anybody has. Not written here — escape still undoes it, and clicking off
+            // it is still what commits.
+            if (event.key() == GLFW.GLFW_KEY_R) {
+                target.slot.reset()
+                return true
+            }
+            nudge(event)?.let { (dx, dy) ->
+                val origin = placingOrigin(target)
+                moveTo(target, origin.x + dx, origin.y + dy)
+                return true
+            }
         }
         // The focused field is a narrowing in exactly the sense rule 2 means: escape leaves the field
         // and the screen stays where it was.
@@ -1601,6 +1731,24 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
          * makes this tool answer a question about a grey rectangle.
          */
         const val PLACING_SCRIM = 48
+
+        /**
+         * A shift-held nudge, in GUI pixels.
+         *
+         * Eight and not ten, because every space in this design system is a multiple of it and the
+         * offsets worth landing on are too — the card's own default inset is four.
+         */
+        const val NUDGE_FAR = 8
+
+        /**
+         * The popup the placement editor drags: the gallery script's personal best.
+         *
+         * Borrowed rather than invented, on the argument [ClearPopup.detail] is a function for — a
+         * second wording is a second thing to keep in step. The record one of the two on purpose: it
+         * carries the chevron and the `PB` badge, which is the *widest* a popup gets, and an anchor
+         * derived from the widest chip is one the narrow ones also fit behind.
+         */
+        val PLACING_POPUP = OverlayPreview.POPUPS.first { it.pb }
 
         /** Read from the jar rather than typed, so it cannot disagree with what is actually running. */
         private val VERSION: String = TelemetryUpload.modVersion().takeUnless { it == "unknown" } ?: ""

@@ -15,7 +15,12 @@ import sighteaddons.ui.theme.Tokens
  *
  * Deliberately not part of the HUD block in the corner. That one is a standing readout you look at
  * when you choose to; this is a single event that has to land without you looking away from the
- * fight — so it is centred, drawn at double size, and gone again within three seconds.
+ * fight — so it starts out on the crosshair, drawn at double size, and gone again within three seconds.
+ *
+ * **Starts out**, since the popups became placeable: the anchor and offset are the player's, through
+ * [Config.clearPopupPlacement] and the `/sa` editor, and they move this chip without moving the card or
+ * the countdown. What does not move is the argument above — it is still an event and not a readout, so
+ * it is still drawn large and still leaves on its own.
  *
  * Only your own rooms trigger it, on the same ownership gate the history uses, so the popup can
  * never show a room the records will not have. That promise is kept by the caller and not here:
@@ -72,11 +77,53 @@ object ClearPopup {
      */
     private const val RISE_MS = Motion.FAST
 
-    /** Above the crosshair: clear of the melee in the centre, still inside where you are looking. */
+    /**
+     * Above the crosshair: clear of the melee in the centre, still inside where you are looking.
+     *
+     * Where a fresh install puts it, and since the popup became placeable, no longer where it has to
+     * stay — see [DEFAULT_OFFSET_Y] for how this number becomes a default rather than a position.
+     */
     private const val OFFSET_Y = -54
 
     private const val PAD_X = Tokens.SPACE_12
     private const val PAD_Y = Tokens.SPACE_6
+
+    /**
+     * The chip's height: one line of double-size text, padded above and below.
+     *
+     * Not private, because a position is a rectangle rather than a point — [OverlayPlacement] clamps
+     * against the size of the thing it is placing, and the placement editor grabs it by that same
+     * rectangle. A second copy of this sum on the screen that drags it would be a chip that can be
+     * picked up somewhere other than where it is drawn.
+     */
+    internal const val HEIGHT = ScaledText.HEIGHT + PAD_Y * 2
+
+    /**
+     * Where the popup starts out, in [OverlayPlacement]'s terms: on the crosshair, and above it.
+     *
+     * The anchor is the middle of the screen rather than the top of it because the crosshair is what
+     * this chip is aimed at. A top-anchored offset would hold it the same distance from the top edge of
+     * the window while the thing it is placed against moved.
+     *
+     * [DEFAULT_OFFSET_Y] is written as the sum and not as the −45 it comes to. The old code put the
+     * chip's *top* at `screenHeight / 2 + OFFSET_Y - PAD_Y`; an offset from a centre anchor counts from
+     * where that top lands when the chip is centred, which is half a chip higher. Written this way,
+     * retuning [OFFSET_Y] or the padding moves the default with them instead of leaving a number behind
+     * that used to mean this — and `OverlayPlacementTest` holds the two to the same pixel.
+     */
+    internal val DEFAULT_ANCHOR = HudPlacement.Anchor.MIDDLE_CENTRE
+    internal const val DEFAULT_OFFSET_X = 0
+    internal const val DEFAULT_OFFSET_Y = OFFSET_Y - PAD_Y + HEIGHT / 2
+
+    /**
+     * Half way through the hold: the chip at full presence, whatever the hold is set to.
+     *
+     * The placement editor has to draw a popup at some age, and the one thing that age must not be is a
+     * number picked out of the air. Zero is the first frame of the entrance and draws nothing at all,
+     * and a literal that outlived a shortened hold would show a chip mid-fade in the one mode whose
+     * whole job is to say where the chip sits.
+     */
+    internal const val PRESENT_MS = HOLD_MS / 2
 
     /**
      * The scrim behind the line, matching the HUD card's — and now literally the same one.
@@ -201,28 +248,17 @@ object ClearPopup {
         val appear = opacity(ageMs, rise, fade)
         if (appear <= 0.01f) return
 
-        // Measured before anything is placed, because the chip is centred and every piece inside it
-        // is positioned from the left edge that measurement decides.
-        //
-        // The chevron and the badge are fixed — they are there or they are not — so the screen's limit
-        // falls entirely on the two text runs, and the detail is served first. That order is the
-        // judgement here: the popup fires because *you* just finished *this* room, so which room it
-        // was is the half you already know and how long it took is the half that is news. The badge is
-        // never given up at all; a record that arrives without its `PB` is the one reading this whole
-        // chip exists to deliver.
-        val markWidth = if (pb) Glyphs.SIZE + Tokens.SPACE_6 else 0
-        val badgeWidth = if (pb) Tokens.SPACE_8 + ScaledText.width(font, BADGE) else 0
-
-        val budget = textBudget(screenWidth, markWidth, badgeWidth)
-        val fittedDetail = ScaledText.fit(font, detail, budget)
-        val detailWidth = ScaledText.width(font, fittedDetail)
-        val fittedName = ScaledText.fit(font, name, budget - detailWidth)
-        val nameWidth = ScaledText.width(font, fittedName)
-
-        val width = PAD_X * 2 + markWidth + nameWidth + Tokens.SPACE_8 + detailWidth + badgeWidth
-        val height = ScaledText.HEIGHT + PAD_Y * 2
-        val left = leftEdge(screenWidth, width)
-        val top = screenHeight / 2 + OFFSET_Y - PAD_Y
+        // Measured before it is placed, because a chip is positioned by a corner it does not own: at
+        // a centre or a right-hand anchor, where its left edge goes depends on how wide it turned out
+        // to be. Every piece inside it is then laid out from that edge.
+        val chip = measure(font, name, detail, pb, screenWidth)
+        val width = chip.width
+        val height = HEIGHT
+        // Where the player left it, clamped onto the screen — the same call and the same arithmetic the
+        // card and the countdown go through. It was `(screenWidth - width) / 2` and half a screen up.
+        val origin = Config.clearPopupPlacement.origin(screenWidth, screenHeight, width, height)
+        val left = origin.x
+        val top = origin.y
         val textTop = top + PAD_Y
 
         // A chip, not a card: this is an event passing through, not a surface anything else sits on.
@@ -248,16 +284,69 @@ object ClearPopup {
                 graphics, x, textTop + (ScaledText.HEIGHT - Glyphs.SIZE) / 2, true,
                 Tokens.fade(Tokens.textPrimary, appear),
             )
-            x += markWidth
+            x += chip.markWidth
         }
 
-        ScaledText.draw(graphics, font, fittedName, x, textTop, Tokens.fade(Tokens.textPrimary, appear))
-        x += nameWidth + Tokens.SPACE_8
-        ScaledText.draw(graphics, font, fittedDetail, x, textTop, Tokens.fade(Tokens.textSecondary, appear))
+        ScaledText.draw(graphics, font, chip.name, x, textTop, Tokens.fade(Tokens.textPrimary, appear))
+        x += chip.nameWidth + Tokens.SPACE_8
+        ScaledText.draw(graphics, font, chip.detail, x, textTop, Tokens.fade(Tokens.textSecondary, appear))
         if (pb) {
-            x += detailWidth + Tokens.SPACE_8
+            x += chip.detailWidth + Tokens.SPACE_8
             ScaledText.draw(graphics, font, BADGE, x, textTop, Tokens.fade(Tokens.textPrimary, appear))
         }
+    }
+
+    /**
+     * The chip as it will be drawn: the two text runs cut to what the screen leaves them, and every
+     * width the layout is built from.
+     *
+     * One object rather than seven locals inside [drawAt], because the placement editor has to know how
+     * wide the chip is before it can let a hand grab it, and the answer must be the *same* answer —
+     * an editor that measured a popup its own way would hand back an anchor derived from a rectangle
+     * that was never on screen. See the [Chip] note for the cost.
+     */
+    private fun measure(font: Font, name: String, detail: String, pb: Boolean, screenWidth: Int): Chip {
+        // The chevron and the badge are fixed — they are there or they are not — so the screen's limit
+        // falls entirely on the two text runs, and the detail is served first. That order is the
+        // judgement here: the popup fires because *you* just finished *this* room, so which room it was
+        // is the half you already know and how long it took is the half that is news. The badge is never
+        // given up at all; a record that arrives without its `PB` is the one reading this whole chip
+        // exists to deliver.
+        val markWidth = if (pb) Glyphs.SIZE + Tokens.SPACE_6 else 0
+        val badgeWidth = if (pb) Tokens.SPACE_8 + ScaledText.width(font, BADGE) else 0
+
+        val budget = textBudget(screenWidth, markWidth, badgeWidth)
+        val fittedDetail = ScaledText.fit(font, detail, budget)
+        val detailWidth = ScaledText.width(font, fittedDetail)
+        val fittedName = ScaledText.fit(font, name, budget - detailWidth)
+        return Chip(fittedName, ScaledText.width(font, fittedName), fittedDetail, detailWidth, markWidth, badgeWidth)
+    }
+
+    /**
+     * How wide the popup is for this content on this screen — what the placement editor grabs.
+     *
+     * The height is [HEIGHT] and does not depend on anything, which is why only this half is a call.
+     */
+    internal fun width(font: Font, name: String, detail: String, pb: Boolean, screenWidth: Int): Int =
+        measure(font, name, detail, pb, screenWidth).width
+
+    /**
+     * One measured chip.
+     *
+     * An allocation per frame, on a path that already allocates two substrings and their measurements
+     * per frame — `ScaledText.fit` is `Font.plainSubstrByWidth`, which builds a measuring sink whether
+     * or not it cuts anything. So this is not the thing to cache first, and unlike the HUD card this
+     * one is on screen for three seconds at a time rather than for a whole run.
+     */
+    private class Chip(
+        val name: String,
+        val nameWidth: Int,
+        val detail: String,
+        val detailWidth: Int,
+        val markWidth: Int,
+        val badgeWidth: Int,
+    ) {
+        val width = PAD_X * 2 + markWidth + nameWidth + Tokens.SPACE_8 + detailWidth + badgeWidth
     }
 
     /**
@@ -272,16 +361,12 @@ object ClearPopup {
      * name in Odin's database — with its detail and a `PB` measures about 439 px at this scale. The
      * name ran off the left of the screen and the badge off the right, which is the one reading the
      * player was owed.
+     *
+     * This was half the fix and still is. The other half — a chip wider than the screen's *fixed* parts
+     * alone, on a 60 px GUI-scaled window that vanilla will hand over — was a `coerceAtLeast(0)` on the
+     * left edge here, and is now [HudPlacement.origin]'s clamp, which does it on both axes and for all
+     * nine anchors rather than for the one this file used to hard-code.
      */
     internal fun textBudget(screenWidth: Int, markWidth: Int, badgeWidth: Int): Int =
         (screenWidth - PAD_X * 2 - markWidth - Tokens.SPACE_8 - badgeWidth).coerceAtLeast(0)
-
-    /**
-     * Where a chip [width] wide starts on a [screenWidth]-wide screen: centred, and never off the left.
-     *
-     * The clamp is the second half of the fix and not a redundant one. [textBudget] keeps the text
-     * inside the screen, but the padding and the chevron are not text and a screen narrower than those
-     * alone still exists — a 60 px GUI-scaled window is legal and vanilla will hand it over.
-     */
-    internal fun leftEdge(screenWidth: Int, width: Int): Int = ((screenWidth - width) / 2).coerceAtLeast(0)
 }

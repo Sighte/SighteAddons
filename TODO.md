@@ -2,7 +2,7 @@
 
 ## Stand — 2026-08-17
 
-`main` = 385 Tests / 32 Klassen / grün. `mod_version` 0.15.0, released, Modrinth-Version `YNlbBvlI`
+`main` = 388 Tests / 33 Klassen / grün. `mod_version` 0.15.0, released, Modrinth-Version `YNlbBvlI`
 mit identischem Jar. `RunReport.SCHEMA` 6, Receiver (`master` `1a7f435`) akzeptiert `idleTicks`/
 `navTicks` als optional und ist deployt — **dem Receiver ist nichts geschuldet.**
 
@@ -65,6 +65,21 @@ nicht gegriffen**, und dann ist die Sidebar-Zeile `Cleared: X%` der nächste Kan
   `FabricLoader`). **Ein v0-File wird erst umgerechnet, wenn eine echte `guiScaled`-Größe vorliegt** —
   aus zwei absoluten Pixeln allein ist der Anker nicht ableitbar; bis dahin bleibt die Datei v0 und die
   Karte steht auf demselben Pixel wie vorher.
+- [x] **Alle drei Overlays sind platzierbar** (`OverlayPlacement`) — ein Editor für Karte, Clear-Popup
+  und Storm-Countdown statt einem für die Karte. Jedes Element hat eigene drei Keys
+  (`<key>Anchor`/`OffsetX`/`OffsetY`), einen eigenen Default und wird **durch seine echte
+  Zeichenfunktion** gezogen; das Trefferrechteck kommt aus derselben Breitenfunktion, die das Chip
+  zeichnet, sonst rastet das Element ein paar Pixel neben dem Loslassen ein. Beide Chips starten exakt
+  auf dem alten Pixel — `OverlayPlacementTest` hält die alte `screenHeight / 2 ± n`-Formel gegen die
+  neue Ankerrechnung, über sechs GUI-Größen und drei Chipbreiten, dazu Datei-Roundtrip und
+  Drop-Roundtrip. Neu im Editor: Pfeiltasten schieben um 1 px, mit Shift um 8, `r` setzt auf den
+  Default zurück — Offset `0` ("genau mittig") ist mit der Maus nicht zu treffen, und *das* ist der
+  Unterschied zwischen verschiebbar und einstellbar. Kein Versionssprung in `config.json`: sechs
+  **neue** Keys sind genau der Fall, den der Explicit-Fallback pro Key schon abdeckt.
+  **`StormHud`s KDoc hat Positions-Settings ausdrücklich abgelehnt** — das Argument galt absoluten
+  Pixeln, nicht Anker+Offset, und steht jetzt umgeschrieben in der Datei statt gelöscht.
+  **Der User testet `0.16.0-dev19`** (nur `build/libs`, `assemble check` mit `-Pmod_version=…`,
+  `dist/` bleibt das released 0.15.0).
 - [x] **Phase 3b Rest** — StormHud/ClearPopup auf dem Design-System. Beide sind jetzt Chips aus
   `Surface`/`Tokens` statt roher Literale; das Gold für einen PB ist weg und der PB reist auf drei
   Kanälen ohne Luminanz (Chevron, das Wort `PB`, stärkerer Rahmen). `StormTimer.readout` gibt eine

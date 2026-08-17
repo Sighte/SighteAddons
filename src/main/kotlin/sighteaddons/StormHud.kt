@@ -13,19 +13,24 @@ import sighteaddons.ui.theme.Tokens
  *
  * Modelled on [ClearPopup] and for its reason rather than by imitation: this is a thing that has to
  * land while the player is looking at a boss, not a standing readout they choose to glance at. So it
- * is centred, at double size, under the crosshair, and it is not part of the corner block — it does
- * not move when the HUD is repositioned and it does not disappear when the HUD is switched off.
+ * is at double size, on the crosshair, and it is not part of the corner block — it does not move when
+ * the HUD is repositioned and it does not disappear when the HUD is switched off.
  *
- * **The source mod's position and scale settings did not come across, deliberately.** They existed
- * because it drew at an absolute pixel offset with no anchor, so the player had to place it by hand
- * on every GUI scale. Centring on `guiScaledWidth`/`guiScaledHeight` is what those settings were
- * being used to approximate, and a coordinate pair that has one right answer is a worse setting than
- * no setting. The two that did come across are the tick counts, because those have no right answer
- * anybody here knows — see [StormTimer].
+ * **The source mod's position setting has come back, in the terms the card's did.** It was left out
+ * once, and the reason was sound for what it was: the source drew at an absolute pixel offset with no
+ * anchor, so the player had to re-place it by hand on every GUI scale, and centring on
+ * `guiScaledWidth`/`guiScaledHeight` is what that setting was being used to approximate — a coordinate
+ * pair with one right answer is a worse setting than no setting. What that argument was against is
+ * absolute pixels, and [OverlayPlacement] is not them: an anchor plus an offset inward from it means
+ * the same place at every scale and every window size. So the countdown is placeable now
+ * ([Config.stormPlacement]) and still centred for everybody who never moves it. The scale setting has
+ * *not* come back and cannot — see [ScaledText] for why two is the only step there is.
  *
- * Below the crosshair, where [ClearPopup] is above it. The two cannot really collide (nothing is
- * cleared during a boss phase) but they are drawn from the same call site in the same frame, and
- * stacking two double-size lines on one pixel row would be a bug found by seeing it once.
+ * Below the crosshair by default, where [ClearPopup] starts above it. The two cannot really collide
+ * (nothing is cleared during a boss phase) but they are drawn from the same call site in the same
+ * frame, and stacking two double-size lines on one pixel row would be a bug found by seeing it once —
+ * so the two defaults are a chip's height apart, and a player who puts them on top of each other has
+ * done that on purpose.
  *
  * ### Four states, no colours
  *
@@ -53,11 +58,27 @@ import sighteaddons.ui.theme.Tokens
  */
 internal object StormHud {
 
-    /** Below the crosshair, clear of the hotbar at every GUI scale. */
+    /** Below the crosshair, clear of the hotbar at every GUI scale. Where it starts; see [DEFAULT_OFFSET_Y]. */
     private const val OFFSET_Y = 24
 
     private const val PAD_X = Tokens.SPACE_12
     private const val PAD_Y = Tokens.SPACE_6
+
+    /** The chip's height, and the rectangle the placement editor grabs it by — as [ClearPopup.HEIGHT]. */
+    internal const val HEIGHT = ScaledText.HEIGHT + PAD_Y * 2
+
+    /**
+     * Where the countdown starts out: on the crosshair, and below it.
+     *
+     * The middle of the screen and not the bottom of it, for [ClearPopup.DEFAULT_OFFSET_Y]'s reason —
+     * the crosshair is what this is placed against, and a bottom anchor would hold it above the hotbar
+     * rather than under the eye. The offset is written as the sum for that entry's other reason as well:
+     * the old code placed the chip's *top* at `screenHeight / 2 + OFFSET_Y - PAD_Y`, and an offset from
+     * a centre anchor counts from half a chip higher.
+     */
+    internal val DEFAULT_ANCHOR = HudPlacement.Anchor.MIDDLE_CENTRE
+    internal const val DEFAULT_OFFSET_X = 0
+    internal const val DEFAULT_OFFSET_Y = OFFSET_Y - PAD_Y + HEIGHT / 2
 
     /**
      * The scrim behind the countdown, matching the HUD card's and [ClearPopup]'s — the same one, read
@@ -110,12 +131,15 @@ internal object StormHud {
     ) {
         val now = readout.urgency == StormTimer.Urgency.NOW
 
-        val markWidth = if (now) 0 else MARKS * Glyphs.SIZE + Tokens.SPACE_8
-        val textWidth = ScaledText.width(font, readout.text)
-        val width = PAD_X * 2 + markWidth + textWidth
-        val height = ScaledText.HEIGHT + PAD_Y * 2
-        val left = (screenWidth - width) / 2
-        val top = screenHeight / 2 + OFFSET_Y - PAD_Y
+        val markWidth = marks(now)
+        val width = width(font, readout)
+        val height = HEIGHT
+        // Measured before it is placed, because at a centre or right-hand anchor the left edge depends
+        // on the width. Where the player left it, clamped onto the screen — the card, the popup and this
+        // all go through the same arithmetic. It was `(screenWidth - width) / 2` and half a screen down.
+        val origin = Config.stormPlacement.origin(screenWidth, screenHeight, width, height)
+        val left = origin.x
+        val top = origin.y
         val textTop = top + PAD_Y
 
         // A chip, not a card, and the radius is resolved once: `topHighlight` measures a full radius
@@ -152,6 +176,33 @@ internal object StormHud {
         // inside one.
         ScaledText.draw(graphics, font, readout.text, left + PAD_X + markWidth, textTop, Tokens.textPrimary)
     }
+
+    /**
+     * How wide the chip is for this [readout] — what [draw] lays itself out from, and what the
+     * placement editor grabs.
+     *
+     * Its height is [HEIGHT] and depends on nothing, which is why only this half is a call. A second
+     * copy of this sum on the screen that drags it would be a chip that can be picked up somewhere
+     * other than where it is drawn.
+     */
+    internal fun width(font: Font, readout: StormTimer.Readout): Int =
+        PAD_X * 2 + marks(readout.urgency == StormTimer.Urgency.NOW) + ScaledText.width(font, readout.text)
+
+    /** The room the three marks take — none in the window, which draws no marks at all. */
+    private fun marks(now: Boolean): Int = if (now) 0 else MARKS * Glyphs.SIZE + Tokens.SPACE_8
+
+    /**
+     * The countdown as it reads on its first tick, for the placement editor to drag.
+     *
+     * Through [StormTimer.readout] rather than a literal, so the editor cannot come to disagree with the
+     * real chip about what it says or how wide that makes it. The first tick both because it is the
+     * widest the text gets — `Storm  6.9s` at the inherited default — and because a countdown of at
+     * least [StormTimer.COUNTDOWN_MIN] tick always reads at elapsed zero, which is what makes this
+     * non-null rather than one more null the caller has to invent a chip for.
+     */
+    internal fun sample(): StormTimer.Readout = checkNotNull(
+        StormTimer.readout(0L, Config.stormCountdownTicks, Config.stormShootTicks),
+    ) { "elapsed 0 is inside every countdown COUNTDOWN_MIN allows" }
 
     /**
      * How many of the three marks are lit. The whole ordinal signal, and the only one that counts.

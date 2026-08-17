@@ -59,13 +59,20 @@ object HudPlacement {
 
         companion object {
             /**
-             * The anchor named [value], or [DEFAULT_ANCHOR] for anything else.
+             * The anchor named [value], or [fallback] for anything else.
              *
              * A hand-edited `config.json` is a supported way to set this file — see [Config.hypixelKey]
              * — so a misspelt anchor has to cost the anchor and nothing else. Throwing would land in
              * [Config]'s catch-all and discard every *other* setting in the file along with it.
+             *
+             * [fallback] is a parameter because there are three placeable elements now and they do not
+             * share a default: the card starts in the top left, the two centred chips start on the
+             * crosshair. A typo has to cost the element's *own* position — falling back to the card's
+             * corner would move a popup somewhere nobody has ever put one, which reads as the mod
+             * having lost the plot rather than as a misspelt word. See [OverlayPlacement].
              */
-            fun of(value: String): Anchor = entries.firstOrNull { it.name == value } ?: DEFAULT_ANCHOR
+            fun of(value: String, fallback: Anchor = DEFAULT_ANCHOR): Anchor =
+                entries.firstOrNull { it.name == value } ?: fallback
         }
     }
 

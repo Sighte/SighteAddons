@@ -113,16 +113,29 @@ class ClearPopupTest {
         // Whatever the two runs measure, the chip they add up to fits — and starts on the screen.
         val width = PAD_X * 2 + mark + budget + GAP + badge
         assertTrue(width <= narrow, "a chip built to the budget is $width on a $narrow px screen")
-        assertEquals(0, ClearPopup.leftEdge(narrow, width), "flush left, never past it")
+        assertEquals(0, left(narrow, width), "flush left, never past it")
 
         // A screen with no room even for the fixed parts asks for no text at all rather than for less
         // than none, and the chip still starts at zero instead of at a negative coordinate.
         assertEquals(0, ClearPopup.textBudget(20, mark, badge))
-        assertEquals(0, ClearPopup.leftEdge(20, 200), "a chip wider than the screen starts at its edge")
+        assertEquals(0, left(20, 200), "a chip wider than the screen starts at its edge")
 
         // And on a screen with room to spare nothing changes: still centred, still trimming nothing.
-        assertEquals(160, ClearPopup.leftEdge(480, 160), "an ordinary window still centres the chip")
+        assertEquals(160, left(480, 160), "an ordinary window still centres the chip")
     }
+
+    /**
+     * Where a chip [width] wide starts on a [screenWidth]-wide screen, at the placement it ships with.
+     *
+     * `ClearPopup.leftEdge` used to be its own function and is [HudPlacement.origin] now — the popup is
+     * placeable, so the clamp had to cover both axes and all nine anchors rather than the one case this
+     * file hard-coded. The three assertions above are unchanged; only the arithmetic they reach is, and
+     * they reach it through the *default* placement, which is what a fresh install has.
+     */
+    private fun left(screenWidth: Int, width: Int): Int = HudPlacement.origin(
+        ClearPopup.DEFAULT_ANCHOR, ClearPopup.DEFAULT_OFFSET_X, ClearPopup.DEFAULT_OFFSET_Y,
+        screenWidth, 720, width, ClearPopup.HEIGHT,
+    ).x
 
     private companion object {
         /** `Tokens.SPACE_12` and `Tokens.SPACE_8`, which is what the chip is padded and gapped with. */

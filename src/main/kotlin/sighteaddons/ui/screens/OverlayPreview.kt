@@ -26,6 +26,13 @@ import java.util.Locale
  * copied here, and the countdown is handed to [StormTimer.readout] — the same total function the live
  * readout goes through — so the four steps land where the thresholds actually put them and not where
  * this file thinks they should.
+ *
+ * **Positions are the real ones too, which means they are the player's.** Both chips are placeable now
+ * and each resolves its own anchor against the size it is handed — so on a stage this small, an overlay
+ * somebody has moved into a corner is drawn in that corner of the stage rather than in the middle of it,
+ * clamped inside by [sighteaddons.HudPlacement]. That is one code path instead of two, and the page is
+ * about how the chips read rather than about where they sit: at the default, which is what a fresh
+ * install and the `/sa` editor's reset both give, the layout below is exactly what it always was.
  */
 internal object OverlayPreview {
 
