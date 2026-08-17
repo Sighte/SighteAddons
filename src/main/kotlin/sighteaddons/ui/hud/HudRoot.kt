@@ -87,8 +87,28 @@ internal class HudRoot {
         if (!mounted) {
             mounted = true
             cardAlpha.snapTo(0f)
-            cardAlpha.animateTo(1f, Motion.BASE, Easing.ENTRANCE, Motion.Kind.OPACITY)
         }
+
+        // The card is the clear phase, and the boss room is where the clear phase ends. Every number
+        // on it — the room clock, the split against that room's record, the secrets bar, the rooms
+        // behind you — is frozen from the moment the boss starts and cannot change again, so what is
+        // left is a dead readout sitting in front of the one fight that wants the whole screen.
+        //
+        // Faded rather than cut, and on the exit curve: a card that disappears between two frames
+        // reads as the mod having fallen over, which is the last thing to suggest at the start of a
+        // boss. The run clock keeps running underneath — `onTick` still publishes during the boss —
+        // so the summary is unaffected and the card comes back on its entrance curve if the player
+        // is ever outside the boss area again.
+        //
+        // Called unconditionally: `animateTo` ignores the target it is already heading to, so this
+        // costs one comparison per frame and needs no state of its own to remember it ran.
+        cardAlpha.animateTo(
+            if (snapshot.inBoss) 0f else 1f,
+            Motion.BASE,
+            if (snapshot.inBoss) Easing.EXIT else Easing.ENTRANCE,
+            Motion.Kind.OPACITY,
+        )
+
         val appear = cardAlpha.value
         if (appear <= 0.01f) return
 

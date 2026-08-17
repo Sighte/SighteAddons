@@ -31,6 +31,19 @@ internal class HudSnapshot(
     val runTicks: Int,
     val roomsCleared: Int,
 
+    /**
+     * Whether the player has crossed into the boss room, which is where the clear phase ends.
+     *
+     * Carried on the snapshot rather than read by the renderer, for the same reason everything else
+     * here is: `DungeonSession.inBoss` needs a live `Minecraft` and the player's position, and the
+     * render thread is not allowed to go and get either. The tick already knows — it is the same
+     * check that stops room sampling in `SighteAddons.onTick`.
+     *
+     * Defaulted because the two synthetic call sites (`HudPreview`, the tests) script the clear phase
+     * and nothing else; only [build] ever sets it true.
+     */
+    val inBoss: Boolean = false,
+
     /** Empty when between rooms — which is a state the HUD shows rather than hides. */
     val roomName: String,
     val roomType: String,
@@ -125,6 +138,7 @@ internal class HudSnapshot(
             val visited = ContributionTracker.visitedRooms()
             return HudSnapshot(
                 inDungeon = true,
+                inBoss = DungeonSession.inBoss(client),
                 floor = DungeonSession.floor.orEmpty(),
                 runTicks = DungeonSession.runTicks,
                 roomsCleared = ContributionTracker.roomsCleared,
