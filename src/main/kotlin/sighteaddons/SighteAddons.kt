@@ -210,6 +210,10 @@ class SighteAddons : ClientModInitializer {
         }
 
         DungeonSession.tickClock()
+        // Before the trackers, because a bat dying is an arming event and the action bar update that
+        // pays for it can land on this very tick. In the clear phase only: the boss room has no
+        // secrets in it, and the bats in there are somebody's fight, not somebody's find.
+        SecretTracker.tickBats(client)
         // The party barely changes during a run; re-reading the tab list once a second is plenty.
         if (DungeonSession.runTicks % 20 == 0) PartyTracker.update(client)
         ContributionTracker.tick(client, map)

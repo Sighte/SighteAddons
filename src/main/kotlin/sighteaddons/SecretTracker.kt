@@ -1,6 +1,5 @@
 package sighteaddons
 
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientEntityEvents
 import net.fabricmc.fabric.api.event.player.AttackEntityCallback
 import net.fabricmc.fabric.api.event.player.UseBlockCallback
 import net.minecraft.client.Minecraft
@@ -57,8 +56,11 @@ object SecretTracker {
     /** A repeat of one click within this many ticks is the same interaction, not a second find. */
     private const val REPEAT_WINDOW = 5
 
-    /** Blocks. Melee reach and a little, which is what makes a vanished bat plausibly yours. */
+    /** Blocks around the player. Melee reach and a little, which is what makes a dying bat yours. */
     private const val BAT_RADIUS = 6.0
+
+    /** Bats already seen dying this run, so a twenty-tick death animation is one signal. */
+    private val dyingBats = HashSet<Int>()
 
     /** Entity classes swung at this run, so [onAttack]'s diagnostic is one line per kind. */
     private val attackedKinds = HashSet<String>()
@@ -193,26 +195,6 @@ object SecretTracker {
             if (DungeonSession.calibrated) onAttack(entity)
             InteractionResult.PASS
         }
-        // **A bat that dies next to you, which is the signal the swing above has never produced.**
-        // Across every session log this install has ever written — 2133 `own_interaction`, 3
-        // `own_pickup` — `own_bat` has fired exactly zero times, so the melee path is not rare, it is
-        // dead. Two things could explain that and this covers both: a bat killed with a bow, a wand
-        // or anything with an area of effect never reaches `AttackEntityCallback` at all, and a
-        // secret bat that is not a [Bat] on the client would never pass the check above either.
-        //
-        // Weaker than a click and knowingly so. A right-click is unambiguously your action; a bat
-        // that stops existing near you is *probably* yours and might be a teammate's. It is held to
-        // exactly the same standard as every other signal here — it only arms the window, and
-        // Hypixel's counter still has to move within [OWN_WINDOW] for anything to be credited — but
-        // it is the one arming event this mod cannot prove belongs to the local player.
-        //
-        // That is acceptable now for a reason that did not exist last week: [SecretAudit] measures
-        // exactly this. If it starts crediting secrets that were somebody else's, `secret_audit` says
-        // `too many` and the number is in the debug log of every run. It is the first inference in
-        // this file that can be checked rather than argued about.
-        ClientEntityEvents.ENTITY_UNLOAD.register { entity, _ ->
-            if (DungeonSession.calibrated && entity is Bat) onBatGone(entity)
-        }
     }
 
     /**
@@ -236,20 +218,43 @@ object SecretTracker {
     }
 
     /**
-     * A bat left the world close enough to the local player to plausibly be theirs.
+     * Nearby bats that have started dying. Called once per tick, from the clear phase only.
      *
-     * Distance is the whole of the guard, so it is deliberately tight. [BAT_RADIUS] is a melee range
-     * and a little: far enough that a bat dropping out of the air after a hit still counts, near
-     * enough that a chunk unloading across the room does not — an unload is what this event is for,
-     * and the ordinary case of it is a player walking away from entities, which happens at a
-     * distance by definition.
+     * **The death, not the removal, and the difference is the whole of why bats never counted.**
+     * 0.16.0-dev11 watched `ClientEntityEvents.ENTITY_UNLOAD` and it failed twice over, both visible
+     * in one floor's log:
+     *
+     * - **It is not a kill.** 63 `own_bat` events on that floor landed on three ticks — 36 at once on
+     *   tick 13, 26 at once on tick 827, one at 1334. That is the client dropping entities as chunks
+     *   come and go, not a party killing 36 bats in a twentieth of a second. The signal was noise
+     *   that armed the window in bursts, and that it never mis-credited anybody was luck.
+     * - **It arrives too late.** A killed bat plays out its death animation before the client removes
+     *   it, while Hypixel's counter moves at the kill. The one real case in that log is a rise at tick
+     *   1316 attributed to nobody and the bat leaving the world at 1334 — eighteen ticks *after* the
+     *   secret it was responsible for. [isOwn] only ever looks backwards, correctly, so an arming
+     *   event that lands after its own rise can never claim it.
+     *
+     * Health reaching zero happens on the tick the bat dies, ahead of the counter, which is the
+     * ordering every other signal here already has. An unloading entity is not scanned at all — it is
+     * gone from the level before this looks — so the burst problem cannot come back either.
+     *
+     * Bounded by [BAT_RADIUS] around the player rather than scanning the level: a box query is what
+     * makes this cheap enough to run every tick, and the radius is the same "plausibly yours" guard
+     * the removal version had. It is still the weakest signal in this file — a teammate killing a bat
+     * beside you arms your window — and it is still only an arming event, with Hypixel's counter
+     * deciding whether anything is credited. [SecretAudit] is what will say if that goes wrong: an
+     * over-credit shows up as `too many` in every run's log.
      */
-    private fun onBatGone(bat: Bat) {
-        val player = Minecraft.getInstance().player ?: return
-        if (bat.distanceToSqr(player) > BAT_RADIUS * BAT_RADIUS) return
-        lastOwnInteraction = DungeonSession.runTicks
-        lastOwnSource = BAT
-        if (!isRepeatBat(bat.id)) {
+    fun tickBats(client: Minecraft) {
+        val player = client.player ?: return
+        val level = client.level ?: return
+        for (bat in level.getEntitiesOfClass(Bat::class.java, player.boundingBox.inflate(BAT_RADIUS))) {
+            if (!bat.isDeadOrDying) continue
+            // A death animation is twenty ticks long and this runs on every one of them; the set is
+            // what makes it one signal per bat rather than twenty.
+            if (!dyingBats.add(bat.id)) continue
+            lastOwnInteraction = DungeonSession.runTicks
+            lastOwnSource = BAT
             lastBatId = bat.id
             lastBatTick = DungeonSession.runTicks
             DebugLog.event("own_bat", "id" to bat.id, "at" to lastOwnInteraction, "by" to "death")
@@ -292,6 +297,9 @@ object SecretTracker {
         // Per run, so the diagnostic answers "what did this floor swing at" rather than fading out
         // after the first dungeon of a session.
         attackedKinds.clear()
+        // Entity ids are per world and a run is a server transfer, so carrying these across would
+        // silence a bat in the next dungeon that happens to reuse an id.
+        dyingBats.clear()
     }
 
     /**
