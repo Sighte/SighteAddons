@@ -69,7 +69,19 @@ public class TakeItemEntityMixin {
 		}
 		Entity entity = level.getEntity(packet.getItemId());
 		// Experience orbs come through here too, and they are not items.
+		//
+		// **This is also where the signal can vanish without a trace, which is why it now says so.**
+		// The run of 2026-08-17 20:42 collected an item secret and produced neither `own_pickup` nor
+		// `pickup_unmatched` — the tracker never heard about it at all. Two things reach this line and
+		// leave silently: a packet whose entity the client never loaded (Hypixel spawning and
+		// collecting inside one tick, which nothing here can see), and one that is an orb. They need
+		// very different answers and the log could not tell them apart.
+		//
+		// Deliberately only a log. An unresolved pickup has no name, so it cannot be held against
+		// SECRET_ITEMS, and arming the window on "the player collected something unknown" is exactly
+		// the false-positive rule that whitelist exists to enforce.
 		if (!(entity instanceof ItemEntity item)) {
+			SecretTracker.INSTANCE.onPickupUnresolved(entity == null ? "absent" : entity.getClass().getSimpleName());
 			return;
 		}
 		SecretTracker.INSTANCE.onItemPickup(item.getItem().getHoverName().getString());

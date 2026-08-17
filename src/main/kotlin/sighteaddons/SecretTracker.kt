@@ -345,6 +345,29 @@ object SecretTracker {
     }
 
     /**
+     * The server said the local player collected something the client cannot name. [what] is the
+     * entity's class, or `absent` when the client never had it.
+     *
+     * **The gap that made an item secret disappear without leaving a mark.** A floor that collects
+     * one and logs neither [onItemPickup]'s hit nor its miss has told nobody anything: the mixin
+     * could have failed to apply, the packet could never have arrived, or it arrived about an entity
+     * this client had already dropped. The first two are still read from the *absence* of events; this
+     * separates out the third, which is the one Hypixel is most likely to produce — an item spawned
+     * and collected inside a tick is never loaded here to be named.
+     *
+     * Arms nothing, and that is not caution for its own sake: without a name there is nothing to hold
+     * against [SECRET_ITEMS], and "the player picked up something" is precisely the rule that
+     * whitelist exists to refuse. Counted rather than logged per event, because if this is the answer
+     * it will happen for every item on the floor.
+     */
+    fun onPickupUnresolved(what: String) {
+        if (!DungeonSession.calibrated) return
+        if (noteUnmatched("unresolved:$what")) {
+            DebugLog.event("pickup_unresolved", "entity" to what, "at" to DungeonSession.runTicks)
+        }
+    }
+
+    /**
      * Hypixel named the finder of a wither-essence secret, at run tick [at]. [mine] is that name
      * resolved against the local player — the resolution happens at the call site, which is the only
      * place that knows what the local player is called.
