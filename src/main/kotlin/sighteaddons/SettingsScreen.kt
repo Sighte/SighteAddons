@@ -26,7 +26,9 @@ import sighteaddons.ui.hud.HudSnapshot
 import sighteaddons.ui.motion.Clock
 import sighteaddons.ui.motion.Easing
 import sighteaddons.ui.motion.Motion
+import sighteaddons.ui.screens.Frame
 import sighteaddons.ui.screens.HudPreview
+import sighteaddons.ui.screens.RecordColumns
 import sighteaddons.ui.screens.Scroll
 import sighteaddons.ui.screens.SettingsPage
 import sighteaddons.ui.screens.StatsOverview
@@ -63,6 +65,12 @@ import sighteaddons.ui.theme.Tokens
  * 5. **Focus is a narrowing too.** With the key field focused, escape leaves the field rather than the
  *    screen, for the same reason escape empties the search before it closes: the state you are in is
  *    the state you want to leave, not the screen you are on.
+ * 6. **No layout is a share of the window.** Everything that has to fit beside something else is
+ *    measured — the table's columns in [RecordColumns], the sparkline against the sentence beside it,
+ *    the empty state against the band it is centred in. Percentages were tried twice, budgeted by hand
+ *    against `guiScaledWidth = 480` both times, and both times they were right at 480 and wrong at the
+ *    456 and 427 that Minecraft's auto scale hands out on ordinary displays. A layout that can only be
+ *    checked by opening the game at one resolution is a layout nobody checks.
  */
 class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal("Sighte Addons")) {
 
@@ -101,27 +109,22 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     /** One rendered line of the history: the room's own row, or one line of its expanded detail. */
     private class Line(val row: RecordTable.Row, val detail: Detail?)
 
-    /** A column header, which is also its own sort button. */
-    private class Column(
-        val sort: RecordTable.Sort,
-        val label: String,
-        val x0: Int,
-        val x1: Int,
-        val rightAligned: Boolean,
-    )
-
     private var placing = false
 
     /** Whether the card is currently held. Only true between a press on it and the release. */
     private var dragging = false
 
     /**
-     * Whether the scrim slider is currently held.
+     * The index of the slider currently held, or `-1`.
+     *
+     * An index and not a flag, because a drag has to reach *the* slider that was pressed. Items are
+     * rebuilt every frame — they close over live config — so the item object cannot be kept, and
+     * finding one again by its [SettingsPage.Kind] works only while there is exactly one on the page.
      *
      * Separate from [dragging], which belongs to the placement editor and is a different mode of the
      * screen entirely — one field for both would make a release during placement write the scrim.
      */
-    private var sliderHeld = false
+    private var sliderHeld = -1
 
     /** Where inside the card it was grabbed, so it does not jump to meet the cursor. */
     private var grabX = 0
@@ -203,42 +206,34 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
 
     // --- Layout -----------------------------------------------------------------------------
 
-    private val frameWidth get() = minOf(Nav.WIDTH + GAP + CONTENT_MAX, width - MARGIN * 2)
-    private val frameLeft get() = (width - frameWidth) / 2
-    private val contentLeft get() = frameLeft + Nav.WIDTH + GAP
-    private val content get() = frameWidth - Nav.WIDTH - GAP
+    // The panel's own geometry lives in [Frame], so a test can walk the GUI-scaled sizes Minecraft's
+    // auto scale actually hands out rather than the one this file was reasoned about at.
+    private val frameWidth get() = Frame.width(width)
+    private val frameLeft get() = Frame.left(width)
+    private val contentLeft get() = Frame.contentLeft(width)
+    private val content get() = Frame.content(width)
 
-    private val headerY get() = MARGIN + Tokens.SPACE_12
-    private val bodyTop get() = headerY + Tokens.SPACE_32
+    private val headerY get() = Frame.MARGIN + Tokens.SPACE_12
+    private val bodyTop get() = Frame.bodyTop
     private val chipsY get() = bodyTop
     private val columnsY get() = bodyTop + Tokens.SPACE_24
     private val firstRow get() = columnsY + Tokens.SPACE_16
-    private val listBottom get() = height - MARGIN - Tokens.SPACE_16
+    private val listBottom get() = Frame.listBottom(height)
 
     /** How much vertical room a scrolling page has. The one number [Scroll] measures against. */
     private val pageHeight get() = listBottom - bodyTop
 
-    /**
-     * Right edges of the record columns as fractions of [content], so nothing overflows at scale 4.
-     *
-     * **These are budgeted against the headers, which are wider than the values under them.** A
-     * right-aligned header is its own sort button and carries a caret eight pixels to its left, so
-     * `SECRETS` occupies 60 pixels against a time's 28 — and the previous fractions (40/62/78/87) were
-     * chosen for the values alone. At GUI scale 4 the content column is 328 pixels, and there the old
-     * numbers put the `secrets` caret two pixels inside the `clear` header and a `yesterday` nine
-     * pixels under the `runs` figure. Neither was visible until `Table.headerCell` started drawing a
-     * caret on hover as well as on sort.
-     *
-     * The budget, at 328: `last` 52 (`yesterday`, and a four-digit `1000d ago`), `runs` 40, `secrets`
-     * 60, `clear` 47, `type` 36, and whatever is left over is the room name's — 74 pixels, which is
-     * where the tooltip earns its keep. Every header is then at least two pixels clear of its
-     * neighbour and every value at least four.
-     */
-    private val typeX get() = contentLeft + content * 25 / 100
-    private val clearX get() = contentLeft + content * 51 / 100
-    private val secretsX get() = contentLeft + content * 70 / 100
-    private val runsX get() = contentLeft + content * 83 / 100
     private val lastX get() = contentLeft + content
+
+    /**
+     * The left edge of an interactive row's band — its wash, its hover test and its press test alike.
+     *
+     * One number for all three because they were three, eight pixels apart: the wash was drawn from
+     * here, the hover test started at [contentLeft], and the press test rejected anything left of here.
+     * The leftmost eight pixels of every row therefore switched a setting without ever lighting up,
+     * which is rule 3 broken inside a single function.
+     */
+    private val rowLeft get() = contentLeft - Tokens.SPACE_8
 
     /**
      * Where a stats or settings row's value column ends, with the sample note to its right.
@@ -266,8 +261,25 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
      */
     private val sliderX get() = lastX - SLIDER_WIDTH
 
-    /** The `type` column is redundant once a type chip is active — it would repeat that one word. */
-    private val showType get() = filter == RecordTable.Filter.ALL
+    /**
+     * The table's columns for this frame, measured rather than apportioned.
+     *
+     * Recomputed at each call rather than cached: it is a dozen short strings through the font, the
+     * window can change size between two frames, and a cached layout is exactly how the drawing and the
+     * hit testing come to disagree — see rule 3. [RecordColumns] is where the arithmetic lives and why.
+     *
+     * The `type` column is asked for only while no type chip is active, because it would otherwise
+     * repeat that one word in every row; whether there is *room* for it is [RecordColumns]' call.
+     */
+    private fun tableLayout(): RecordColumns.Layout = RecordColumns.of(
+        contentLeft, content,
+        wantType = filter == RecordTable.Filter.ALL,
+        header = { Labels.width(font, it.uppercase()) },
+        value = { font.width(it) },
+    )
+
+    /** How many table rows fit, which is also how far a press on the list may land. */
+    private val tableRows get() = ((listBottom - firstRow) / Table.ROW).coerceAtLeast(1)
 
     private val narrowing get() = RecordTable.narrowing(query, filter)
 
@@ -304,7 +316,7 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
 
         if (tab == Tab.RECORDS) renderRecords(graphics, mouseX, mouseY) else renderPage(graphics, mouseX, mouseY)
 
-        graphics.text(font, footer(), contentLeft, height - MARGIN - Tokens.SPACE_6, Tokens.textTertiary, false)
+        graphics.text(font, footer(), contentLeft, height - Frame.MARGIN - Tokens.SPACE_6, Tokens.textTertiary, false)
 
         // Last, and outside every scissor: a floating surface that is clipped to the list it describes
         // is not floating.
@@ -324,7 +336,7 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             Nav.item(graphics, font, frameLeft, y, Nav.WIDTH, Nav.ROW, entry.label, select.value, hover)
         }
         Nav.divider(
-            graphics, frameLeft + Nav.WIDTH + GAP / 2, bodyTop - Tokens.SPACE_12,
+            graphics, frameLeft + Nav.WIDTH + Frame.GAP / 2, bodyTop - Tokens.SPACE_12,
             pageHeight + Tokens.SPACE_20,
         )
     }
@@ -360,7 +372,7 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     private fun renderPage(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
         val items = pageItems()
         if (items.isEmpty()) {
-            renderEmpty(graphics, bodyTop + Tokens.SPACE_24)
+            renderEmpty(graphics, bodyTop, listBottom)
             return
         }
 
@@ -395,7 +407,7 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
                 Tokens.textTertiary, false,
             )
 
-            SettingsPage.Kind.STAT -> drawStat(graphics, item, y)
+            SettingsPage.Kind.STAT -> drawStat(graphics, item, y, mouseX, mouseY)
             else -> drawControl(graphics, item, y, mouseX, mouseY)
         }
     }
@@ -408,16 +420,24 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
      * the tone only agrees with it: a thin figure is `textSecondary` rather than `textPrimary`, which is
      * 1.27:1 of separation and therefore not something anybody is asked to read on its own.
      */
-    private fun drawStat(graphics: GuiGraphicsExtractor, item: SettingsPage.Item, y: Int) {
+    private fun drawStat(graphics: GuiGraphicsExtractor, item: SettingsPage.Item, y: Int, mouseX: Int, mouseY: Int) {
         val textY = y + (SettingsPage.ROW - Labels.CAP) / 2
         graphics.text(font, item.label, contentLeft, textY, Tokens.textSecondary, false)
 
         val room = valueX - contentLeft - font.width(item.label) - Tokens.SPACE_8
-        val value = font.plainSubstrByWidth(item.value, room.coerceAtLeast(0))
+        val value = fit(item.value, room)
         graphics.text(
             font, value, valueX - font.width(value), textY,
             if (item.thin) Tokens.textSecondary else Tokens.textPrimary, false,
         )
+        // `most recorded` is the one figure on this page that is a name rather than a number, so it is
+        // the one that can be cut off — and a truncated room name with nothing behind it is the exact
+        // hole the table fills with a tooltip. Same mechanism, same frame.
+        if (value != item.value && mouseY in bodyTop until listBottom &&
+            mouseX in rowLeft..lastX && mouseY in y until (y + SettingsPage.ROW)
+        ) {
+            tooltip(item.value, mouseX, mouseY)
+        }
 
         if (item.meta.isNotEmpty()) {
             val meta = font.plainSubstrByWidth(item.meta, lastX - valueX - Tokens.SPACE_8)
@@ -434,15 +454,14 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         val rowHeight = item.height
         val inViewport = mouseY in bodyTop until listBottom
         val hovered = item.interactive && inViewport &&
-            mouseX in contentLeft..lastX && mouseY in y until (y + rowHeight)
+            mouseX in rowLeft..lastX && mouseY in y until (y + rowHeight)
         val hover = Controls.hover(anim.of("row.${tab.name}.${item.label}"), hovered)
 
         if (item.interactive) {
-            // Stopping at [lastX] rather than eight pixels past it: the scrollbar lives out there now,
-            // and a wash running under it makes the track look like part of the row.
-            Controls.rowHighlight(
-                graphics, contentLeft - Tokens.SPACE_8, y, content + Tokens.SPACE_8, rowHeight, hover, false,
-            )
+            // The wash, the hover test above and the press test in [clickPage] all run [rowLeft] to
+            // [lastX]. Stopping at [lastX] rather than eight pixels past it: the scrollbar lives out
+            // there now, and a wash running under it makes the track look like part of the row.
+            Controls.rowHighlight(graphics, rowLeft, y, lastX - rowLeft, rowHeight, hover, false)
         }
 
         val textY = y + (rowHeight - Labels.CAP) / 2
@@ -489,14 +508,15 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
                 // the bare track, where there is no hand to keep up with, is exactly where the spring
                 // belongs.
                 val travel = anim.spring("slider.${item.label}", item.fraction)
-                if (sliderHeld) travel.snapTo(item.fraction) else travel.springTo(item.fraction, Motion.BASE)
+                val held = sliderHeld >= 0
+                if (held) travel.snapTo(item.fraction) else travel.springTo(item.fraction, Motion.BASE)
                 graphics.text(
                     font, item.value, sliderX - Tokens.SPACE_8 - font.width(item.value), textY,
                     Controls.blend(Tokens.textSecondary, Tokens.textPrimary, hover), false,
                 )
                 Slider.draw(
                     graphics, sliderX, y + (rowHeight - Slider.HEIGHT) / 2, SLIDER_WIDTH, Slider.HEIGHT,
-                    travel.value, hover = hover, active = sliderHeld,
+                    travel.value, hover = hover, active = held,
                 )
             }
 
@@ -541,30 +561,36 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
 
         chipHits.clear()
         var chipX = contentLeft
+        // Scissored to the panel, and the press zones clipped with it. Without the counts six chips
+        // are 278 pixels, which still does not fit the 168 the vanilla minimum GUI size leaves — and
+        // the chip row has no list around it, so what did not fit was simply painted over the rest of
+        // the screen. Clipped, what can be pressed is exactly what can be seen.
+        graphics.enableScissor(contentLeft, chipsY, lastX, chipsY + CHIP_H)
         for (chip in RecordTable.Filter.entries) {
             val count = if (showCounts) cachedCounts[chip] ?: 0 else -1
             val chipWidth = Controls.chipWidth(font, chip.label, count)
             val active = anim.of("chip.${chip.name}", if (chip == filter) 1f else 0f)
             active.animateTo(if (chip == filter) 1f else 0f, Motion.FAST, Easing.STANDARD, Motion.Kind.OPACITY)
-            val hovered = mouseX in chipX until (chipX + chipWidth) && mouseY in chipsY until (chipsY + CHIP_H)
+            val hovered = mouseX in chipX until minOf(chipX + chipWidth, lastX) &&
+                mouseY in chipsY until (chipsY + CHIP_H)
             val hover = Controls.hover(anim.of("chiphover.${chip.name}"), hovered)
             Controls.chip(graphics, font, chipX, chipsY, CHIP_H, chip.label, count, active.value, hover)
-            chipHits.add(Triple(chip, chipX, chipX + chipWidth))
+            if (chipX < lastX) chipHits.add(Triple(chip, chipX, minOf(chipX + chipWidth, lastX)))
             chipX += chipWidth + Tokens.SPACE_6
         }
+        graphics.disableScissor()
 
         // The chevron rotates between the two directions rather than swapping glyphs, so the reversal is
         // visibly the same control changing its mind. One animatable for the whole header row: there is
         // only ever one sorted column, so a second would be a direction nothing is pointing in.
         val flip = anim.of("sortdir", if (sortDesc) 1f else 0f)
         flip.animateTo(if (sortDesc) 1f else 0f, Motion.FAST, Easing.STANDARD, Motion.Kind.OPACITY)
-        val all = columns()
-        // Resolved through the same `firstOrNull` the press uses, rather than by testing each column
-        // against the cursor on its own. The zones are expanded by four pixels either side to be
-        // reachable, which makes two adjacent ones overlap — and independent tests would then light
-        // two headers for a press that can only ever land on one of them.
-        val onHeader = if (mouseY in columnsY until (columnsY + Tokens.SPACE_12)) columnAt(all, mouseX) else null
-        for (column in all) {
+        val layout = tableLayout()
+        // The hovered column is resolved once, through the same zones the press uses. Testing each
+        // column against the cursor on its own would light two headers wherever their zones met, and
+        // the whole point of a partition is that there is exactly one answer.
+        val onHeader = if (mouseY in columnsY until (columnsY + Tokens.SPACE_12)) layout.at(mouseX) else null
+        for (column in layout.columns) {
             Table.headerCell(
                 graphics, font, column.label, column.x0, column.x1, columnsY, column.rightAligned,
                 sorted = column.sort == sortBy,
@@ -575,18 +601,22 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         Table.divider(graphics, contentLeft, columnsY + Tokens.SPACE_12, content)
 
         if (cachedLines.isEmpty()) {
-            renderEmpty(graphics, firstRow + Tokens.SPACE_24)
+            renderEmpty(graphics, firstRow, listBottom)
             return
         }
 
-        val visible = ((listBottom - firstRow) / Table.ROW).coerceAtLeast(1)
+        val visible = tableRows
         pageSize = visible
         scroll = Scroll.clamp(scroll, cachedLines.size, visible)
 
         graphics.enableScissor(0, firstRow, width, listBottom)
         for ((index, line) in cachedLines.drop(scroll).take(visible).withIndex()) {
             val y = firstRow + index * Table.ROW
-            if (line.detail != null) renderDetail(graphics, line.detail, y) else renderRecord(graphics, line.row, y, mouseX, mouseY)
+            if (line.detail != null) {
+                renderDetail(graphics, line.detail, y)
+            } else {
+                renderRecord(graphics, layout, line.row, y, mouseX, mouseY)
+            }
         }
         graphics.disableScissor()
 
@@ -595,32 +625,29 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
 
     private fun renderRecord(
         graphics: GuiGraphicsExtractor,
+        layout: RecordColumns.Layout,
         row: RecordTable.Row,
         y: Int,
         mouseX: Int,
         mouseY: Int,
     ) {
         val open = row.room == expanded
-        val hovered = mouseX in contentLeft..lastX && mouseY in y until (y + Table.ROW)
+        val hovered = mouseX in rowLeft..lastX && mouseY in y until (y + Table.ROW)
         val hover = Controls.hover(anim.of("rec.${row.room}"), hovered)
-        Controls.rowHighlight(graphics, contentLeft - Tokens.SPACE_8, y, content + Tokens.SPACE_8, Table.ROW, hover, open)
+        Controls.rowHighlight(graphics, rowLeft, y, lastX - rowLeft, Table.ROW, hover, open)
 
         val textY = y + (Table.ROW - Labels.CAP) / 2
-        val name = font.plainSubstrByWidth(row.room, nameWidth())
+        val name = font.plainSubstrByWidth(row.room, layout.nameWidth)
         graphics.text(font, name, contentLeft, textY, if (open) Tokens.textPrimary else Tokens.textSecondary, false)
         // The full name only exists in a tooltip when the column actually cut it off.
-        if (name != row.room && hovered) {
-            tooltipText = row.room
-            tooltipX = mouseX
-            tooltipY = mouseY
-        }
-        if (showType) graphics.text(font, row.typeLabel, typeX, textY, Tokens.textTertiary, false)
+        if (name != row.room && hovered) tooltip(row.room, mouseX, mouseY)
+        if (layout.showType) graphics.text(font, row.typeLabel, layout.typeX, textY, Tokens.textTertiary, false)
 
         // A time that exists is primary; a dash is tertiary. Weight and luminance carry the
         // distinction, and the dash is the same width as a time so the column stays a column.
-        right(graphics, row.clear.time(), clearX, textY, row.clear != null)
-        right(graphics, row.secrets.time(), secretsX, textY, row.secrets != null)
-        right(graphics, row.runs.toString(), runsX, textY, false)
+        right(graphics, row.clear.time(), layout.clearX, textY, row.clear != null)
+        if (layout.secretsX >= 0) right(graphics, row.secrets.time(), layout.secretsX, textY, row.secrets != null)
+        if (layout.runsX >= 0) right(graphics, row.runs.toString(), layout.runsX, textY, false)
         right(graphics, Format.ago(row.lastTs, System.currentTimeMillis()), lastX, textY, false)
     }
 
@@ -633,31 +660,42 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
      * one. The connector is what earns the component its place here; the animation would need the chart
      * to fade with it, and `Sparkline` draws at one opacity.
      *
-     * **The `PB` badge is here rather than on the row above, and that is a size decision.** At GUI scale
-     * 4 the room column is 77 pixels — a badge is a third of it, taken from every room that has one,
-     * and the name is already the column most likely to be truncated. The detail line has 30 pixels of
-     * slack at its right edge and is where the progression lives, which is what the badge is a statement
-     * about: not "this room has a record" — every row shows one of those — but "the last run here was
-     * it", which is [RoomHistory.Attempt.pb] read straight out of the file rather than a comparison this
-     * screen would have to invent.
+     * **The `PB` badge is here rather than on the row above, and that is a size decision.** The room
+     * column is 63 pixels at 1080p and 52 at 1280×720 — see [RecordColumns] for where those come from
+     * — and a badge is half of it, taken from every room that has one, in the column already most
+     * likely to be truncated. The detail line is the whole content width and is where the progression
+     * lives, which is what the badge is a statement about: not "this room has a record", since every
+     * row shows one of those, but "the last run here was it" — [RoomHistory.Attempt.pb] read straight
+     * out of the file rather than a comparison this screen would have to invent.
      */
     private fun renderDetail(graphics: GuiGraphicsExtractor, detail: Detail, y: Int) {
         val badgeRoom = if (detail.badge) Badge.width(font, PB) + Tokens.SPACE_6 else 0
         val plain = Table.contentX(contentLeft)
+        val available = lastX - plain - badgeRoom
+
+        // **The chart takes what the sentence does not want, and never the other way round.** The
+        // sparkline used to be a fixed fraction of the content column, which at `guiScaledWidth` 456
+        // left the summary one pixel short and truncated `268 attempts` to `268 att` — cutting off
+        // exactly the sample size that makes the median beside it readable. Below [SPARK_MIN] there is
+        // no chart at all: a twenty-attempt line squeezed into thirty pixels is not a trend, and the
+        // number it was standing next to is.
+        val wanted = available - font.width(detail.text) - Tokens.SPACE_12
+        val spark = if (detail.spark != null && wanted >= SPARK_MIN) minOf(wanted, SPARK_MAX) else 0
+
         Table.detail(
             graphics, font, contentLeft, y, Table.ROW, detail.label,
-            if (detail.spark == null) fit(detail.text, lastX - plain - badgeRoom) else "",
+            if (spark == 0) fit(detail.text, available) else "",
         )
         if (detail.badge) {
             Badge.draw(
                 graphics, font, lastX - Badge.width(font, PB), y + (Table.ROW - Badge.HEIGHT) / 2, PB,
             )
         }
-        val spark = detail.spark ?: return
-        Sparkline.draw(graphics, plain, y + 2, sparkWidth, Table.ROW - 4, spark, detail.cap)
-        val textX = plain + sparkWidth + Tokens.SPACE_12
+        if (spark == 0) return
+        Sparkline.draw(graphics, plain, y + 2, spark, Table.ROW - 4, detail.spark!!, detail.cap)
+        val textX = plain + spark + Tokens.SPACE_12
         graphics.text(
-            font, fit(detail.text, lastX - textX - badgeRoom), textX, y + (Table.ROW - Labels.CAP) / 2,
+            font, fit(detail.text, lastX - badgeRoom - textX), textX, y + (Table.ROW - Labels.CAP) / 2,
             Tokens.textSecondary, false,
         )
     }
@@ -670,23 +708,22 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
      * always the third case — it has no filter of its own, and a chip left active on the table must not
      * make it claim one.
      */
-    private fun renderEmpty(graphics: GuiGraphicsExtractor, top: Int) {
-        if (tab == Tab.STATS || narrowing == RecordTable.Narrowing.NONE) {
-            EmptyState.draw(
-                graphics, font, contentLeft, top, content,
-                "no history yet", "finish a dungeon room and it lands here", HISTORY_FILE,
-            )
-            return
+    private fun renderEmpty(graphics: GuiGraphicsExtractor, top: Int, bottom: Int) {
+        val blank = tab == Tab.STATS || narrowing == RecordTable.Narrowing.NONE
+        val note = if (blank) HISTORY_FILE else null
+        val headline = if (blank) "no history yet" else "nothing matches this filter"
+        val hint = when {
+            blank -> "finish a dungeon room and it lands here"
+            narrowing == RecordTable.Narrowing.SEARCH -> "esc clears the search · click \"all\" for every room"
+            else -> "esc shows every room"
         }
-        EmptyState.draw(
-            graphics, font, contentLeft, top, content,
-            "nothing matches this filter",
-            if (narrowing == RecordTable.Narrowing.SEARCH) {
-                "esc clears the search · click \"all\" for every room"
-            } else {
-                "esc shows every room"
-            },
-        )
+        // **Centred in the band it was given rather than pushed down from the top of it.** A fixed
+        // offset is a fixed offset at every window size, and at `guiScaledHeight` 240 — the vanilla
+        // minimum, and a 320×240 GUI is what a small window gets — the block ran into the footer. This
+        // is the first thing a fresh install sees on this screen, and it was the one arrangement never
+        // laid out against a real height.
+        val y = top + ((bottom - top - EmptyState.height(note)) / 2).coerceAtLeast(0)
+        EmptyState.draw(graphics, font, contentLeft, y, content, headline, hint, note)
     }
 
     /**
@@ -832,7 +869,11 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         slider("scrim", Config.hudScrim, Tokens.SCRIM_MIN_PERCENT, Tokens.SCRIM_MAX_PERCENT) {
             Config.hudScrim = it
         }
-        note("how much of the dungeon shows through the card")
+        // The number is the backdrop's *opacity*, so the note has to be about the backdrop. "How much
+        // of the dungeon shows through" is the same quantity read backwards, and it made the value and
+        // the sentence disagree about which way the slider was going: at 90 % it said 90, and ten per
+        // cent of the dungeon was showing.
+        note("how much of the dungeon the backdrop covers")
 
         section("lines on the card")
         toggle("current room", Config.showRoom) { Config.showRoom = !Config.showRoom }
@@ -1095,7 +1136,9 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
                 .groupBy { it.floor }
                 .map { (floor, runs) -> floor to runs.minOf { it.ticks } }
                 .sortedBy { it.second }
-                .take(4)
+                // The same count the stats page shows, and named rather than repeated: one room's
+                // floors and every room's floors are the same list at two scales.
+                .take(StatsOverview.FLOORS_SHOWN)
             if (floors.isNotEmpty()) {
                 out.add(
                     Line(
@@ -1159,7 +1202,7 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
                 }
             }
             if (mouseY in columnsY until (columnsY + Tokens.SPACE_12)) {
-                columnAt(columns(), mouseX)?.let {
+                tableLayout().at(mouseX)?.let {
                     // A second click on the same column reverses it; a different column starts in its
                     // own natural direction rather than inheriting the last one's. `last` and `runs`
                     // are the two where the interesting end is the large one — most recent, and most
@@ -1175,7 +1218,11 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
                     return true
                 }
             }
-            if (mouseY >= firstRow && mouseY < listBottom) {
+            // Clamped to the rows that were actually drawn, not to the band they were drawn in. The
+            // list holds a whole number of rows and the leftover strip at the bottom — ten pixels at
+            // 1080p and sixteen at 1366×768 — belonged to the *next* row's press zone: a press there
+            // closed the room you could see and opened one you could not.
+            if (mouseY >= firstRow && mouseY < firstRow + tableRows * Table.ROW) {
                 val index = scroll + (mouseY - firstRow) / Table.ROW
                 cachedLines.getOrNull(index)?.let { line ->
                     expanded = if (expanded == line.row.room) null else line.row.room
@@ -1207,7 +1254,7 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             mouseX >= fieldX && mouseX < fieldX + fieldWidth
         if (!onField) blurKey(commit = true)
 
-        if (item == null || mouseX < contentLeft - Tokens.SPACE_8 || mouseX > lastX) {
+        if (item == null || mouseX !in rowLeft..lastX) {
             return super.mouseClicked(event, doubleClick)
         }
 
@@ -1235,7 +1282,10 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             // frames, and a hundred writes of a config nobody has finished choosing.
             SettingsPage.Kind.SLIDER -> {
                 if (mouseX >= sliderX) {
-                    sliderHeld = true
+                    // The *index* is remembered, not the kind. Finding the slider again by kind works
+                    // exactly as long as there is one of them, and the second one somebody adds would
+                    // silently drag the first.
+                    sliderHeld = index
                     item.slide?.invoke(Slider.fractionAt(sliderX, SLIDER_WIDTH, mouseX))
                 }
                 return true
@@ -1262,11 +1312,15 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
      * cursor that pressed it.
      */
     private fun clickField(mouseX: Int) {
+        // Focused first, and for both halves of the field. The reveal is documented as ending when the
+        // focus does, and a reveal that could be taken without ever taking focus was a reveal whose
+        // stated end condition never came round — it survived until something else on the screen
+        // happened to blur a field that was not focused. No leak, and a promise that was not kept.
+        keyFocused = true
         if (mouseX >= TextField.revealX(font, TextField.Mask.DOTS, fieldX, fieldWidth)) {
             keyRevealed = !keyRevealed
             return
         }
-        keyFocused = true
         val offset = TextField.offsetAt(fieldX, mouseX, keyEdit.scroll)
         keyEdit.placeCaret(TextField.indexAt(font, keyEdit.text, TextField.Mask.DOTS, keyRevealed, offset))
     }
@@ -1276,11 +1330,12 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             dragTo(event.x().toInt(), event.y().toInt())
             return true
         }
-        if (sliderHeld) {
-            // The item is found again rather than remembered from the press. Items are rebuilt every
-            // frame — they close over live config — so a held reference would be a lambda writing a
-            // value that was read before the drag started.
-            pageItems().firstOrNull { it.kind == SettingsPage.Kind.SLIDER }
+        if (sliderHeld >= 0) {
+            // The item is looked up again rather than held from the press: items are rebuilt every
+            // frame because they close over live config, so a kept reference would be a lambda writing
+            // a value that was read before the drag started. The index is what identifies it.
+            pageItems().getOrNull(sliderHeld)
+                ?.takeIf { it.kind == SettingsPage.Kind.SLIDER }
                 ?.slide?.invoke(Slider.fractionAt(sliderX, SLIDER_WIDTH, event.x().toInt()))
             return true
         }
@@ -1293,11 +1348,7 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
      * nobody asked to have written yet.
      */
     override fun mouseReleased(event: MouseButtonEvent): Boolean {
-        if (sliderHeld) {
-            sliderHeld = false
-            Config.save()
-            return true
-        }
+        if (releaseSlider()) return true
         if (!dragging) return super.mouseReleased(event)
         dragging = false
         Config.save()
@@ -1305,6 +1356,9 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     }
 
     override fun mouseScrolled(mouseX: Double, mouseY: Double, scrollX: Double, scrollY: Double): Boolean {
+        // Placement mode draws none of this. Scrolling the page underneath it moves a list nobody can
+        // see, and leaves it somewhere else when the card is dropped.
+        if (placing) return true
         if (tab == Tab.RECORDS) {
             build()
             // Rows, not pixels: the table's rows are a fixed height and it has counted in them since it
@@ -1425,6 +1479,21 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         if (commit) commitKey()
     }
 
+    /**
+     * Lets go of the slider, writing the value it was left at. Returns whether one was held.
+     *
+     * Called from [mouseReleased] and again from [removed], because the screen can go away with the
+     * button still down — a keybind opening another screen, the game taking it — and a scrim the player
+     * had already dragged to where they wanted it would then be the one thing on this screen that was
+     * chosen and not kept.
+     */
+    private fun releaseSlider(): Boolean {
+        if (sliderHeld < 0) return false
+        sliderHeld = -1
+        Config.save()
+        return true
+    }
+
     /** Writes the key only when it actually changed, so leaving a tab is not a file write. */
     private fun commitKey() {
         if (keyEdit.text == Config.hypixelKey) return
@@ -1432,55 +1501,14 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         Config.save()
     }
 
-    /**
-     * The columns, with hit zones measured off what [Table.headerCell] will actually draw.
-     *
-     * Rule 3 at its most literal. The zones used to be round numbers — `clearX - 40`, `typeX + 40` —
-     * which is a guess at the width of a tracked uppercase label plus a caret, and two of them
-     * overlapped by enough that a press near the `clear` header sorted by `type`. Deriving them from
-     * [Labels.width] makes the button exactly the mark it is.
-     */
-    private fun columns(): List<Column> = buildList {
-        add(Column(RecordTable.Sort.ROOM, "room", contentLeft, contentLeft + nameWidth(), false))
-        if (showType) add(Column(RecordTable.Sort.TYPE, "type", typeX, typeX + leadingWidth("type"), false))
-        add(Column(RecordTable.Sort.CLEAR, "clear", trailingX(clearX, "clear"), clearX, true))
-        add(Column(RecordTable.Sort.SECRETS, "secrets", trailingX(secretsX, "secrets"), secretsX, true))
-        add(Column(RecordTable.Sort.RUNS, "runs", trailingX(runsX, "runs"), runsX, true))
-        add(Column(RecordTable.Sort.LAST, "last", trailingX(lastX, "last"), lastX, true))
-    }
-
-    /** The header a press at [mouseX] lands on. Expanded either side, so a 26px word is reachable. */
-    private fun columnAt(all: List<Column>, mouseX: Int): Column? =
-        all.firstOrNull { mouseX in it.x0 - Tokens.SPACE_4..it.x1 + Tokens.SPACE_4 }
-
-    /** A left-aligned header's drawn width: the label, then the caret to its right. */
-    private fun leadingWidth(label: String): Int =
-        Labels.width(font, label.uppercase()) + Tokens.SPACE_4 + Table.CARET
-
-    /** Where a right-aligned header's leftmost drawn pixel is — the caret's, not the label's. */
-    private fun trailingX(x1: Int, label: String): Int =
-        x1 - Labels.width(font, label.uppercase()) - Tokens.SPACE_8 - Table.CARET
-
-    /**
-     * The room column's width: everything up to whatever comes next, minus a gap.
-     *
-     * Measured against the *header* to its right rather than against a column origin, because the
-     * `clear` header reaches fourteen pixels further left than the times under it — a name laid out
-     * against `clearX - 44` ran under the caret at GUI scale 4.
-     */
-    private fun nameWidth(): Int =
-        (if (showType) typeX else trailingX(clearX, "clear")) - contentLeft - Tokens.SPACE_8
-
-    /**
-     * The sparkline's width, as a fraction of the content column.
-     *
-     * Fixed at 72 it left the summary beside it 184 pixels at GUI scale 4, which the shortest honest
-     * wording does not fit into — and the overflow was invisible, because the list's scissor is the
-     * whole window and the text simply ran off the right edge of the screen.
-     */
-    private val sparkWidth get() = (content * 20 / 100).coerceIn(SPARK_MIN, SPARK_MAX)
-
     private fun fit(text: String, room: Int): String = font.plainSubstrByWidth(text, room.coerceAtLeast(0))
+
+    /** Owes this frame a tooltip. Anything a column cut off says so the same way. */
+    private fun tooltip(text: String, mouseX: Int, mouseY: Int) {
+        tooltipText = text
+        tooltipX = mouseX
+        tooltipY = mouseY
+    }
 
     private fun footer(): String = when {
         keyFocused -> "enter saves the key · esc leaves the field"
@@ -1520,6 +1548,7 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
      */
     override fun removed() {
         blurKey(commit = true)
+        releaseSlider()
         HudRoot.editing = false
         super.removed()
     }
@@ -1527,9 +1556,6 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     override fun isPauseScreen(): Boolean = false
 
     private companion object {
-        const val MARGIN = 20
-        const val GAP = Tokens.SPACE_24
-        const val CONTENT_MAX = 460
         const val CHIP_H = 18
 
         /** How far an explanation is indented under the row it explains. */
