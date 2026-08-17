@@ -15,6 +15,14 @@ import org.lwjgl.glfw.GLFW
  * Both default to unbound. A keybind that ships already occupying a key is a keybind that breaks
  * somebody's layout on update, and neither of these is needed often enough to justify that.
  *
+ * **That default cost a player the whole run-totals panel once.** `Config.showIdle` and
+ * `Config.showStandings` switch on two lines that live inside it, the panel's only handle is
+ * [expandTotals], and an unbound handle is no handle: the switches were flipped, nothing appeared on the
+ * card, and there was nothing anywhere saying why. Shipping a default key would have been the wrong fix
+ * — the argument above still holds — so the `/sa` HUD tab now names this keybind, says whether it is
+ * bound, and opens vanilla's key-binds screen when the row is clicked. Unbound is a fine default for a
+ * keybind a player can see; it is not a fine default for one nothing mentions.
+ *
  * Registered through `fabric-key-mapping-api-v1`, which in 26.1.2 is what the older
  * `fabric-key-binding-api-v1` became: the helper is `KeyMappingHelper.registerKeyMapping` and the
  * category is a `KeyMapping.Category` record around an [Identifier], not the loose translation-key
@@ -27,6 +35,16 @@ internal object HudKeys {
 
     lateinit var expandTotals: KeyMapping
         private set
+
+    /**
+     * The expand key, or null before [register] has run.
+     *
+     * Nullable rather than a bare `lateinit` read, because the caller is the `/sa` screen describing this
+     * keybind, and a settings screen that throws because a keybind is not registered yet is worse than
+     * one that leaves the row out. In a running client it is never null — [register] is called from
+     * `onInitializeClient`, long before a screen can be opened.
+     */
+    val expand: KeyMapping? get() = if (::expandTotals.isInitialized) expandTotals else null
 
     fun register() {
         expandTotals = KeyMappingHelper.registerKeyMapping(

@@ -65,6 +65,16 @@ nicht gegriffen**, und dann ist die Sidebar-Zeile `Cleared: X%` der nächste Kan
   `FabricLoader`). **Ein v0-File wird erst umgerechnet, wenn eine echte `guiScaled`-Größe vorliegt** —
   aus zwei absoluten Pixeln allein ist der Anker nicht ableitbar; bis dahin bleibt die Datei v0 und die
   Karte steht auf demselben Pixel wie vorher.
+- [x] **Der Run-Totals-Keybind war eine Falle** — vom User gefunden: „idle & nav" anschalten, im HUD
+  passiert nichts. Kein Zählfehler (`IdleTime.tick` läuft, `HudSnapshot` trägt beide Felder, `HudRoot`
+  zeichnet sie) — die beiden Zeilen sitzen **im ausklappbaren Panel**, dessen einziger Griff
+  `HudKeys.expandTotals` ist, und der ist standardmäßig **ungebunden**. Also zwei Schalter, die Inhalt
+  in einer Schublade steuern, die niemand aufziehen kann, und nichts im Screen sagte das.
+  Fix ist nicht ein Default-Key (das Argument in `HudKeys` hält: ein mitgelieferter Key zerlegt fremde
+  Layouts): `idle & nav` und `standings` haben jetzt einen eigenen Abschnitt **`run totals`** mit einer
+  Zeile `expand key · unbound · bind` darüber, die Vanillas `KeyBindsScreen` mit `/sa` als Parent
+  öffnet. Die Notiz darunter sagt, was der Zustand bedeutet („nothing below can show until this is
+  bound" / „press it in a run to open the panel").
 - [x] **Scrim geht bis 30 %, und der Regler steht nicht mehr unter „the card"** — auf Wunsch des Users.
   Die 88 % sind **nicht gelöscht**: `Tokens.SCRIM_MIN_PERCENT` ist jetzt die Reglergrenze (30),
   `Tokens.SCRIM_CONTRAST_PERCENT` die gemessene Stelle, an der helles `textTertiary` über schwarzer Welt

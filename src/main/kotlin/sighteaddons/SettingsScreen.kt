@@ -2,6 +2,7 @@ package sighteaddons
 
 import net.minecraft.client.gui.GuiGraphicsExtractor
 import net.minecraft.client.gui.screens.Screen
+import net.minecraft.client.gui.screens.options.controls.KeyBindsScreen
 import net.minecraft.client.input.CharacterEvent
 import net.minecraft.client.input.KeyEvent
 import net.minecraft.client.input.MouseButtonEvent
@@ -21,6 +22,7 @@ import sighteaddons.ui.components.Stepper
 import sighteaddons.ui.components.Table
 import sighteaddons.ui.components.TextField
 import sighteaddons.ui.components.Tooltip
+import sighteaddons.ui.hud.HudKeys
 import sighteaddons.ui.hud.HudRoot
 import sighteaddons.ui.hud.HudSnapshot
 import sighteaddons.ui.motion.Clock
@@ -991,6 +993,29 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         // point of the line is that this one is about you.
         toggle("your secrets", Config.showSecrets) { Config.showSecrets = !Config.showSecrets }
         note("the ones this client can prove were yours")
+
+        // **Their own section, and the keybind above them, because these two are not lines on the
+        // card.** They are inside the run-totals panel, the panel's only handle is a keybind, and that
+        // keybind ships unbound — so switching on "idle & nav" produced nothing at all and there was
+        // nothing on this screen that could have said why. See HudKeys. The grouping is the fix and the
+        // row is the rest of it: knowing the key is missing is no use without a way to set it.
+        section("run totals")
+        HudKeys.expand?.let { key ->
+            action("expand key", if (key.isUnbound) "unbound · bind" else "${key.translatedKeyMessage.string} · change") {
+                // Vanilla's screen rather than a bind capture of our own: this screen has no widget tree
+                // (rule 3), capturing a key is a modal state machine, and vanilla already lists our
+                // category — `key.category.sighteaddons.main` is "Sighte Addons" in the lang file. This
+                // screen as the parent means Done comes back here.
+                minecraft.setScreen(KeyBindsScreen(this@SettingsScreen, minecraft.options))
+            }
+            note(
+                if (key.isUnbound) {
+                    "nothing below can show until this is bound"
+                } else {
+                    "press it in a run to open the panel"
+                },
+            )
+        }
         // "idle & nav", because the two numbers are the point: standing in a finished room and
         // walking between rooms are different problems and one figure could not tell them apart.
         toggle("idle & nav", Config.showIdle) { Config.showIdle = !Config.showIdle }
