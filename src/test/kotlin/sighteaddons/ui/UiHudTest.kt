@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import sighteaddons.ui.hud.HudRoot
 import sighteaddons.ui.hud.HudSnapshot
 import sighteaddons.ui.render.Sheet
 import sighteaddons.ui.render.Surface
@@ -133,6 +134,50 @@ class UiHudTest {
         assertEquals(2, Sheet.radiusIndex(11), "11 is nearer 12 than 8")
         assertEquals(3, Sheet.radiusIndex(64), "anything huge takes the largest authored mask")
         assertEquals(0, Sheet.radiusIndex(1), "anything tiny takes the smallest")
+    }
+
+    // --- Card geometry ----------------------------------------------------------------------
+
+    /**
+     * Nothing on the card may be drawn where something else already is.
+     *
+     * This exists because the first version of the room block did exactly that: the clock ran from
+     * `y+12` to `y+30` at double scale, the split sat at `y+24`, and the block claimed to be 22 tall —
+     * so the secrets bar was drawn over the clock as well. All of that compiles, passes every other
+     * test, and is only visible to somebody standing in a dungeon. Which is how it was found.
+     */
+    @Test
+    fun `nothing in the room block overlaps anything else`() {
+        val clockTop = HudRoot.CLOCK_Y
+        val clockBottom = clockTop + Math.round(HudRoot.TEXT_LINE * HudRoot.CLOCK_SCALE)
+        val nameBottom = HudRoot.NAME_Y + HudRoot.TEXT_LINE
+        val deltaBottom = HudRoot.DELTA_Y + HudRoot.TEXT_LINE
+
+        assertTrue(
+            nameBottom <= HudRoot.DELTA_Y,
+            "the room name (ends $nameBottom) runs into the split (starts ${HudRoot.DELTA_Y})",
+        )
+        assertTrue(
+            clockBottom <= HudRoot.ROOM_BLOCK,
+            "the clock ends at $clockBottom, past the ${HudRoot.ROOM_BLOCK}px block",
+        )
+        assertTrue(
+            deltaBottom <= HudRoot.ROOM_BLOCK,
+            "the split ends at $deltaBottom, past the ${HudRoot.ROOM_BLOCK}px block",
+        )
+    }
+
+    /** Same for the secrets block: the bar, then the counts, both inside what the block claims. */
+    @Test
+    fun `nothing in the secrets block overlaps anything else`() {
+        val barBottom = HudRoot.SEGMENT_Y + 3
+        val countsBottom = HudRoot.COUNTS_Y + HudRoot.TEXT_LINE
+
+        assertTrue(barBottom <= HudRoot.COUNTS_Y, "the bar (ends $barBottom) runs into the counts")
+        assertTrue(
+            countsBottom <= HudRoot.SECRETS_BLOCK,
+            "the counts end at $countsBottom, past the ${HudRoot.SECRETS_BLOCK}px block",
+        )
     }
 
     // --- Helpers ----------------------------------------------------------------------------

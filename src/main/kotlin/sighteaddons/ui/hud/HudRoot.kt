@@ -158,10 +158,17 @@ internal class HudRoot {
         shimmerStartedAt = -1.0
     }
 
+    /**
+     * The card's height, which must be the exact sum of what the draw functions advance by.
+     *
+     * Kept as one arithmetic expression mirroring the draw order rather than as a constant, because
+     * the two drifting apart is invisible in code and obvious on screen — a card whose border stops
+     * above its own last row, or an element drawn where the one below it already is.
+     */
     private fun measure(snapshot: HudSnapshot): Int {
         var height = PADDING * 2
-        height += ROW + 10                       // room name and the big clock
-        if (Config.showSecrets) height += ROW + 4
+        height += ROOM_BLOCK
+        if (Config.showSecrets) height += SECRETS_BLOCK
         if (snapshot.history.isNotEmpty()) height += Tokens.SPACE_6 + snapshot.history.size * ROW
         if (Config.showStandings || Config.showIdle) {
             height += Tokens.SPACE_6 + ROW
@@ -198,8 +205,22 @@ internal class HudRoot {
             // Between rooms is a state worth showing rather than a gap to hide: it is exactly when
             // the idle and navigation counters are the numbers that are moving.
             graphics.label(font, "BETWEEN ROOMS", left, y + 2, Tokens.fade(Tokens.textTertiary, appear))
-            return y + ROW + 10
+            return y + ROOM_BLOCK
         }
+
+        // The clock is drawn first and measured before anything else is placed, because it is the
+        // largest element on the card and everything else has to fit around it rather than beside a
+        // guess at its width. It spans both text rows on the right; the name and the split share the
+        // left. Scaled through the pose because the bundled TTF is not in yet and the bitmap font has
+        // exactly one size — which is also why these digits are not yet truly tabular.
+        val clock = roomClock.of(snapshot.roomTicks)
+        val clockWidth = Math.round(font.width(clock) * CLOCK_SCALE)
+        val pose = graphics.pose()
+        pose.pushMatrix()
+        pose.translate((right - clockWidth).toFloat(), (y + CLOCK_Y).toFloat())
+        pose.scale(CLOCK_SCALE, CLOCK_SCALE)
+        graphics.text(font, clock, 0, 0, Tokens.fade(Tokens.textPrimary, appear), false)
+        pose.popMatrix()
 
         // The active-room mark breathes. One of only two ambient loops allowed on screen at once.
         val breathing = Effects.breathe() * appear
@@ -208,39 +229,45 @@ internal class HudRoot {
             Tokens.fade(Tokens.textSecondary, breathing),
         )
 
+        val nameLeft = left + Glyphs.SIZE + Tokens.SPACE_6
+        val nameRoom = right - clockWidth - Tokens.SPACE_8 - nameLeft
         graphics.label(
-            font, snapshot.roomName.uppercase(),
-            left + Glyphs.SIZE + Tokens.SPACE_6, y + 1,
+            font, fitLabel(font, snapshot.roomName.uppercase(), nameRoom),
+            nameLeft, y + NAME_Y,
             Tokens.fade(Tokens.textPrimary, appear),
         )
 
-        // The clock is the largest element on the card, per its priority. Scaled through the pose
-        // because the bundled TTF is not in yet and the bitmap font has exactly one size; this is the
-        // interim, and it is why the digits are not yet truly tabular.
-        val clock = roomClock.of(snapshot.roomTicks)
-        val pose = graphics.pose()
-        pose.pushMatrix()
-        pose.translate(right - font.width(clock) * CLOCK_SCALE, (y + ROW).toFloat())
-        pose.scale(CLOCK_SCALE, CLOCK_SCALE)
-        graphics.text(font, clock, 0, 0, Tokens.fade(Tokens.textPrimary, appear), false)
-        pose.popMatrix()
-
         // The split against this room's record, stated once, with a glyph so it does not depend on
-        // being able to tell two greys apart.
+        // being able to tell two greys apart. Under the name, on the left, clear of the clock.
         val delta = snapshot.clearDelta
         if (delta != Format.NONE) {
             val improved = delta < 0
             val text = clearDelta.of(delta)
             val tone = if (improved) Tokens.textSecondary else Tokens.textTertiary
-            val textX = right - font.width(text)
-            graphics.text(font, text, textX, y + ROW + 12, Tokens.fade(tone, appear), false)
-            Glyphs.chevron(
-                graphics, textX - Glyphs.SIZE - Tokens.SPACE_2, y + ROW + 13, improved,
-                Tokens.fade(tone, appear),
-            )
+            Glyphs.chevron(graphics, left, y + DELTA_Y, improved, Tokens.fade(tone, appear))
+            graphics.text(font, text, nameLeft, y + DELTA_Y, Tokens.fade(tone, appear), false)
         }
 
-        return y + ROW + 10
+        return y + ROOM_BLOCK
+    }
+
+    /**
+     * Truncates [value] to [maxWidth], measured *with* label tracking.
+     *
+     * `Font.plainSubstrByWidth` cannot be used directly here: it measures the glyphs alone, while
+     * [label] adds tracking between every pair of them. On a long room name that difference is several
+     * pixels, which is the difference between a name that stops short of the clock and one that runs
+     * underneath it.
+     */
+    private fun fitLabel(font: Font, value: String, maxWidth: Int): String {
+        if (maxWidth <= 0) return ""
+        var width = 0f
+        for (i in value.indices) {
+            val glyph = font.width(value.substring(i, i + 1)) + Tokens.TRACKING_LABEL
+            if (width + glyph > maxWidth) return value.substring(0, i)
+            width += glyph
+        }
+        return value
     }
 
     private fun drawSecrets(
@@ -254,15 +281,15 @@ internal class HudRoot {
 
         val counts = "${snapshot.secretsFound}/${if (total > 0) total else "?"}"
         val own = "${snapshot.ownSecrets} you"
-        graphics.text(font, counts, left, y + 8, Tokens.fade(Tokens.textPrimary, appear), false)
+        graphics.text(font, counts, left, y + COUNTS_Y, Tokens.fade(Tokens.textPrimary, appear), false)
         graphics.text(
-            font, own, left + font.width(counts) + Tokens.SPACE_8, y + 8,
+            font, own, left + font.width(counts) + Tokens.SPACE_8, y + COUNTS_Y,
             Tokens.fade(Tokens.textTertiary, appear), false,
         )
 
         val secretRun = secretClock.of(snapshot.secretRunTicks)
         graphics.text(
-            font, secretRun, right - font.width(secretRun), y + 8,
+            font, secretRun, right - font.width(secretRun), y + COUNTS_Y,
             Tokens.fade(Tokens.textSecondary, appear), false,
         )
 
@@ -271,16 +298,16 @@ internal class HudRoot {
         if (total in 1..SEGMENT_LIMIT) {
             val barWidth = right - left
             Surface.segments(
-                graphics, left, y + 2, barWidth, SEGMENT_HEIGHT, total, secretsFilled.value,
+                graphics, left, y + SEGMENT_Y, barWidth, SEGMENT_HEIGHT, total, secretsFilled.value,
                 Tokens.fade(Tokens.accent, appear),
                 Tokens.fade(Tokens.borderDefault, appear),
             )
             if (pulseStartedAt >= 0.0) {
-                Effects.pulse(graphics, left, y + 2, barWidth, SEGMENT_HEIGHT, pulseStartedAt)
+                Effects.pulse(graphics, left, y + SEGMENT_Y, barWidth, SEGMENT_HEIGHT, pulseStartedAt)
             }
         }
 
-        return y + ROW + 4
+        return y + SECRETS_BLOCK
     }
 
     private fun drawHistory(
@@ -411,7 +438,34 @@ internal class HudRoot {
 
         private const val PADDING = Tokens.SPACE_12
         private const val ROW = 12
-        private const val CLOCK_SCALE = 2f
+
+        // The block geometry below is `internal` rather than private so UiHudTest can hold it to its
+        // own arithmetic. It is not decoration: the first version of this card drew the clock from
+        // y+12 to y+30, the split at y+24 and the next block from y+22 — three elements in one place,
+        // which compiles, passes every test, and is only visible to somebody actually in a dungeon.
+
+        /** Vanilla's bitmap font. Every row below is placed against this. */
+        const val TEXT_LINE = 9
+
+        const val CLOCK_SCALE = 2f
+
+        /** Where the clock's top edge sits inside the room block. */
+        const val CLOCK_Y = 2
+
+        /** Where the room name's top edge sits. */
+        const val NAME_Y = 1
+
+        /**
+         * The current-room block: the name row and the split row on the left, with the double-height
+         * clock spanning both on the right. 18 of these 24 pixels are the clock itself.
+         */
+        const val ROOM_BLOCK = 24
+        const val DELTA_Y = 13
+
+        /** The segmented bar, then the counts and the secret-run clock beneath it. */
+        const val SECRETS_BLOCK = 20
+        const val SEGMENT_Y = 2
+        const val COUNTS_Y = 8
         private const val SEGMENT_LIMIT = 12
         private const val SEGMENT_HEIGHT = 3
         private const val PROGRESS_MS = 300
