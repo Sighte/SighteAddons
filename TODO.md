@@ -2,7 +2,7 @@
 
 ## Stand — 2026-08-17
 
-`main` = 379 Tests / 31 Klassen / grün. `mod_version` 0.15.0, released, Modrinth-Version `YNlbBvlI`
+`main` = 385 Tests / 32 Klassen / grün. `mod_version` 0.15.0, released, Modrinth-Version `YNlbBvlI`
 mit identischem Jar. `RunReport.SCHEMA` 6, Receiver (`master` `1a7f435`) akzeptiert `idleTicks`/
 `navTicks` als optional und ist deployt — **dem Receiver ist nichts geschuldet.**
 
@@ -25,7 +25,7 @@ CLAUDE.md-Regel 2, gilt nur hier und fällt danach zurück.
   Der alte Corner-Readout ist weg; `idle`/`nav` und die Standings sitzen jetzt in den ausklappbaren
   Run-Totals (Keybind, standardmäßig ungebunden).
   Die Karte blendet sich beim Betreten des Bossraums aus (`inBoss` auf dem Snapshot) — der Run-Clock
-  läuft darunter weiter. **Der User testet `0.16.0-dev17`** (nur `build/libs`, `assemble check`
+  läuft darunter weiter. **Der User testet `0.16.0-dev18`** (nur `build/libs`, `assemble check`
   mit `-Pmod_version=…`, `dist/` bleibt das released 0.15.0).
 - [x] **Phase 6 — Chat.** Tag (`SA »`, ein Funnel `Chat.say`, die drei alten Selbstbezeichnungen
   sind weg) **plus** Farben und Wortlaut. Kein `ChatFormatting` mehr in einer Zeile, die die Mod
@@ -89,11 +89,18 @@ nicht gegriffen**, und dann ist die Sidebar-Zeile `Cleared: X%` der nächste Kan
   galt einem Feld, das den Key *anzeigt*. `settingRowHeight` ist weg, alle Seiten scrollen über
   `Scroll`. Shift dreht den Stepper nicht mehr um — dafür gibt es den Minus-Arm; `StormTimer.step`
   behält `back` und den Wrap.
-- [x] **Drei Überläufe bei Scale 4 gefunden und behoben** (alle vorbestehend): sechs Chips mit Counts
-  wollen 356 px in einer 328-px-Spalte und liefen ungeclippt über den Fensterrand; die Spaltenbrüche
-  waren gegen die *Werte* budgetiert, nicht gegen die breiteren Header (`SECRETS` 60 px gegen 28 px
-  Zeit) — jetzt 25/51/70/83, Trefferzonen aus `Labels.width`; die Detailzeile lief 60 px über. Bei
-  320×240 (Vanilla-Minimum) passen sechs Spalten weiterhin nicht.
+- [x] **Der Bildschirm war an genau einer Fenstergröße gemessen** — die Wurzel von vier Befunden des
+  zweiten Prüfdurchgangs. `content == guiScaledWidth - 152`, die 2-px-Reserve war bei 478 aufgebraucht,
+  und darunter zeichnete der `SECRETS`-Caret **in** das `CLEAR`-Label; weil die Trefferzonen um
+  `SPACE_4` gepolstert waren und `firstOrNull` gewann, überlappten sie um 16 px: **ein Klick auf
+  `secrets` sortierte nach `clear`** — bei 1280×720 und 1366×768, also bei Minecrafts eigenem
+  Auto-Scale. `ui/screens/RecordColumns.kt` setzt die Spalten jetzt von rechts nach links aus
+  *gemessenen* Breiten, die Zonen **partitionieren** die Kopfzeile, und Spalten fallen in fester
+  Reihenfolge weg (`type` → `runs` → `secrets`); `room`/`clear`/`last` nie. `RecordColumnsTest` geht
+  480×270, 456×256, 427×240 und das Vanilla-Minimum 320×240 ab, dazu eine anderthalbfach breite
+  Schrift — die Zusicherung gilt dem Algorithmus, nicht den Schriftmaßen.
+  **Eine Layoutrechnung im Kommentar hat genau diesen Fehler nicht verhindert: sie war richtig, aber
+  nur für eine Größe.**
 - [x] **Phase 7 (Teil 1)** — kein Farbliteral mehr außerhalb von `ui/theme/`. Die drei Konstanten in
   `SighteAddons.kt` waren seit Phase 3a Waisen (keine war eine Warnung); `MID` ist jetzt
   `Tokens.PREVIEW_STAGE`, `FAIL` ist weg — ein Kontrast-Fehlschlag sagt das **Wort** `FAIL`.
@@ -115,6 +122,15 @@ nicht gegriffen**, und dann ist die Sidebar-Zeile `Cleared: X%` der nächste Kan
   90) trägt die Deckkraft. `ClearPopup` klemmt Breite und linke Kante (Scale 4 auf 1366×768 schnitt
   Raumname und PB-Badge ab). HUD wieder allokationsfrei auf unserer Seite. Raumuhr auf `ScaledText`.
   Eine Schreibweise für „gegen den Record": `−0:02.8` auf HUD *und* im Chat.
+- [x] **Zweiter Review-Durchgang, nur über die Bildschirme** — zehn Befunde, alle behoben. Neben der
+  Spaltenwurzel oben: ein Klick in den toten Streifen unter der letzten Tabellenzeile klappte einen
+  Raum auf, den man nicht sieht; die Scrim-Notiz sagte das Gegenteil der Zahl (90 % ist Deckkraft, es
+  zeigen sich 10 %); der Leer-Zustand lief bei `guiScaledHeight 240` durch die Fußzeile — der erste
+  Blick einer frischen Installation; `show` beim Key fokussierte das Feld nicht, wodurch die
+  dokumentierte Endbedingung des Reveals nie griff (**kein Leck** — alle Ausstiegspfade wurden
+  geprüft); ein Scrim-Wert ging verloren, wenn der Bildschirm bei gehaltenem Regler zuging.
+  Geprüft und für gut befunden: Metriken getrennt, Median-Boden an jeder Stelle, der Key taucht
+  außerhalb von `Config`/`SecretApi` nirgends auf, „Nicht anfassen" unberührt.
 
 Zwei Sachen aus Phase 1, die nicht in der Vorlage standen:
 
