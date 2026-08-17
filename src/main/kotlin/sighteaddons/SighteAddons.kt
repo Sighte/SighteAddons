@@ -133,18 +133,16 @@ class SighteAddons : ClientModInitializer {
         if (Config.uploadNoticeShown) return
         Config.uploadNoticeShown = true
         Config.save()
-        val client = Minecraft.getInstance()
-        client.schedule {
-            client.gui.chat.addClientSystemMessage(
-                Component.literal("Sighte Addons ").withStyle(ChatFormatting.GOLD).append(
-                    Component.literal(
-                        "sends a report of each dungeon run to the mod's analysis server: " +
-                            "rooms, times and classes, under a random id, without your name. " +
-                            "Turn it off — or put your name on it — with /sa → debug.",
-                    ).withStyle(ChatFormatting.GRAY),
-                ),
-            )
-        }
+        // The one line that spells the mod's name out in full rather than leaving it at the tag. The
+        // tag says which mod is speaking; this sentence has to be readable on its own by somebody who
+        // has never seen the tag before, because it is a disclosure and it gets exactly one showing.
+        Chat.say(
+            Component.literal(
+                "Sighte Addons sends a report of each dungeon run to the mod's analysis server: " +
+                    "rooms, times and classes, under a random id, without your name. " +
+                    "Turn it off — or put your name on it — with /sa → debug.",
+            ).withStyle(ChatFormatting.GRAY),
+        )
     }
 
     /**
@@ -170,9 +168,23 @@ class SighteAddons : ClientModInitializer {
         if (HudKeys.tick()) HudRoot.live.toggleTotals()
 
         if (!DungeonSession.inDungeon(client)) return
-        val map = DungeonMapReader.mapState(client) ?: return
+
+        // **The map item is not there for the whole run.** Hypixel takes it out of hotbar slot 9 when
+        // the boss starts, and until 0.16.0-dev5 a null map returned from this function before
+        // anything else could happen — so the boss phase advanced no clock, published no snapshot and
+        // never once evaluated `inBoss`. Measured on the M1 of 2026-08-17: the blood room cleared at
+        // tick 2379, `run_end` came at 2549, and the report claimed a 2:07 run for a floor that had a
+        // whole Bonzo fight after it. The HUD froze on its last clear-phase frame for the same reason.
+        //
+        // A missing map is therefore handled exactly like the boss, which is what it usually is: keep
+        // the clock, publish the snapshot, sample nothing. Room sampling genuinely cannot run without
+        // the map — it is the only source that sees rooms this client has not loaded — but everything
+        // else can, and stopping all of it was never the intent.
+        val map = DungeonMapReader.mapState(client)
+        // Before anything reads `inBoss`, which is one of the three things this feeds.
+        DungeonSession.observeMap(map != null)
         val wasCalibrated = DungeonSession.calibrated
-        if (!DungeonSession.update(client, map)) {
+        if (map == null || !DungeonSession.update(client, map)) {
             // In the boss: stop sampling rooms but keep the run clock going, so the summary
             // reports the real run time and not just the clear phase.
             if (DungeonSession.calibrated) {
@@ -235,6 +247,9 @@ class SighteAddons : ClientModInitializer {
         // returns early on every ordinary line, and putting the events after that return is how they
         // would silently stop arriving the moment somebody reorders this function.
         val text = ChatFormatting.stripFormatting(message).orEmpty()
+        // First, because it decides what the rest of the run counts as. Every boss speaks on entry,
+        // and that line is the one boss signal that does not depend on the inherited coordinates.
+        DungeonSession.observeChat(text)
         onDungeonEvent(text)
         onCrit(text)
         onStorm(text)
@@ -329,12 +344,7 @@ class SighteAddons : ClientModInitializer {
     private fun onCrit(text: String) {
         if (Config.critLine) {
             CritMeter.onChat(text, ::tabFooter)?.let { line ->
-                val client = Minecraft.getInstance()
-                client.schedule {
-                    client.gui.chat.addClientSystemMessage(
-                        Component.literal(line).withStyle(ChatFormatting.AQUA),
-                    )
-                }
+                Chat.say(Component.literal(line).withStyle(ChatFormatting.AQUA))
             }
         }
         // A crit line Hypixel sent and CritMeter could not read. Carries no player name — see

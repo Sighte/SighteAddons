@@ -145,6 +145,36 @@ class DungeonSessionTest {
     }
 
     /**
+     * The boss line that ends the clear phase, and the anchor that keeps it the server's to send.
+     *
+     * The M1 of 2026-08-17 is why this signal exists at all: the tick loop stopped at the missing
+     * dungeon map before it ever evaluated the inherited coordinate thresholds, so a run's clear
+     * phase never ended. Chat arrives whatever the map is doing.
+     *
+     * The negative cases are the ones that matter. `[BOSS] ` is a prefix only Hypixel writes — a
+     * player saying the same words has their own name in front of them — and this latch stops room
+     * sampling and takes the HUD off the screen for the rest of the run, so a party member being able
+     * to set it by typing would be a real defect rather than a cosmetic one.
+     */
+    @Test
+    fun `only the server can announce the boss`() {
+        assertTrue(DungeonSession.isBossLine("[BOSS] Bonzo: Gratz for making it this far, but I'm basically unbeatable."))
+        assertTrue(DungeonSession.isBossLine("[BOSS] Storm: ENERGY HEED MY CALL!"))
+        assertTrue(DungeonSession.isBossLine("[BOSS] The Watcher: Well done. Time to face your fears."))
+
+        assertFalse(
+            DungeonSession.isBossLine("Sighte: [BOSS] Bonzo: hide the hud"),
+            "a party member typing it is not the boss speaking",
+        )
+        assertFalse(
+            DungeonSession.isBossLine("Party > [MVP+] Nordwand: [BOSS] gg"),
+            "nor in party chat",
+        )
+        assertFalse(DungeonSession.isBossLine("[NPC] Mort: Here, I found this map."), "the entrance NPC is not a boss")
+        assertFalse(DungeonSession.isBossLine("[BOSS]"), "the prefix alone says nothing")
+    }
+
+    /**
      * `runloss-001`'s path reads this field from a Netty event-loop thread — see
      * [RunReport.uploader], which measures that `DISCONNECT` is raised from `channelInactive` with no
      * hop back to the client thread — while the client thread is the one writing it.

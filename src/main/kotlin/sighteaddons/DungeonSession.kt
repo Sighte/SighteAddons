@@ -65,6 +65,10 @@ object DungeonSession {
         // is what used to happen — files that report under `?`.
         floor = null
         runTicks = 0
+        // Per run, like the floor: a latch carried into the next one would tell it the clear phase
+        // was over before it began, and nothing would be sampled at all.
+        bossStarted = false
+        mapMissingTicks = 0
         physicalEntrance = null
         mapEntrance = null
         mapRoomSize = 0
@@ -123,18 +127,112 @@ object DungeonSession {
     }
 
     /**
+     * Whether the boss fight has started. Latched, and only [reset] clears it.
+     *
+     * Latched because the clear phase does not come back: the boss door is one way, and every
+     * consumer of [inBoss] — room sampling, [IdleTime], the HUD — is asking "is the clear over",
+     * which is a question that only gets answered once per run.
+     *
+     * `@Volatile` for the same reason [floor] is: it is written on the client thread and the report
+     * paths can read it from a Netty thread.
+     */
+    @Volatile
+    var bossStarted = false
+        private set
+
+    /**
+     * Boss dialogue, which is the signal that does not depend on knowing where the boss room is.
+     *
+     * Anchored, and safe anchored for the reason [CritMeter.nearMiss] and [StormTimer.nearMiss] both
+     * rely on: `[BOSS] ` is a prefix only the server writes. A player saying it has their own name in
+     * front of it, so no party member can start this by typing.
+     */
+    private val BOSS_CHAT = Regex("""^\[BOSS] .+""")
+
+    /**
+     * Consecutive ticks the dungeon map has been unreadable, since the last time it was not.
+     *
+     * The third boss signal, and the only one of the three the M1 of 2026-08-17 actually produced:
+     * the map left hotbar slot 9 and never came back, which is what stopped that run's clock dead.
+     *
+     * **Not latched, unlike the other two.** A missing map is strong evidence and weak proof — it is
+     * also what a player briefly rearranging their hotbar looks like — so this one is allowed to
+     * change its mind when the map returns. It costs nothing to be wrong about for a second: room
+     * sampling reads the map and is already stopped for as long as it is gone, so all this decides is
+     * whether the HUD is on screen while nothing can be tracked anyway.
+     */
+    private var mapMissingTicks = 0
+
+    /** Two seconds. Long enough that a hotbar swap does not read as a boss. */
+    private const val MAP_GONE_TICKS = 40
+
+    /** Called once per tick from `SighteAddons.onTick`, before anything reads [inBoss]. */
+    fun observeMap(present: Boolean) {
+        if (present) {
+            mapMissingTicks = 0
+            return
+        }
+        mapMissingTicks++
+        // Exactly on the crossing, so one outage logs one line.
+        if (mapMissingTicks == MAP_GONE_TICKS && calibrated) {
+            DebugLog.event("map_lost", "at" to runTicks, "bossStarted" to bossStarted)
+        }
+    }
+
+    /**
+     * A chat line, already stripped, offered as evidence that the boss has started.
+     *
+     * **The floor thresholds in [inBoss] are inherited numbers and the M1 of 2026-08-17 could not
+     * confirm a single one of them** — the tick loop never reached the check, so it has still never
+     * been observed returning true in a real game. This is the second, independent signal: every
+     * dungeon boss speaks on entry, on every floor, and that line arrives whatever this mod believes
+     * about coordinates.
+     *
+     * Gated on [calibrated] so a `[BOSS]` line cannot latch anything outside a run that is actually
+     * being tracked.
+     */
+    fun observeChat(text: String) {
+        if (bossStarted || !calibrated) return
+        if (!isBossLine(text)) return
+        bossStarted = true
+        DebugLog.event("boss_start", "by" to "chat", "at" to runTicks)
+    }
+
+    /**
+     * The seam the tests drive, for the same reason [observeSidebar] is one: the decision is a regex
+     * over a string, and everything around it needs a live client this repository cannot build.
+     *
+     * What it has to get right is the anchor. A latch that any party member could set by typing would
+     * let one of them take the HUD off your screen and stop your run being sampled.
+     */
+    internal fun isBossLine(text: String) = BOSS_CHAT.matches(text)
+
+    /**
      * The boss room is a fixed area per floor, so a coordinate check is enough — no need to guess
-     * from chat or from the map switching to the boss layout. Thresholds per floor as used by Odin.
+     * from the map switching to the boss layout. Thresholds per floor as used by Odin.
+     *
+     * The position check **latches only once the run is calibrated**, and that asymmetry is not
+     * tidiness. [update] consults this before it calibrates, so a latch that could fire in the
+     * entrance would return false forever after and the run would never be calibrated at all —
+     * the mod would sit out the whole floor. Before calibration this stays a live reading that
+     * corrects itself; after it, the answer is kept.
      */
     fun inBoss(client: Minecraft): Boolean {
+        if (bossStarted) return true
+        if (calibrated && mapMissingTicks >= MAP_GONE_TICKS) return true
         val player = client.player ?: return false
-        return when (floorNumber) {
+        val here = when (floorNumber) {
             1 -> player.x > -71 && player.z > -39
             2, 3, 4 -> player.x > -39 && player.z > -39
             5, 6 -> player.x > -39 && player.z > -7
             7 -> player.x > -7 && player.z > -7
             else -> false
         }
+        if (here && calibrated) {
+            bossStarted = true
+            DebugLog.event("boss_start", "by" to "position", "at" to runTicks)
+        }
+        return here
     }
 
     /** Calibrates once per run. Returns false while calibration is incomplete or in the boss. */
