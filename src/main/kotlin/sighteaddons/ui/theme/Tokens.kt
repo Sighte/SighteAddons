@@ -41,6 +41,21 @@ internal object Tokens {
     val highlight get() = palette.highlight
 
     /**
+     * The grey the gallery stands a HUD element on, so a scrim can be judged over something lit.
+     *
+     * Not a design token and never drawn in the game: every overlay in this UI is transparent to some
+     * degree, and previewing one over `surfaceBase` would flatter its scrim into looking like it works
+     * against a dungeon. It is a mid neutral because that is roughly what a torch-lit corridor
+     * measures, and it is deliberately outside the ramp — nothing in the ramp is allowed to be a
+     * backdrop the mod does not own.
+     *
+     * It lives here anyway, and not next to the screen that uses it, because the rule is that no
+     * colour is written outside this package. An exception carved out for development code would be an
+     * exception no test can see, and `UiThemeTest` reads the source to hold exactly that line.
+     */
+    const val PREVIEW_STAGE = 0xFF6E7378.toInt()
+
+    /**
      * Replaces an ARGB colour's alpha with [alpha] (0..255).
      *
      * The one sanctioned way to vary a token, for fades and for the receding opacity of HUD history

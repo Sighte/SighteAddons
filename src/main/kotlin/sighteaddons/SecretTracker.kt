@@ -623,7 +623,7 @@ object SecretTracker {
         // read as one. Read before the credit below resets it.
         val at = if (mine && clicked) lastOwnInteraction else DungeonSession.runTicks
         // One line, two consumers, and they must not be able to disagree: `ownSecrets` is what
-        // SecretHud shows as "Your secrets", and the quarter point is what the standings show. The
+        // the HUD's secrets row shows as "you", and the quarter point is what the standings show. The
         // user's complaint was that the second did not exist — the score only moved on a checkmark,
         // because the room's weight paid for the secrets the *database* said it held. See
         // ContributionTracker.onOwnSecret.

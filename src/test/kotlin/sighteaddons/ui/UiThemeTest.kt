@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test
 import sighteaddons.ui.theme.Contrast
 import sighteaddons.ui.theme.Density
 import sighteaddons.ui.theme.Palette
+import java.io.File
 
 /**
  * Two things here are worth a test because getting either wrong is invisible until somebody cannot
@@ -183,5 +184,82 @@ class UiThemeTest {
             assertTrue(hairlineWidth >= 1, "one gui pixel must be at least one device pixel")
         }
         assertEquals(1, Density.hairline, "a hairline is one physical pixel until we decide otherwise")
+    }
+
+    // --- The rule the theme package exists for ----------------------------------------------
+
+    /**
+     * No colour is written outside `ui/theme/`, and this reads the source rather than trusting it.
+     *
+     * The rule is the entire point of the package and it is the one rule a compiler cannot hold: an
+     * `Int` is an `Int`, so a hue smuggled into a draw call is legal Kotlin and invisible to every
+     * other test here. It also has a track record — the pre-redesign mod carried seventeen of them
+     * across four files, and after the redesign five survived in three places for two more phases,
+     * including a yellow and a red *in the gallery*, which is the screen whose job is to prove there is
+     * no hue anywhere.
+     *
+     * Eight hex digits, because that is how a colour is written in this repository: an ARGB value
+     * always carries its alpha, and the six-digit forms that remain outside this package are bit masks
+     * (`and 0xFFFFFF`, `and 0xFF`). Matching six as well would flag every one of those, and a check
+     * that cries wolf is a check somebody switches off.
+     *
+     * Comment lines are skipped — a KDoc that *discusses* `0x80000000` is documentation, not a colour —
+     * and the scan asserts it can still see the palette it exempts, because a walk that quietly found
+     * nothing looks exactly like a tree with nothing in it.
+     */
+    @Test
+    fun `no argb literal is written outside the theme package`() {
+        val root = sourceRoot()
+        val theme = File(root, "sighteaddons/ui/theme").toPath()
+        val files = root.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
+        assertTrue(files.size > 30, "only ${files.size} sources found under $root — the walk missed the tree")
+
+        val offenders = ArrayList<String>()
+        var themeFiles = 0
+        var themeLiterals = 0
+        for (file in files) {
+            val inTheme = file.toPath().startsWith(theme)
+            if (inTheme) themeFiles++
+            for ((index, line) in file.readLines().withIndex()) {
+                val code = code(line) ?: continue
+                val hit = ARGB.find(code) ?: continue
+                if (inTheme) {
+                    themeLiterals++
+                } else {
+                    offenders.add("${root.toPath().relativize(file.toPath())}:${index + 1}  ${hit.value}")
+                }
+            }
+        }
+
+        assertTrue(themeFiles >= 4, "ui/theme was not reached at all — the exemption path is wrong")
+        assertTrue(themeLiterals > 20, "only $themeLiterals literals matched inside ui/theme — the pattern is asleep")
+        assertEquals(
+            emptyList<String>(), offenders,
+            "a colour outside ui/theme/ — move it into Tokens or Palette and read it from there",
+        )
+    }
+
+    /** The line's code, or null when the whole line is a comment. */
+    private fun code(line: String): String? {
+        val trimmed = line.trimStart()
+        if (trimmed.startsWith("*") || trimmed.startsWith("/*") || trimmed.startsWith("//")) return null
+        val comment = line.indexOf("//")
+        return if (comment >= 0) line.substring(0, comment) else line
+    }
+
+    /** The project's main source root, found by walking up rather than by trusting a working directory. */
+    private fun sourceRoot(): File {
+        var dir: File? = File("").absoluteFile
+        while (dir != null) {
+            val candidate = File(dir, "src/main/kotlin")
+            if (candidate.isDirectory) return candidate
+            dir = dir.parentFile
+        }
+        throw AssertionError("no src/main/kotlin at or above ${File("").absolutePath}")
+    }
+
+    private companion object {
+        /** An eight-digit ARGB literal, and not the leading eight digits of a longer number. */
+        val ARGB = Regex("0[xX][0-9a-fA-F]{8}(?![0-9a-fA-F])")
     }
 }

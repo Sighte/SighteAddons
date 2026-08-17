@@ -683,8 +683,8 @@ object ContributionTracker {
      * than jumping when the checkmark arrives. Nothing waits for a clear: a secret found in a room
      * that never clears, or in a room that was already cleared when we walked in, is still paid.
      *
-     * **Attributed, not found**, and deliberately the same signal [SecretHud] puts on screen as
-     * "Your secrets" — [TrackedRoom.ownSecrets] is incremented on the same line that calls this. A
+     * **Attributed, not found**, and deliberately the same signal the HUD puts on screen as
+     * "you" — [TrackedRoom.ownSecrets] is incremented on the same line that calls this. A
      * live score that moved on a teammate's find would contradict the readout directly above it.
      * The two signals attribution runs on (a counter rise inside the own-interaction window, or a
      * wither-essence chat line naming you) mean a secret walked over is credited to nobody, so this

@@ -467,10 +467,6 @@ class SighteAddons : ClientModInitializer {
         const val ID = "sighteaddons"
         val LOGGER = LoggerFactory.getLogger(ID)!!
 
-        private const val WHITE = 0xFFFFFFFF.toInt()
-        private const val YELLOW = 0xFFFFDD55.toInt()
-        private const val GREY = 0xFFAAAAAA.toInt()
-
         private val STANDINGS: Identifier = Identifier.fromNamespaceAndPath(ID, "standings")
         /** Anchored, so a party member typing the headline cannot suppress the real summary. */
         private val RUN_END = Regex("""^\s*(?:Master Mode )?(?:The )?Catacombs - (?:Floor \w+|Entrance)\s*$""")

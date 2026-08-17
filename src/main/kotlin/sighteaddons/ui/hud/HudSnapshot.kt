@@ -150,13 +150,13 @@ internal class HudSnapshot(
 
                 secretsFound = room?.secretsFound ?: 0,
                 secretsTotal = room?.info?.secrets ?: 0,
-                ownSecrets = room?.ownSecrets ?: 0,
+                ownSecrets = roomOwnSecrets(room),
                 secretRunTicks = room?.secretRunElapsed(DungeonSession.runTicks) ?: Format.NONE,
 
                 clearBest = clearBest,
                 secretBest = secretBest,
 
-                runOwnSecrets = visited.sumOf { it.ownSecrets },
+                runOwnSecrets = runOwnSecrets(visited),
                 idleTicks = IdleTime.idleTicks,
                 navTicks = IdleTime.navTicks,
 
@@ -164,6 +164,32 @@ internal class HudSnapshot(
                 standings = standingsOf(),
             )
         }
+
+        /**
+         * The secrets in the current room that attribution credits to the local player.
+         *
+         * **Never [TrackedRoom.secretsFound], and never a fallback to it.** That count is the party's:
+         * a rise in it says somebody found one. Substituting it when nothing was attributed — the
+         * obvious-looking fix for a readout that shows `0` in a room a teammate cleared — writes the
+         * party's work onto the local player's line, and the whole reason this number exists is that
+         * nothing else on screen distinguishes the two. It under-counts on purpose; widening
+         * attribution is `ownsecrets-001` and happens one layer down, in [sighteaddons.SecretTracker].
+         *
+         * A one-line function because it is the *only* place the room's own-secret count is produced,
+         * and because [build] needs a live `Minecraft` and therefore cannot be tested. Standing on its
+         * own it can be, and `UiHudSecretsTest` is what holds the rule now that the readout it used to
+         * live in has moved into this HUD.
+         */
+        internal fun roomOwnSecrets(room: TrackedRoom?): Int = room?.ownSecrets ?: 0
+
+        /**
+         * The run's total, on the same rule and for the same reason.
+         *
+         * [visited] already contains the current room, so this is a superset of [roomOwnSecrets] and
+         * never an addition to it — counting the room a second time would make the run total climb
+         * while the player stood still.
+         */
+        internal fun runOwnSecrets(visited: List<TrackedRoom>): Int = visited.sumOf { it.ownSecrets }
 
         /**
          * The last few rooms that finished, most recent first.

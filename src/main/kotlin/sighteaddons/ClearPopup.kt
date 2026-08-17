@@ -57,6 +57,15 @@ object ClearPopup {
     private const val FADE_MS = 800
 
     /**
+     * The whole life, which is the promise the two above add up to.
+     *
+     * Not private because the gallery schedules a scripted popup against it — a preview that guessed
+     * at this number would be a preview that stopped agreeing with the popup the moment either half
+     * was retuned, and the timing is most of what there is to review here.
+     */
+    internal const val LIFE_MS = HOLD_MS + FADE_MS
+
+    /**
      * The entrance, which the hold pays for rather than the lifetime: a popup that is fully opaque on
      * the first frame reads as a texture glitch over a moving fight, and 140 ms is the shortest fade
      * that does not. Overlapping the head of the hold keeps the total on screen at 3000 ms exactly.
@@ -102,10 +111,19 @@ object ClearPopup {
     fun show(room: String, secrets: Boolean, ticks: Int, pb: Boolean) {
         if (!Config.clearPopup) return
         this.room = room
-        this.detail = "${if (secrets) "secreted" else "cleared"} in ${Format.ticks(ticks)}"
+        this.detail = detail(secrets, ticks)
         this.pb = pb
         shownAt = System.currentTimeMillis()
     }
+
+    /**
+     * The second half of the line: which of the two things finished, and how long it took.
+     *
+     * A function rather than two string templates so the gallery's scripted popup reads exactly what a
+     * real one reads. A preview with its own wording is a preview that cannot catch a wording change.
+     */
+    internal fun detail(secrets: Boolean, ticks: Int): String =
+        "${if (secrets) "secreted" else "cleared"} in ${Format.ticks(ticks)}"
 
     /**
      * Whether the popup's whole life is behind it, for an age of [ageMs] and a fade of [fadeMs].
@@ -146,14 +164,36 @@ object ClearPopup {
     fun render(graphics: GuiGraphicsExtractor, font: Font, screenWidth: Int, screenHeight: Int) {
         val name = room ?: return
 
-        val rise = Motion.duration(RISE_MS, Motion.Kind.OPACITY)
-        val fade = Motion.duration(FADE_MS, Motion.Kind.OPACITY)
         val age = System.currentTimeMillis() - shownAt
-        if (expired(age, fade)) {
+        if (expired(age, Motion.duration(FADE_MS, Motion.Kind.OPACITY))) {
             room = null
             return
         }
-        val appear = opacity(age, rise, fade)
+        drawAt(graphics, font, screenWidth, screenHeight, name, detail, pb, age)
+    }
+
+    /**
+     * The popup as it looks at [ageMs] of its life, on a screen of the given size.
+     *
+     * Split out of [render] so the gallery can drive it from a scripted clock instead of from the
+     * fields above. Nothing else would do: the state here is set by a real room clearing, the age is
+     * wall-clock, and a preview that called [show] would both need a dungeon and leave a popup queued
+     * for the live HUD. This takes the four things a popup is and draws them, and owns no state at all
+     * — which also means the gallery can hold, step and rewind it, and the real one cannot tell.
+     */
+    internal fun drawAt(
+        graphics: GuiGraphicsExtractor,
+        font: Font,
+        screenWidth: Int,
+        screenHeight: Int,
+        name: String,
+        detail: String,
+        pb: Boolean,
+        ageMs: Long,
+    ) {
+        val rise = Motion.duration(RISE_MS, Motion.Kind.OPACITY)
+        val fade = Motion.duration(FADE_MS, Motion.Kind.OPACITY)
+        val appear = opacity(ageMs, rise, fade)
         if (appear <= 0.01f) return
 
         // Measured before anything is placed, because the chip is centred and every piece inside it

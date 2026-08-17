@@ -25,7 +25,7 @@ package sighteaddons
  * of those loses you a secret you found, and that is the safe way for this to be wrong.
  *
  * **Over-counting is a defect.** It means the tracker credited the local player with a secret a
- * teammate found — the exact failure `ownSecrets == secretsFound` and [SecretHud]'s no-fallback rule
+ * teammate found — the exact failure `ownSecrets == secretsFound` and the HUD's no-fallback rule
  * exist to prevent — and it is the one outcome that should be read as a bug report rather than as a
  * measurement. Hence [Verdict.OVER] is its own answer and is stated in a colour that is not the
  * colour of the ordinary case.

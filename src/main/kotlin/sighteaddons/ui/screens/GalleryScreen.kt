@@ -6,7 +6,10 @@ import net.minecraft.client.input.KeyEvent
 import net.minecraft.client.input.MouseButtonEvent
 import net.minecraft.network.chat.Component
 import org.lwjgl.glfw.GLFW
+import sighteaddons.ClearPopup
 import sighteaddons.RoomHistory
+import sighteaddons.StormHud
+import sighteaddons.StormTimer
 import sighteaddons.ui.components.Anim
 import sighteaddons.ui.components.Badge
 import sighteaddons.ui.components.Button
@@ -63,10 +66,31 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
         INPUT("input"),
         NAV("nav"),
         DATA("data"),
+        OVERLAY("overlay"),
     }
 
     private var page = Page.COLOUR
-    private var dark = true
+
+    /**
+     * The two pieces of process-wide state this screen writes, as they were before it opened.
+     *
+     * `T` swaps [Tokens.palette] so the two ramps can be compared without restarting, and `M` holds
+     * every animation still. Neither is a player setting and neither belongs to anything outside this
+     * screen — but both are global, and leaving either changed is not a cosmetic slip. The light ramp's
+     * `shadow` is `#3C3F45` and its `textPrimary` `#0A0A0B`: pressing `T`, closing the gallery and
+     * walking into a dungeon would draw the HUD card, the clear popup and the storm countdown as
+     * near-black text on a mid-grey scrim for the rest of the session — 1.32:1, a card that is present
+     * and empty — and nobody would connect that to a keypress in a dev screen half an hour earlier.
+     *
+     * Captured at construction and put back in [removed], which is the one exit every way of leaving
+     * goes through. `UiComponentsTest` already restores the palette in its own teardown for the same
+     * reason; the screen that actually ships the keys had no such thing.
+     */
+    private val entryPalette = Tokens.palette
+    private val entryReduceMotion = Motion.reduceMotion
+
+    /** Starts on whichever ramp the session was already using, so `T` is a comparison and not a jump. */
+    private var dark = entryPalette === Palette.DARK
     private val knob = Spring(0f)
     private var knobFlippedAt = 0.0
 
@@ -148,12 +172,13 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
             Page.INPUT -> inputPage(graphics, left, top, mouseX, mouseY)
             Page.NAV -> navPage(graphics, left, top, mouseX, mouseY)
             Page.DATA -> dataPage(graphics, left, top, mouseX, mouseY)
+            Page.OVERLAY -> overlayPage(graphics, left, top)
         }
 
-        val footer = if (page == Page.HUD) {
-            "1-8 page  ·  T theme  ·  M reduce motion  ·  space ${if (previewPaused) "run" else "hold"}  ·  , . step  ·  esc close"
+        val footer = if (page == Page.HUD || page == Page.OVERLAY) {
+            "1-9 page  ·  T theme  ·  M reduce motion  ·  space ${if (previewPaused) "run" else "hold"}  ·  , . step  ·  esc close"
         } else {
-            "1-8 page  ·  T theme  ·  M reduce motion (${if (Motion.reduceMotion) "on" else "off"})  ·  esc close"
+            "1-9 page  ·  T theme  ·  M reduce motion (${if (Motion.reduceMotion) "on" else "off"})  ·  esc close"
         }
         graphics.flat(footer, left, height - Tokens.SPACE_20, Tokens.textTertiary)
     }
@@ -205,9 +230,14 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
                 "tertiary" to p.textTertiary,
             )) {
                 val ratio = Contrast.ratio(colour, surface)
+                val passes = ratio >= Contrast.AA
                 graphics.flat("0:41.2", tx, y + 7, colour)
-                val note = String.format(Locale.ROOT, "%.2f", ratio)
-                graphics.flat(note, tx + 40, y + 7, if (ratio >= Contrast.AA) Tokens.textTertiary else FAIL)
+                // A failure is spelled, not coloured. It used to be red — the last hue anywhere in
+                // this UI, and it sat on the one screen whose whole job is to prove there is none.
+                // Worse, the readers a contrast floor exists for are precisely the ones a red number
+                // does not reach; the word does.
+                val note = String.format(Locale.ROOT, "%.2f", ratio) + if (passes) "" else " FAIL"
+                graphics.flat(note, tx + 40, y + 7, if (passes) Tokens.textTertiary else Tokens.textPrimary)
                 tx += 120
             }
             y += 26
@@ -379,7 +409,7 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
         // panel would flatter the scrim into looking like it works.
         val stageTop = top + Tokens.SPACE_16
         val stageWidth = HudRoot.WIDTH + Tokens.SPACE_32
-        graphics.fill(left, stageTop, left + stageWidth, stageTop + 190, MID)
+        graphics.fill(left, stageTop, left + stageWidth, stageTop + 190, Tokens.PREVIEW_STAGE)
         previewHud.draw(graphics, font, snapshot, left + Tokens.SPACE_16, stageTop + Tokens.SPACE_16)
 
         // The same card again at double size, for reading the layout and checking that text still
@@ -392,7 +422,7 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
         pose.pushMatrix()
         pose.translate(zoomX.toFloat(), stageTop.toFloat())
         pose.scale(2f, 2f)
-        graphics.fill(0, 0, stageWidth, 190, MID)
+        graphics.fill(0, 0, stageWidth, 190, Tokens.PREVIEW_STAGE)
         // A second HUD instance would be needed for correct animation state here; reusing the same one
         // is deliberate, so both cards show exactly the same frame of the same script.
         previewHud.draw(graphics, font, snapshot, Tokens.SPACE_16, Tokens.SPACE_16)
@@ -814,6 +844,147 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
         )
     }
 
+    // --- Overlays ---------------------------------------------------------------------------
+
+    /**
+     * The two centred overlays — the clear popup and Storm's countdown — on a scripted boss phase.
+     *
+     * These are the only two pieces of this UI that are *only* reachable inside a real dungeon: a
+     * personal best needs a record and a room beaten, and the countdown needs Storm. Nobody has an
+     * unreleased build in an M7 to hand, so without this page the two decisions that replaced their
+     * colours — a best carried by chevron, word and frame; four urgency steps carried by a count of
+     * marks and an inversion — would first be seen by a player, in a fight, once.
+     *
+     * Both halves are here because neither answers the other's question. The script says whether the
+     * fade lands and whether the steps read as an escalation *in the order they arrive*; the frozen
+     * cells put the four steps side by side, which is the only way to check that each is actually
+     * distinguishable from the one before it rather than merely different from a memory of it.
+     */
+    private fun overlayPage(graphics: GuiGraphicsExtractor, left: Int, top: Int) {
+        val ms = OverlayPreview.phase(previewTime())
+
+        graphics.label(
+            "SCRIPTED  ·  %.1fs OF %.0fs".format(Locale.ROOT, ms / 1000.0, OverlayPreview.CYCLE_MS / 1000.0),
+            left, top, Tokens.textSecondary,
+        )
+        stage(graphics, left, top + Tokens.SPACE_12, STAGE_W, STAGE_H) { w, h ->
+            OverlayPreview.draw(graphics, font, w, h, ms)
+        }
+
+        val stripTop = top + Tokens.SPACE_12 + STAGE_H + Tokens.SPACE_6
+        timeline(graphics, left, stripTop, ms)
+        graphics.flat(OverlayPreview.caption(ms), left, stripTop + Tokens.SPACE_24, Tokens.textTertiary)
+
+        // --- the four steps, frozen, on the right ---
+        val right = left + STAGE_W + Tokens.SPACE_24
+        graphics.label("STORM  ·  FOUR STEPS, FROZEN", right, top, Tokens.textSecondary)
+        // Sampled out of the same script rather than built by hand, so the text beside each mark count
+        // is the one the thresholds really produce at that moment.
+        for ((index, at) in STORM_STEPS.withIndex()) {
+            val readout = OverlayPreview.stormAt(at) ?: continue
+            val cellX = right + (index % 2) * (STORM_CELL_W + Tokens.SPACE_12)
+            val cellY = top + Tokens.SPACE_12 + (index / 2) * (STORM_CELL_H + Tokens.SPACE_8)
+            stage(graphics, cellX, cellY, STORM_CELL_W, STORM_CELL_H) { w, h ->
+                StormHud.draw(graphics, font, w, h, readout)
+            }
+            graphics.flat(
+                "${readout.urgency.name.lowercase()}  ·  ${marks(readout.urgency)}",
+                cellX, cellY + STORM_CELL_H + 2, Tokens.textTertiary,
+            )
+        }
+
+        // --- the two popups, frozen at full presence, underneath ---
+        //
+        // Under both columns and not under the taller-looking one, the same rule the nav page keeps: the
+        // scripted half is one stage and the frozen half is two rows of cells, and hard-coding whichever
+        // is longer today is how a section lands on top of a specimen the next time one of them grows.
+        val popupTop = maxOf(
+            stripTop + Tokens.SPACE_24 + Tokens.SPACE_12,
+            top + Tokens.SPACE_12 + STORM_CELL_H * 2 + Tokens.SPACE_8 + Tokens.SPACE_16,
+        )
+        graphics.label("POPUP  ·  A CLEAR, AND ONE THAT SET A RECORD", left, popupTop, Tokens.textSecondary)
+        for ((index, popup) in OverlayPreview.POPUPS.withIndex()) {
+            val cellX = left + index * (POPUP_CELL_W + Tokens.SPACE_12)
+            val cellY = popupTop + Tokens.SPACE_12
+            stage(graphics, cellX, cellY, POPUP_CELL_W, POPUP_CELL_H) { w, h ->
+                // Held at the middle of the hold, where the entrance is over and the fade has not
+                // started — the one age at which the chip is entirely itself.
+                ClearPopup.drawAt(graphics, font, w, h, popup.name, popup.detail, popup.pb, FROZEN_AGE_MS)
+            }
+            graphics.flat(
+                if (popup.pb) "personal best  ·  chevron, the word, a stronger frame" else "ordinary  ·  no mark at all",
+                cellX, cellY + POPUP_CELL_H + 2, Tokens.textTertiary,
+            )
+        }
+    }
+
+    /** How the urgency reads without a hue, spelled out beside the specimen that shows it. */
+    private fun marks(urgency: StormTimer.Urgency): String = when (urgency) {
+        StormTimer.Urgency.CALM -> "1 of 3 filled"
+        StormTimer.Urgency.CLOSING -> "2 of 3 filled"
+        StormTimer.Urgency.IMMINENT -> "3 of 3 filled"
+        StormTimer.Urgency.NOW -> "inverted, no marks"
+    }
+
+    /**
+     * A stand-in screen: lit-dungeon grey with a crosshair at its centre, [w] by [h] standing in for
+     * `guiScaledWidth` and `guiScaledHeight`.
+     *
+     * A whole small screen rather than a chip drawn at a coordinate, because *where* these two land is
+     * half of what there is to review — one above the crosshair, one below, and the claim that they
+     * cannot stack is only checkable if both are placed by their own arithmetic. [body] receives the
+     * stage's size and draws into a pose translated to its corner, which stays a pure translation so
+     * hairlines are still snapped to the device grid.
+     */
+    private fun stage(graphics: GuiGraphicsExtractor, x: Int, y: Int, w: Int, h: Int, body: (Int, Int) -> Unit) {
+        graphics.fill(x, y, x + w, y + h, Tokens.PREVIEW_STAGE)
+        val pose = graphics.pose()
+        pose.pushMatrix()
+        pose.translate(x.toFloat(), y.toFloat())
+        val mark = Tokens.alpha(Tokens.textPrimary, CROSSHAIR_ALPHA)
+        DevicePixels.hairlineH(graphics, w / 2 - CROSSHAIR, h / 2, CROSSHAIR * 2 + 1, mark)
+        DevicePixels.hairlineV(graphics, w / 2, h / 2 - CROSSHAIR, CROSSHAIR * 2 + 1, mark)
+        body(w, h)
+        pose.popMatrix()
+    }
+
+    /**
+     * Two lanes and a playhead: when the countdown is on screen and which step it is in, when each
+     * popup is up, and where in all of that the frame currently held actually sits.
+     *
+     * Without it the hold and the step keys are a search. With it, the whole script is one glance and
+     * a single frame can be aimed at.
+     */
+    private fun timeline(graphics: GuiGraphicsExtractor, left: Int, top: Int, ms: Double) {
+        val trackX = left + LANE_LABEL
+        val trackW = STAGE_W - LANE_LABEL
+
+        fun span(from: Double, to: Double, y: Int, colour: Int) {
+            val x0 = trackX + Math.round(from / OverlayPreview.CYCLE_MS * trackW).toInt()
+            val x1 = trackX + Math.round(to / OverlayPreview.CYCLE_MS * trackW).toInt()
+            graphics.fill(x0, y, maxOf(x1 - 1, x0 + 1), y + LANE_H, colour)
+        }
+
+        graphics.flat("storm", left, top - 2, Tokens.textTertiary)
+        DevicePixels.hairlineH(graphics, trackX, top + LANE_H / 2, trackW, Tokens.borderSubtle)
+        // The three counting steps in the text ramp and the window in the accent — the same inversion
+        // the chip itself performs, so the lane and the specimen say the same thing.
+        span(0.0, 3_900.0, top, Tokens.textTertiary)
+        span(3_900.0, 5_900.0, top, Tokens.textSecondary)
+        span(5_900.0, 6_900.0, top, Tokens.textPrimary)
+        span(6_900.0, OverlayPreview.STORM_END_MS, top, Tokens.accent)
+
+        val popupY = top + LANE_H + Tokens.SPACE_6
+        graphics.flat("popup", left, popupY - 2, Tokens.textTertiary)
+        DevicePixels.hairlineH(graphics, trackX, popupY + LANE_H / 2, trackW, Tokens.borderSubtle)
+        for (popup in OverlayPreview.POPUPS) {
+            span(popup.at, popup.at + ClearPopup.LIFE_MS, popupY, Tokens.textSecondary)
+        }
+
+        val playhead = trackX + Math.round(ms / OverlayPreview.CYCLE_MS * trackW).toInt()
+        DevicePixels.hairlineV(graphics, playhead, top - 3, LANE_H * 2 + Tokens.SPACE_6 + 6, Tokens.accent)
+    }
+
     /** Whether ([mouseX], [mouseY]) is inside a rectangle. */
     private fun hit(mouseX: Int, mouseY: Int, x: Int, y: Int, w: Int, h: Int): Boolean =
         mouseX >= x && mouseX < x + w && mouseY >= y && mouseY < y + h
@@ -830,6 +1001,7 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
             GLFW.GLFW_KEY_6 -> page = Page.INPUT
             GLFW.GLFW_KEY_7 -> page = Page.NAV
             GLFW.GLFW_KEY_8 -> page = Page.DATA
+            GLFW.GLFW_KEY_9 -> page = Page.OVERLAY
             GLFW.GLFW_KEY_LEFT -> page = Page.entries[(page.ordinal + Page.entries.size - 1) % Page.entries.size]
             GLFW.GLFW_KEY_RIGHT -> page = Page.entries[(page.ordinal + 1) % Page.entries.size]
             GLFW.GLFW_KEY_T -> dark = !dark
@@ -891,6 +1063,19 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
         return super.mouseReleased(event)
     }
 
+    /**
+     * Leaving, by any route — `esc`, another screen opening over this one, the game closing it.
+     *
+     * Both settings go back to what they were. See [entryPalette] for what one of them costs if it
+     * does not, and note that neither `esc` nor this screen is the only way out: a keybind that opens
+     * the settings screen would leave a light-ramp HUD behind with nothing left running to notice.
+     */
+    override fun removed() {
+        Tokens.palette = entryPalette
+        Motion.reduceMotion = entryReduceMotion
+        super.removed()
+    }
+
     /** The gallery is a tool, not a menu — it should not stop the world behind it. */
     override fun isPauseScreen(): Boolean = false
 
@@ -934,15 +1119,42 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
         const val SPRING_FLIP_MS = 1200.0
         const val STEP_MS = 250.0
 
-        /** The stage the HUD preview sits on — a mid grey standing in for a lit dungeon. */
-        val MID = 0xFF6E7378.toInt()
+        // --- The overlay page's stand-in screens -------------------------------------------
+        //
+        // Every height here is decided by where the thing it holds places itself: the popup sits 54px
+        // above the crosshair and the countdown 24px below it, so a stage has to be at least twice the
+        // larger of those plus the chip, or the specimen is clipped by the box that exists to show it.
+        // They are not padding numbers and cannot be tuned by eye.
+
+        /** The scripted stage. Tall enough for both overlays at once, which the script does show. */
+        const val STAGE_W = 380
+        const val STAGE_H = 130
+
+        /** A countdown on its own: 24px below a crosshair at the middle, plus the 30px chip. */
+        const val STORM_CELL_W = 190
+        const val STORM_CELL_H = 100
+
+        /** A popup on its own: 54px above the middle, so the box is twice that and change. */
+        const val POPUP_CELL_W = 380
+        const val POPUP_CELL_H = 124
+
+        /** The four moments the frozen countdown cells are sampled at, one per urgency step. */
+        val STORM_STEPS = listOf(1_000.0, 4_500.0, 6_400.0, 7_200.0)
 
         /**
-         * The one colour in this UI that is not in the ramp, and it is not part of the design: it
-         * marks a failing contrast measurement on this dev screen only. A number that has to shout
-         * cannot do it in greyscale, and a gallery that reported a failure in tertiary grey would
-         * hide exactly the thing it exists to surface.
+         * Where a frozen popup is held: past the entrance, before the fade begins.
+         *
+         * The one age at which the chip is entirely itself. A specimen caught during either curve would
+         * be a screenshot of a fade, which is what the scripted stage next to it is for.
          */
-        val FAIL = 0xFFFF4444.toInt()
+        const val FROZEN_AGE_MS = 1_200L
+
+        /** Half the crosshair's arm, and how present the mark is against the stage grey. */
+        const val CROSSHAIR = 4
+        const val CROSSHAIR_ALPHA = 150
+
+        /** The timeline's gutter for its two lane names, and how thick a lane is. */
+        const val LANE_LABEL = 34
+        const val LANE_H = 5
     }
 }
