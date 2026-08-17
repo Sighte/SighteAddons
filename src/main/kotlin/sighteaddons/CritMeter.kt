@@ -217,12 +217,17 @@ internal object CritMeter {
      * the line still shows the crit rather than being suppressed — the raw number is what the player
      * just watched happen, and withholding it because the tab list was unreadable would make a
      * failure to read the footer look like a failure to crit.
+     *
+     * Fields are separated by [Chat.FIELD] like every other line this mod writes. It used to be the
+     * same `·` with doubled spaces around it, which is one separator too many for a mod that speaks
+     * from four files.
      */
     internal fun line(perTarget: Double, power: Double?): String {
         val crit = "%.1fB".format(Locale.ROOT, perTarget / 1e9)
-        if (power == null || power <= 0.0) return "Crit  $crit  ·  power unknown"
-        return "Crit  $crit  ·  power %s  ·  %.2fB per power".format(
+        if (power == null || power <= 0.0) return "Crit $crit${Chat.FIELD}power unknown"
+        return "Crit %s${Chat.FIELD}power %s${Chat.FIELD}%.2fB per power".format(
             Locale.ROOT,
+            crit,
             "%.1f".format(Locale.ROOT, power).removeSuffix(".0"),
             perTarget / 1e9 / power,
         )

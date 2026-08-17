@@ -117,9 +117,9 @@ class CritMeterTest {
      */
     @Test
     fun `the readout divides the crit by the power`() {
-        assertEquals("Crit  12.0B  ·  power 8  ·  1.50B per power", CritMeter.line(12e9, 8.0))
+        assertEquals("Crit 12.0B · power 8 · 1.50B per power", CritMeter.line(12e9, 8.0))
         // A half-point power keeps its decimal; a whole one does not carry a pointless ".0".
-        assertEquals("Crit  19.0B  ·  power 9.5  ·  2.00B per power", CritMeter.line(19e9, 9.5))
+        assertEquals("Crit 19.0B · power 9.5 · 2.00B per power", CritMeter.line(19e9, 9.5))
     }
 
     /**
@@ -129,8 +129,8 @@ class CritMeterTest {
      */
     @Test
     fun `an unreadable footer still shows the crit`() {
-        assertEquals("Crit  12.0B  ·  power unknown", CritMeter.line(12e9, null))
-        assertEquals("Crit  12.0B  ·  power unknown", CritMeter.line(12e9, 0.0))
+        assertEquals("Crit 12.0B · power unknown", CritMeter.line(12e9, null))
+        assertEquals("Crit 12.0B · power unknown", CritMeter.line(12e9, 0.0))
     }
 
     /**
@@ -148,9 +148,9 @@ class CritMeterTest {
 
         assertNull(CritMeter.onChat(MAXOR, footer), "the opening line is not itself a crit")
         assertTrue(CritMeter.inCombat)
-        assertEquals("Crit  12.0B  ·  power 6  ·  2.00B per power", CritMeter.onChat(crit, footer))
+        assertEquals("Crit 12.0B · power 6 · 2.00B per power", CritMeter.onChat(crit, footer))
         // A phase produces many crits: reading one must not shut the window.
-        assertEquals("Crit  12.0B  ·  power 6  ·  2.00B per power", CritMeter.onChat(crit, footer))
+        assertEquals("Crit 12.0B · power 6 · 2.00B per power", CritMeter.onChat(crit, footer))
 
         CritMeter.onChat("[BOSS] Goldor: WHO DARES?", footer)
         assertFalse(CritMeter.inCombat)

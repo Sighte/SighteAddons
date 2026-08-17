@@ -48,11 +48,11 @@ class RoomHistoryTest {
 
     @Test
     fun `a teammate's secrets read as a dash, never as zero`() {
-        assertEquals("(7 rooms · 12 secrets)", RoomHistory.breakdown(7, 12))
+        assertEquals("7 rooms · 12 secrets", RoomHistory.breakdown(7, 12))
         // Zero is a claim about a teammate this client cannot make: it never saw the rooms they
         // were in alone, so an unknown count must not read like an empty one.
-        assertEquals("(9 rooms · – secrets)", RoomHistory.breakdown(9, null))
-        assertEquals("(0 rooms · 0 secrets)", RoomHistory.breakdown(0, 0))
+        assertEquals("9 rooms · – secrets", RoomHistory.breakdown(9, null))
+        assertEquals("0 rooms · 0 secrets", RoomHistory.breakdown(0, 0))
     }
 
     /**
@@ -65,9 +65,9 @@ class RoomHistoryTest {
      */
     @Test
     fun `the local player's count is shown against the floor's true total`() {
-        assertEquals("(19 rooms · 10 of 29 secrets)", RoomHistory.breakdown(19, 10, 29))
+        assertEquals("19 rooms · 10 of 29 secrets", RoomHistory.breakdown(19, 10, 29))
         // Zero of a real total is a fact, not a missing reading, and must still print.
-        assertEquals("(4 rooms · 0 of 29 secrets)", RoomHistory.breakdown(4, 0, 29))
+        assertEquals("4 rooms · 0 of 29 secrets", RoomHistory.breakdown(4, 0, 29))
     }
 
     /**
@@ -77,10 +77,10 @@ class RoomHistoryTest {
      */
     @Test
     fun `an unread tab list falls back to the old line rather than an empty total`() {
-        assertEquals("(19 rooms · 10 secrets)", RoomHistory.breakdown(19, 10, null))
+        assertEquals("19 rooms · 10 secrets", RoomHistory.breakdown(19, 10, null))
         // A teammate stays a dash whatever the floor total is: the total is a fact about the floor,
         // not about them, and "– of 29" would invite reading the remainder as theirs.
-        assertEquals("(9 rooms · – secrets)", RoomHistory.breakdown(9, null, 29))
+        assertEquals("9 rooms · – secrets", RoomHistory.breakdown(9, null, 29))
     }
 
     @Test

@@ -3,7 +3,6 @@ package sighteaddons
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import net.fabricmc.loader.api.FabricLoader
-import net.minecraft.ChatFormatting
 import net.minecraft.client.Minecraft
 import net.minecraft.network.chat.Component
 import net.minecraft.network.chat.MutableComponent
@@ -200,17 +199,39 @@ object RoomHistory {
         if (!Config.roomMessages) return
         if (Config.ownPbsOnly && pb == null) return
 
-        val line = Component.literal(topPlayer).withStyle(ChatFormatting.WHITE)
-            .append(Component.literal(" cleared ").withStyle(ChatFormatting.GRAY))
-            .append(Component.literal(room.label()).withStyle(ChatFormatting.WHITE))
-            .append(Component.literal(" in ").withStyle(ChatFormatting.GRAY))
-            .append(Component.literal(DungeonGrid.formatTicks(topTicks)).withStyle(ChatFormatting.AQUA))
+        announce(clearLine(topPlayer, room.label(), topTicks, eligible.size - 1, pb))
+    }
 
-        if (eligible.size > 1) {
-            line.append(Component.literal(" (+${eligible.size - 1})").withStyle(ChatFormatting.DARK_GRAY))
+    /**
+     * `Nyx cleared Water Board in 0:41.2 · 2 others · PB -0:02.8`
+     *
+     * The sentence order every line in this mod now follows: **who, what, how long, how well.** It
+     * was already this line's order and it is the one a reader is asking in that sequence — the name
+     * decides whether the rest is about them at all, and the record is the answer they came for, so
+     * it goes last where the eye stops.
+     *
+     * [others] is how many *other* members were in the room long enough to have earned from it. It is
+     * metadata rather than a value: it qualifies the time above it, and it is deliberately no longer
+     * spelled `(+2)`, because `+` and `-` now mean "against the record" everywhere else on the line
+     * and one glyph cannot mean two things on a line this short.
+     */
+    internal fun clearLine(
+        player: String,
+        room: String,
+        ticks: Int,
+        others: Int,
+        pb: Component?,
+    ): MutableComponent {
+        val line = Chat.value(player)
+            .append(Chat.label(" cleared "))
+            .append(Chat.value(room))
+            .append(Chat.label(" in "))
+            .append(Chat.value(DungeonGrid.formatTicks(ticks)))
+        if (others > 0) {
+            line.append(Chat.meta(Chat.FIELD + if (others == 1) "1 other" else "$others others"))
         }
         pb?.let { line.append(it) }
-        announce(line)
+        return line
     }
 
     /**
@@ -241,17 +262,31 @@ object RoomHistory {
         if (!Config.roomMessages) return
         if (Config.ownPbsOnly && pb == null) return
 
-        announce(
-            Component.literal(name).withStyle(ChatFormatting.WHITE)
-                .append(Component.literal(" secrets in ").withStyle(ChatFormatting.GRAY))
-                .append(Component.literal(DungeonGrid.formatTicks(ticks)).withStyle(ChatFormatting.AQUA))
-                .append(
-                    Component.literal(" (${room.secretsFound}, ${room.ownSecrets} yours)")
-                        .withStyle(ChatFormatting.DARK_GRAY),
-                )
-                .apply { pb?.let { append(it) } },
-        )
+        announce(secretRunLine(name, ticks, room.secretsFound, room.ownSecrets, pb))
     }
+
+    /**
+     * `Water Board secrets in 1:02.4 · 5 found, 5 yours · PB first`
+     *
+     * The same order as [clearLine] with the "who" left out rather than replaced, because there is
+     * nobody to put there: the clock runs from the room's first secret to its last no matter whose
+     * hands took them. A reader who has seen a clear line reads this one without relearning it.
+     *
+     * `5 found, 5 yours` was `(5, 5 yours)`. The bare first number was a count of nothing in
+     * particular and the reader had to infer from the second what it counted; naming both costs six
+     * characters and removes the inference.
+     */
+    internal fun secretRunLine(
+        room: String,
+        ticks: Int,
+        found: Int,
+        own: Int,
+        pb: Component?,
+    ): MutableComponent = Chat.value(room)
+        .append(Chat.label(" secrets in "))
+        .append(Chat.value(DungeonGrid.formatTicks(ticks)))
+        .append(Chat.meta("${Chat.FIELD}$found found, $own yours"))
+        .apply { pb?.let { append(it) } }
 
     /**
      * The blood room finished, timed by [BloodClear].
@@ -269,13 +304,21 @@ object RoomHistory {
         if (!Config.roomMessages) return
         if (Config.ownPbsOnly && pb == null) return
 
-        announce(
-            Component.literal(name).withStyle(ChatFormatting.WHITE)
-                .append(Component.literal(" cleared in ").withStyle(ChatFormatting.GRAY))
-                .append(Component.literal(DungeonGrid.formatTicks(ticks)).withStyle(ChatFormatting.AQUA))
-                .apply { pb?.let { append(it) } },
-        )
+        announce(bloodLine(name, ticks, pb))
     }
+
+    /**
+     * `Blood Room cleared in 2:14.0 · PB -0:06.1`
+     *
+     * [clearLine] with the "who" left out, for the reason [onBloodCleared] gives: the party fought
+     * the Watcher, so there is no member to credit. Not folded into [clearLine] with a nullable
+     * player — the two lines differ in the verb as well (`cleared … in` against `cleared in`), and a
+     * builder with a hole in the middle of its sentence is harder to read than two short ones.
+     */
+    internal fun bloodLine(room: String, ticks: Int, pb: Component?): MutableComponent = Chat.value(room)
+        .append(Chat.label(" cleared in "))
+        .append(Chat.value(DungeonGrid.formatTicks(ticks)))
+        .apply { pb?.let { append(it) } }
 
     /**
      * Whether the clear of [room] is the local player's to record. Both halves are required, which
@@ -400,10 +443,39 @@ object RoomHistory {
         if (!improved) return null
 
         newThisRun.add("$roomName $kind ${DungeonGrid.formatTicks(ticks)}")
-        val improvement = if (previous == null) "first record" else "was ${DungeonGrid.formatTicks(previous)}"
-        return Component.literal("  PB").withStyle(ChatFormatting.GOLD)
-            .append(Component.literal(" ($improvement)").withStyle(ChatFormatting.DARK_GRAY))
+        return pbSuffix(previous, ticks)
     }
+
+    /**
+     * `· PB -0:02.8`, or `· PB first` when there was nothing to beat. The one pattern for "better
+     * than before", on every kind of line.
+     *
+     * **How a record is emphasised now that there is no gold to do it with.** Three signals, and the
+     * colour is the weakest of them:
+     *
+     *  1. **Position.** The record is the last field of the line, always, and nothing else may be
+     *     appended after it. A reader who only wants to know whether a room was a record reads the
+     *     end of the line and stops.
+     *  2. **The word.** `PB` is two characters that appear nowhere else the mod writes.
+     *  3. **The step to [Chat.emphasis].** Third on purpose — `Palette.DARK` measures its own
+     *     tertiary at 1.27:1 from its secondary, and `accent` is `#FFFFFF` against a `value` of
+     *     `#F6F7F8`, so luminance alone is not something a reader can be asked to notice here.
+     *
+     * **`-0:02.8` rather than `(was 0:44.0)`.** The old form made the reader do the subtraction to
+     * learn the only thing the field is for, and it printed a time that is no longer true — the
+     * record is the new one now. The delta is shorter, it answers directly, and its sign is the
+     * fourth signal: this mod's times are lower-is-better, so a record always carries a minus.
+     *
+     * Written with [DungeonGrid.formatTicks] like every other time in this mod rather than as
+     * `-2.8s`. Two spellings for a duration on the same line is exactly the thing this pass removed.
+     */
+    internal fun pbSuffix(previous: Int?, ticks: Int): MutableComponent = Chat.meta(Chat.FIELD)
+        .append(Chat.emphasis("PB"))
+        .append(
+            Chat.meta(
+                if (previous == null) " first" else " -${DungeonGrid.formatTicks(previous - ticks)}",
+            ),
+        )
 
     /** Chat breakdown at the end of a run. */
     fun printSummary() {
@@ -411,12 +483,7 @@ object RoomHistory {
         val points = ContributionTracker.pointsByPlayer()
         // No self-identification of its own any more: the tag [Chat.say] puts on the front says who
         // is speaking, and a gold "Sighte" in front of that said it twice.
-        announce(
-            Component.literal(
-                "${DungeonSession.floor ?: "?"} — ${DungeonGrid.formatTicks(DungeonSession.runTicks)}, " +
-                    "${ContributionTracker.roomsCleared} rooms",
-            ).withStyle(ChatFormatting.GRAY),
-        )
+        announce(headline(DungeonSession.floor ?: "?", DungeonSession.runTicks, ContributionTracker.roomsCleared))
 
         val rooms = ContributionTracker.visitedRooms()
         val self = Minecraft.getInstance().player?.name?.string
@@ -473,6 +540,23 @@ object RoomHistory {
     }
 
     /**
+     * `M7 · 5:22.1 · 19 rooms` — the run, in the same order the room lines use.
+     *
+     * Who (the floor), how long, how much. It was `M7 — 5:22.1, 19 rooms`: an em dash for the first
+     * separator and a comma for the second, two marks for one relationship, and the em dash is not on
+     * vanilla's own font page. One [Chat.FIELD] does both jobs.
+     *
+     * Undented, unlike everything the summary prints under it — the indent is what makes the rest
+     * read as belonging to this line, so this one must not have it.
+     */
+    internal fun headline(floor: String, ticks: Int, rooms: Int): MutableComponent = Chat.value(floor)
+        .append(Chat.meta(Chat.FIELD))
+        .append(Chat.value(DungeonGrid.formatTicks(ticks)))
+        .append(Chat.meta(Chat.FIELD))
+        .append(Chat.value("$rooms"))
+        .append(Chat.label(" rooms"))
+
+    /**
      * The per-player rows and the two closing lines, with [counts] filled in where Hypixel answered.
      *
      * [counts] empty is the keyless path and the old rendering exactly: the local player's provable
@@ -498,14 +582,7 @@ object RoomHistory {
             // it is a fact about the floor and `7 of 29` next to a teammate invites reading the
             // remainder as somebody's.
             val ofTotal = if (name == self) floorTracked else null
-            announce(
-                Component.literal("  %5.2f".format(Locale.ROOT, earned)).withStyle(ChatFormatting.AQUA)
-                    .append(Component.literal("  $name ").withStyle(ChatFormatting.WHITE))
-                    .append(
-                        Component.literal(breakdown(contributed[name] ?: 0, secrets, ofTotal))
-                            .withStyle(ChatFormatting.DARK_GRAY),
-                    ),
-            )
+            announce(playerRow(name, earned, contributed[name] ?: 0, secrets, ofTotal))
         }
 
         // Was `> 0.01` against an inline subtraction — the same guard against the same split residue
@@ -517,19 +594,57 @@ object RoomHistory {
         //
         // Rooms, deliberately, not points — a room nobody was in is one unattributed room whatever
         // it was worth. See ContributionTracker.unattributed.
-        if (unattributed > 0.0) {
-            announce(
-                Component.literal("  %.2f rooms unattributed".format(Locale.ROOT, unattributed))
-                    .withStyle(ChatFormatting.DARK_GRAY),
-            )
-        }
+        if (unattributed > 0.0) announce(unattributedLine(unattributed))
         // Secrets now ride on the player lines above, so this one carries the records alone rather
         // than repeating your own count next to them.
-        announce(
-            Component.literal(
-                if (records == 0) "  no new records" else "  $records new records",
-            ).withStyle(if (records == 0) ChatFormatting.DARK_GRAY else ChatFormatting.GOLD),
-        )
+        announce(recordsLine(records))
+    }
+
+    /**
+     * `  12.34 · Nyx · 7 rooms · 10 of 29 secrets`
+     *
+     * Two leading spaces on every line the summary prints under its headline, which is the summary's
+     * only hierarchy device and the reason it needs no second one. `%5.2f` keeps the points in a
+     * column, so the ranking is readable down the left edge without anything being said about it —
+     * position doing the work a colour used to do.
+     *
+     * The breakdown lost its brackets along with every other pair in this mod's chat: it is the last
+     * field of the line, so there is nothing after it for a bracket to fence it off from, and
+     * [Chat.FIELD] already says where it starts.
+     */
+    internal fun playerRow(
+        name: String,
+        points: Double,
+        rooms: Int,
+        secrets: Int?,
+        ofTotal: Int?,
+    ): MutableComponent = Chat.value("  %5.2f".format(Locale.ROOT, points))
+        .append(Chat.meta(Chat.FIELD))
+        .append(Chat.value(name))
+        .append(Chat.meta(Chat.FIELD + breakdown(rooms, secrets, ofTotal)))
+
+    /**
+     * `  2.00 rooms unattributed` — a footnote about the rows above it, so [Chat.meta] end to end.
+     *
+     * The one line in the summary with no value of its own on the ramp, deliberately: it qualifies
+     * the points column rather than adding to it, and a reader who never notices it has lost nothing.
+     */
+    internal fun unattributedLine(rooms: Double): MutableComponent =
+        Chat.meta("  %.2f rooms unattributed".format(Locale.ROOT, rooms))
+
+    /**
+     * `  2 new records`, or `  no new records`.
+     *
+     * The summary's counterpart to [pbSuffix], and emphasised the same way: the difference between
+     * the two readings is a **word** — a digit against `no` — before it is a step on the ramp. A
+     * reader who cannot separate `#FFFFFF` from `#91959D` still reads one as an event and the other
+     * as a non-event, which is what the old gold-against-dark-grey pair was doing and the only part
+     * of it worth keeping.
+     */
+    internal fun recordsLine(records: Int): MutableComponent = if (records == 0) {
+        Chat.meta("  no new records")
+    } else {
+        Chat.emphasis("  $records").append(Chat.label(" new records"))
     }
 
     /**
@@ -568,12 +683,13 @@ object RoomHistory {
      * verdict squeezed into a list of names is a number the reader has to do the subtraction for.
      */
     internal fun secretLine(counts: Map<String, Int>): MutableComponent {
-        val line = Component.literal("  secrets ").withStyle(ChatFormatting.GOLD)
-            .append(Component.literal("(Hypixel) ").withStyle(ChatFormatting.DARK_GRAY))
-        counts.entries.sortedByDescending { it.value }.forEachIndexed { index, (name, found) ->
-            if (index > 0) line.append(Component.literal(", ").withStyle(ChatFormatting.DARK_GRAY))
-            line.append(Component.literal("$name ").withStyle(ChatFormatting.WHITE))
-            line.append(Component.literal("$found").withStyle(ChatFormatting.AQUA))
+        // `secrets per Hypixel`, not `secrets (Hypixel)`. The provenance is the whole point of the
+        // line existing separately from the rows above, so it is said in words rather than parked in
+        // a bracket — and the bracket was the last pair left in this mod's chat.
+        val line = Chat.label("  secrets per Hypixel")
+        counts.entries.sortedByDescending { it.value }.forEach { (name, found) ->
+            line.append(Chat.meta(Chat.FIELD))
+            line.append(Chat.value("$name $found"))
         }
         return line
     }
@@ -581,55 +697,57 @@ object RoomHistory {
     /**
      * The live tracker, graded against Hypixel. See [SecretAudit] for what the two directions mean.
      *
-     * Over-counting is the only outcome drawn in the colour the summary uses for records, because it
-     * is the only one that is a defect rather than a reading: it says a teammate's secret was written
-     * onto your screen and into your points. Missing some is the designed direction and is stated as
-     * plainly as any other number.
+     * `  tracker · 10 of 12 yours · 2 missed`
+     *
+     * **Over-counting is the one verdict that is a defect rather than a reading** — it says a
+     * teammate's secret was written onto your screen and into your points — and it is the only one
+     * that reaches [Chat.emphasis]. As with [pbSuffix] the colour is the last of three signals: the
+     * verdict is the last thing said about the audit itself, and `too many` and `missed` are
+     * different words before they are different greys. A reader who sees no colour at all still reads
+     * which direction it went.
+     *
+     * The one thing that may follow the verdict is the note that the reading was partial, which is
+     * about the *reading* and not about the tracker — it is [Chat.meta] for exactly that reason, and
+     * it is absent on the ordinary run where every player answered.
      */
     internal fun auditLine(audit: SecretAudit.Result): MutableComponent {
-        val line = Component.literal("  tracker ").withStyle(ChatFormatting.GOLD)
+        val line = Chat.label("  tracker")
         when (audit.verdict) {
-            SecretAudit.Verdict.UNKNOWN ->
-                line.append(Component.literal("no reading for you").withStyle(ChatFormatting.DARK_GRAY))
+            SecretAudit.Verdict.UNKNOWN -> line.append(Chat.meta(Chat.FIELD + "no reading for you"))
 
             SecretAudit.Verdict.EXACT -> {
-                line.append(Component.literal("${audit.tracked} of ${audit.actual}").withStyle(ChatFormatting.AQUA))
-                line.append(Component.literal(" yours, exact").withStyle(ChatFormatting.GRAY))
+                line.append(Chat.meta(Chat.FIELD))
+                line.append(Chat.value("${audit.tracked} of ${audit.actual} yours"))
+                line.append(Chat.meta(Chat.FIELD + "exact"))
             }
 
             SecretAudit.Verdict.MISSED -> {
-                line.append(Component.literal("${audit.tracked} of ${audit.actual}").withStyle(ChatFormatting.AQUA))
-                line.append(Component.literal(" yours, ").withStyle(ChatFormatting.GRAY))
-                line.append(
-                    Component.literal("${-(audit.delta ?: 0)} missed").withStyle(ChatFormatting.DARK_GRAY),
-                )
+                line.append(Chat.meta(Chat.FIELD))
+                line.append(Chat.value("${audit.tracked} of ${audit.actual} yours"))
+                line.append(Chat.meta("${Chat.FIELD}${-(audit.delta ?: 0)} missed"))
             }
 
             SecretAudit.Verdict.OVER -> {
-                line.append(Component.literal("${audit.tracked} of ${audit.actual}").withStyle(ChatFormatting.AQUA))
-                line.append(Component.literal(" yours, ").withStyle(ChatFormatting.GRAY))
-                line.append(
-                    Component.literal("${audit.delta} too many").withStyle(ChatFormatting.GOLD),
-                )
+                line.append(Chat.meta(Chat.FIELD))
+                line.append(Chat.value("${audit.tracked} of ${audit.actual} yours"))
+                line.append(Chat.meta(Chat.FIELD))
+                line.append(Chat.emphasis("${audit.delta} too many"))
             }
         }
         // Only when it is short. A complete reading is the normal case and saying so every run is
         // noise; an incomplete one is why the floor totals below it cannot be compared.
         if (!audit.complete) {
-            line.append(
-                Component.literal("  (${audit.answered} of ${audit.asked} players read)")
-                    .withStyle(ChatFormatting.DARK_GRAY),
-            )
+            line.append(Chat.meta("${Chat.FIELD}${audit.answered} of ${audit.asked} players read"))
         }
         return line
     }
 
-    internal fun breakdown(rooms: Int, secrets: Int?, ofTotal: Int? = null) = "($rooms rooms · " +
+    internal fun breakdown(rooms: Int, secrets: Int?, ofTotal: Int? = null) = "$rooms rooms" + Chat.FIELD +
         when {
             secrets == null -> "–"
             ofTotal == null -> "$secrets"
             else -> "$secrets of $ofTotal"
-        } + " secrets)"
+        } + " secrets"
 
     private fun append(room: TrackedRoom, roomName: String, kind: String, ticks: Int, pb: Boolean, ts: Long) {
         val obj = JsonObject()
