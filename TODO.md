@@ -65,6 +65,16 @@ nicht gegriffen**, und dann ist die Sidebar-Zeile `Cleared: X%` der nächste Kan
   `FabricLoader`). **Ein v0-File wird erst umgerechnet, wenn eine echte `guiScaled`-Größe vorliegt** —
   aus zwei absoluten Pixeln allein ist der Anker nicht ableitbar; bis dahin bleibt die Datei v0 und die
   Karte steht auf demselben Pixel wie vorher.
+- [x] **Scrim geht bis 30 %, und der Regler steht nicht mehr unter „the card"** — auf Wunsch des Users.
+  Die 88 % sind **nicht gelöscht**: `Tokens.SCRIM_MIN_PERCENT` ist jetzt die Reglergrenze (30),
+  `Tokens.SCRIM_CONTRAST_PERCENT` die gemessene Stelle, an der helles `textTertiary` über schwarzer Welt
+  bei 4.57:1 liegt und ein Prozent tiefer bei 4.48:1 durchfällt — `UiThemeTest` rechnet beide Enden
+  weiter aus, nur eben gegen die neue Konstante. Der Default bleibt 90, also ändert sich für eine
+  Installation, die den Regler nie angefasst hat, nichts. Unter 88 % steht eine Zeile im Screen, die
+  sagt, was es kostet — und nur dann, eine Dauerwarnung liest man weg.
+  Der Regler **galt schon immer für alle drei** (`HudRoot`, `ClearPopup`, `StormHud` lesen alle
+  `Config.hudScrim` durch `Tokens.scrimAlpha`); sichtbar war das nicht, weil die Zeile im Abschnitt
+  „the card" stand. Jetzt eigener Abschnitt `backdrop · card + both chips`.
 - [x] **Alle drei Overlays sind platzierbar** (`OverlayPlacement`) — ein Editor für Karte, Clear-Popup
   und Storm-Countdown statt einem für die Karte. Jedes Element hat eigene drei Keys
   (`<key>Anchor`/`OffsetX`/`OffsetY`), einen eigenen Default und wird **durch seine echte

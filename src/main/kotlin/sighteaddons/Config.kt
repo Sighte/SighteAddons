@@ -65,16 +65,22 @@ object Config {
     private var pendingHud: JsonObject? = null
 
     /**
-     * How opaque the backdrop under the HUD card and the two centred overlays is, as a percentage.
+     * How opaque the backdrop under the HUD card **and both centred chips** is, as a percentage.
      *
-     * A setting because how much of the dungeon a player wants to see through it is genuinely
-     * personal — the same argument [Slider][sighteaddons.ui.components.Slider] was built on — and
-     * clamped because the answer "none of it" is not a preference, it is an unreadable card, and an
-     * unreadable card is our fault rather than theirs.
+     * One number for all three, and that is the design rather than an economy: the card, the clear popup
+     * and Storm's countdown can be on screen within a second of each other, and three separately-set
+     * opacities on three surfaces that read as one material would look like three different materials.
+     * [ClearPopup] and [StormHud] both say so where they read it.
      *
-     * The bounds live in [sighteaddons.ui.theme.Tokens] and not here: they are not a taste, they are
-     * where the 4.5:1 contrast floor stops holding against a world we do not own, and they have to move
-     * with the palette they were measured against.
+     * A setting because how much of the dungeon a player wants to see through it is genuinely personal —
+     * the same argument [Slider][sighteaddons.ui.components.Slider] was built on.
+     *
+     * The bounds live in [sighteaddons.ui.theme.Tokens] and not here, and they are now two different
+     * facts: [sighteaddons.ui.theme.Tokens.SCRIM_MIN_PERCENT] is how far the slider goes, and
+     * [sighteaddons.ui.theme.Tokens.SCRIM_CONTRAST_PERCENT] is where the measured 4.5:1 floor stops
+     * holding against a world we do not own. They used to be the same number; the user asked for the
+     * range, and the `/sa` row is what says what the low end costs. The name stays `hudScrim` because it
+     * is the config key — renaming it would be a migration for a word.
      */
     var hudScrim = Tokens.SCRIM_PERCENT
 

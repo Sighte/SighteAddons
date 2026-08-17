@@ -494,8 +494,14 @@ internal class HudRoot {
      * The scrim's opacity, as the player set it.
      *
      * [Config.hudScrim] carries it as a percentage and [Tokens.scrimAlpha] is what turns that into an
-     * alpha and holds it inside the range the 4.5:1 floor survives — the clamp is deliberately not
-     * here, because the number it clamps to is a property of the palette rather than of this card.
+     * alpha and holds it inside the range the slider offers — the clamp is deliberately not here,
+     * because the numbers it clamps to are properties of the palette rather than of this card. Since the
+     * range opened downwards to 30 %, that range no longer guarantees 4.5:1; the *measurement* still
+     * exists as `Tokens.SCRIM_CONTRAST_PERCENT` and the `/sa` row is where a player is told.
+     *
+     * The same setting reaches [sighteaddons.ClearPopup] and [sighteaddons.StormHud], which is the point
+     * of it being one number: three chips that appear within a second of each other must not read as
+     * three different materials.
      */
     private fun scrimAlpha(): Int = Tokens.scrimAlpha(Config.hudScrim)
 

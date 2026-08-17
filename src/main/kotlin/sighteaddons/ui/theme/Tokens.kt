@@ -46,30 +46,56 @@ internal object Tokens {
      *
      * A scrim is the only backdrop this UI has over the world — there is no blur available (see
      * `HudRoot`) — so it is the entire reason the text on the HUD card and the two centred overlays is
-     * readable at all. How much of the dungeon shows through is genuinely a matter of taste, which is
-     * why it is a setting; *whether the text can be read* is not, which is why the setting has a floor.
+     * readable at all. How much of the dungeon shows through is a matter of taste, which is why it is a
+     * setting; a backdrop with *no* opacity at all is not a preference but an invisible card, which is
+     * why the range still has ends.
      *
-     * [SCRIM_MIN_PERCENT] is measured rather than chosen. At that opacity the worst pairing in either
-     * ramp — light `textTertiary` on a white scrim over a black dungeon — sits at **4.57:1**, and one
-     * percent lower it is **4.48:1**, under the floor. `UiThemeTest` computes both ends rather than
-     * trusting this paragraph.
+     * **[SCRIM_MIN_PERCENT] used to be [SCRIM_CONTRAST_PERCENT] and is not any more, at the user's
+     * explicit request.** The measurement did not change and has not moved out of this file — it is the
+     * constant below, and `UiThemeTest` still computes both of its ends. What changed is that it is no
+     * longer the control's bound: two people use this mod, both of them know what a washed-out card
+     * looks like, and a floor that holds a contrast ratio nobody asked to be held is a setting that
+     * refuses to do the thing it is for. Below [SCRIM_CONTRAST_PERCENT] the `/sa` row says so.
+     *
+     * 30 rather than 0: at zero there is no chip at all, only text over a moving dungeon, and the whole
+     * argument for a scrim over a shadow is that a chip has to have a back to it.
+     */
+    const val SCRIM_MIN_PERCENT = 30
+    const val SCRIM_MAX_PERCENT = 100
+
+    /**
+     * The lowest opacity at which every text tone still clears 4.5:1 over any world.
+     *
+     * Measured rather than chosen. At this opacity the worst pairing in either ramp — light
+     * `textTertiary` on a white scrim over a black dungeon — sits at **4.57:1**, and one percent lower
+     * it is **4.48:1**, under the floor. `UiThemeTest` computes both ends rather than trusting this
+     * paragraph.
      *
      * The number is high, and that is the honest cost of holding the floor against a backdrop we do not
      * own: the world behind the card can be anything from a black corridor to a snow floor, and a wash
      * that has to work over both has very little translucency to spend. The spec asked for 55–70 %,
      * which measures 1.6:1 to 2.8:1 in the worst case — a card with nothing legible on it.
+     *
+     * So it is no longer a limit but a *statement*, and the one place that reads it is the note under
+     * the `/sa` scrim row: a player below this number has been told what it costs, which is the
+     * difference between a choice and a defect.
      */
-    const val SCRIM_MIN_PERCENT = 88
-    const val SCRIM_MAX_PERCENT = 100
+    const val SCRIM_CONTRAST_PERCENT = 88
 
-    /** The default: inside the range with room to move, and still a tenth of the dungeon showing. */
+    /**
+     * The default: still a tenth of the dungeon showing, and above [SCRIM_CONTRAST_PERCENT].
+     *
+     * Unchanged by the range opening downwards, deliberately. Every install that has never touched the
+     * slider keeps the backdrop it has always had, and a default nobody chose is the one place the
+     * measured floor should still win.
+     */
     const val SCRIM_PERCENT = 90
 
     /**
-     * [percent] as an alpha byte, clamped into the legible range.
+     * [percent] as an alpha byte, clamped into the range the slider offers.
      *
-     * Returned as an alpha rather than as a finished colour because both callers multiply it by their
-     * own fade before it reaches [alpha], and a token faded twice is a token at the wrong opacity.
+     * Returned as an alpha rather than as a finished colour because all three callers multiply it by
+     * their own fade before it reaches [alpha], and a token faded twice is a token at the wrong opacity.
      */
     fun scrimAlpha(percent: Int): Int =
         Math.round(percent.coerceIn(SCRIM_MIN_PERCENT, SCRIM_MAX_PERCENT) * 255f / 100f)

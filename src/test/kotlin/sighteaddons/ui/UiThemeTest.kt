@@ -125,11 +125,16 @@ class UiThemeTest {
      * It failed. `shadow` was doing double duty as the scrim, and a shadow is dark in both ramps by
      * definition: in `LIGHT` the card was `#3C3F45` at 63 % with `#0A0A0B` text on it, which is
      * **1.32:1** over a dark dungeon. The card was there and empty. Hence `Palette.scrim`, whose light
-     * value is light, and hence the floor under `Tokens.SCRIM_MIN_PERCENT` — because an opacity the
-     * player can drag to nothing is the same failure with our name on it.
+     * value is light, and hence `Tokens.SCRIM_CONTRAST_PERCENT`.
      *
-     * Both ends are asserted. That the minimum holds is the guarantee; that one percent below it does
-     * not is what makes the minimum a measurement rather than a round number somebody liked.
+     * **That constant was the slider's minimum and is now only this measurement**, at the user's
+     * request — the range goes down to 30 % and the `/sa` row says what that costs. So this test is what
+     * keeps the number a number: it is asserted at exactly the strength it always was, and if the
+     * palette ever moves under it, 88 stops being where the floor is and this fails, whatever the
+     * slider happens to allow.
+     *
+     * Both ends are asserted. That this opacity holds is the guarantee; that one percent below it does
+     * not is what makes it a measurement rather than a round number somebody liked.
      */
     @Test
     fun `text on the scrim clears the floor over a dark and a bright world`() {
@@ -141,7 +146,7 @@ class UiThemeTest {
             )
             for ((worldName, world) in WORLDS) {
                 val backdrop = Contrast.over(
-                    Tokens.alpha(palette.scrim, Tokens.scrimAlpha(Tokens.SCRIM_MIN_PERCENT)),
+                    Tokens.alpha(palette.scrim, Tokens.scrimAlpha(Tokens.SCRIM_CONTRAST_PERCENT)),
                     world,
                 )
                 for ((textName, fg) in text) {
@@ -156,10 +161,16 @@ class UiThemeTest {
         }
     }
 
-    /** One percent below the floor is under it, which is what makes the floor the floor. */
+    /**
+     * One percent below the measured opacity is under the floor, which is what makes it a measurement.
+     *
+     * And the two ends of the range the slider does offer, which is a different question now that the
+     * two numbers are different: the setting is a percentage rather than an alpha, so a value from a
+     * hand-edited file has to land inside it — a `0` is 30 % and not an invisible chip.
+     */
     @Test
-    fun `the scrim minimum is the last opacity that holds`() {
-        val below = Tokens.SCRIM_MIN_PERCENT - 1
+    fun `the measured opacity is the last one that holds, and the range still has ends`() {
+        val below = Tokens.SCRIM_CONTRAST_PERCENT - 1
         val backdrop = Contrast.over(
             Tokens.alpha(Palette.LIGHT.scrim, Math.round(below * 255f / 100f)),
             0xFF000000.toInt(),
@@ -167,16 +178,20 @@ class UiThemeTest {
         val ratio = Contrast.ratio(Palette.LIGHT.textTertiary, backdrop)
         assertTrue(
             ratio < Contrast.AA,
-            "%d percent already clears the floor at %.2f:1 — the minimum is higher than it needs to be"
+            "%d percent already clears the floor at %.2f:1 — the measured opacity is higher than it needs to be"
                 .format(below, ratio),
         )
 
-        // And the clamp is what stops anybody reaching it: the setting is a percentage, not an alpha.
         assertEquals(
             Tokens.scrimAlpha(Tokens.SCRIM_MIN_PERCENT), Tokens.scrimAlpha(0),
-            "a scrim dragged to zero must resolve to the floor, not to nothing",
+            "a scrim dragged to zero must resolve to the low end, not to nothing",
         )
         assertEquals(255, Tokens.scrimAlpha(Tokens.SCRIM_MAX_PERCENT))
+        assertTrue(
+            Tokens.SCRIM_MIN_PERCENT < Tokens.SCRIM_CONTRAST_PERCENT &&
+                Tokens.SCRIM_PERCENT >= Tokens.SCRIM_CONTRAST_PERCENT,
+            "the range reaches below the measurement and the default does not",
+        )
     }
 
     /**

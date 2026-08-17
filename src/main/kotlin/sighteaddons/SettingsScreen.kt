@@ -953,14 +953,22 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         toggle("show HUD", Config.hud) { Config.hud = !Config.hud }
         place(Target.CARD)
         note("the offset counts inward from the anchor")
+
+        // **Its own section, and not part of "the card".** One number carries the backdrop under all
+        // three overlays — see Config.hudScrim for why that is the design and not an economy — and while
+        // the row sat under a heading that says "the card", the only way to find that out was to move
+        // the slider and watch a popup. The heading's meta names the scope; the notes under it spell it
+        // out.
+        section("backdrop", "card + both chips")
         // The one control on this screen that is a sweep rather than a correction, which is the whole
         // of `Stepper` against `Slider`: nobody has a number in mind for a backdrop, they move it until
         // the dungeon behind it looks right.
         //
-        // **The bounds are read from Tokens and never written here.** The floor is not taste — it is
-        // where `textTertiary` on this scrim over a white world stops clearing 4.5:1, measured, and
-        // pinned in UiThemeTest. Offering 0..100 and clamping on the way in would be a control that
-        // visibly travels somewhere it does not stay, which is worse than a short one.
+        // **The bounds are read from Tokens and never written here.** They are two facts now: how far
+        // the slider goes, and where `textTertiary` over a white world stops clearing 4.5:1 — measured,
+        // and still pinned in UiThemeTest. The second used to be the first. It is a note rather than a
+        // limit because the two people who use this mod asked for the range, and a control that refuses
+        // to reach the value somebody wants is not a control.
         slider("scrim", Config.hudScrim, Tokens.SCRIM_MIN_PERCENT, Tokens.SCRIM_MAX_PERCENT) {
             Config.hudScrim = it
         }
@@ -969,6 +977,13 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         // the sentence disagree about which way the slider was going: at 90 % it said 90, and ten per
         // cent of the dungeon was showing.
         note("how much of the dungeon the backdrop covers")
+        // What the low end costs, said only when it is being paid. A permanent warning about a value
+        // nobody has chosen is a warning people learn to read past, and this is the one setting on the
+        // screen whose cost is invisible in the room it is set in: a card that reads perfectly against
+        // the black corridor behind the settings screen is the same card over a snow floor.
+        if (Config.hudScrim < Tokens.SCRIM_CONTRAST_PERCENT) {
+            note("under ${Tokens.SCRIM_CONTRAST_PERCENT} % the smallest grey text can drop below 4.5:1")
+        }
 
         section("lines on the card")
         toggle("current room", Config.showRoom) { Config.showRoom = !Config.showRoom }
@@ -1700,9 +1715,14 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         /**
          * The scrim slider's track.
          *
-         * Fixed rather than a fraction of the content column, because the range it spans is thirteen
-         * whole percents: at 120 pixels each of them is ten pixels of travel, which is a step a hand can
-         * land on. Widening it with the window would only make the same thirteen stops further apart.
+         * Fixed rather than a fraction of the content column: a sweep is a sweep at any width, and
+         * widening it with the window would only spread the same stops further apart.
+         *
+         * It spanned thirteen whole percents when it was written and spans seventy-one now — the range
+         * opened downwards to 30 %. A percent is therefore under two pixels of travel instead of ten,
+         * which is survivable for the one control here that is a sweep rather than a correction, and is
+         * survivable *because* the number is drawn beside the track: the hand finds the look and the
+         * readout is what makes it repeatable.
          */
         const val SLIDER_WIDTH = 120
 
