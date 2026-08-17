@@ -2,7 +2,7 @@
 
 ## Stand — 2026-08-17
 
-`main` = 336 Tests / 27 Klassen / grün. `mod_version` 0.15.0, released, Modrinth-Version `YNlbBvlI`
+`main` = 379 Tests / 31 Klassen / grün. `mod_version` 0.15.0, released, Modrinth-Version `YNlbBvlI`
 mit identischem Jar. `RunReport.SCHEMA` 6, Receiver (`master` `1a7f435`) akzeptiert `idleTicks`/
 `navTicks` als optional und ist deployt — **dem Receiver ist nichts geschuldet.**
 
@@ -25,7 +25,7 @@ CLAUDE.md-Regel 2, gilt nur hier und fällt danach zurück.
   Der alte Corner-Readout ist weg; `idle`/`nav` und die Standings sitzen jetzt in den ausklappbaren
   Run-Totals (Keybind, standardmäßig ungebunden).
   Die Karte blendet sich beim Betreten des Bossraums aus (`inBoss` auf dem Snapshot) — der Run-Clock
-  läuft darunter weiter. **Der User testet gerade `0.16.0-dev8`** (nur `build/libs`, `assemble check`
+  läuft darunter weiter. **Der User testet `0.16.0-dev17`** (nur `build/libs`, `assemble check`
   mit `-Pmod_version=…`, `dist/` bleibt das released 0.15.0).
 - [x] **Phase 6 — Chat.** Tag (`SA »`, ein Funnel `Chat.say`, die drei alten Selbstbezeichnungen
   sind weg) **plus** Farben und Wortlaut. Kein `ChatFormatting` mehr in einer Zeile, die die Mod
@@ -46,10 +46,10 @@ CLAUDE.md-Regel 2, gilt nur hier und fällt danach zurück.
   aufs HUD soll, muss die laufende Blood-Uhr in den Snapshot.
 - [x] **`SecretAudit`** — der Live-Tracker wird am Runende gegen die API benotet, `secret_audit` ins
   Debug-Log, zwei Richtungen getrennt (`missed` ist Design, `too many` ist ein Defekt).
-  **Läuft noch nie:** `Config.hypixelKey` ist leer und hat **keine UI** — nur `config.json`. Kein
-  einziges `secret_api_baseline` in irgendeinem Log. Solange der Key fehlt, ist `SecretApi` inert und
-  weder die Teammate-Zeile noch das Audit erscheinen. Ein Textfeld im `/sa`-Debug-Tab wäre der
-  nächste Schritt, wenn der User es will.
+  **Lief bis Phase 5b nie:** `Config.hypixelKey` war leer und hatte keine UI. Seit dem Debug-Tab-Feld
+  ist der Key ohne Handeditieren setzbar — **damit ist `SecretApi`/`SecretAudit` das erste Mal
+  überhaupt lauffähig.** Ob es wirklich läuft, sagt ein `secret_api_baseline` im Debug-Log; bis dahin
+  hat es das noch nie gegeben.
 
 **Boss = Koordinaten pro Tick, wie in Odins `DungeonListener`** — dieselben Schwellen, kein Latch,
 kein Chat. `[BOSS] ` ist als Signal verbrannt: The Watcher steht im Blood-Room und trägt denselben
@@ -74,15 +74,47 @@ nicht gegriffen**, und dann ist die Sidebar-Zeile `Cleared: X%` der nächste Kan
 - [x] **Phase 2** — Komponenten. `ui/components/`: `Labels` (die drei kopierten Tracking-Loops sind
   jetzt einer), `Button` (3 Varianten), `TextField` + `Edit`, `Stepper`/`Slider`, `Nav`/`Segmented`,
   `Popover`/`Tooltip`, `Badge`, `EmptyState`, `Table`, `ProgressBar`. Gallery-Seiten 5–8 (`controls`,
-  `input`, `nav`, `data`) zeigen jede in jedem Zustand. **`SettingsScreen` ist absichtlich noch nicht
-  umgestellt** — das ist Phase 4/5, und die Screens werden dort ohnehin neu gebaut.
-  Das Textfeld existiert für `Config.hypixelKey`, der bis heute keine UI hat: maskiert per Default,
-  Reveal ist eine Handlung und kein gespeicherter Schalter — der Einwand in `Config` gilt einem Feld,
-  das den Key *anzeigt*, nicht einem Feld.
-  Nebenbefund: `SettingsScreen` reicht lange Raumnamen an `setTooltipForNextFrame` weiter, und
-  Vanillas Box ist mit ihrem lila Rand das einzige Farbige auf dem ganzen Bildschirm. `Tooltip` ersetzt
-  sie, sobald Phase 4 den Screen anfasst.
-- [ ] 4 Stats · 5 Config-**Bildschirm** (Unterbau steht) · 7 Politur
+  `input`, `nav`, `data`) zeigen jede in jedem Zustand.
+- [x] **Phase 4 — Stats.** `ui/screens/StatsOverview.kt` (rein, testbar) + eigener Rail-Eintrag
+  `stats`: Coverage gegen `RoomDatabase.roomCount` (neu — `size` sind Cores, nicht Räume), die drei
+  Kinds getrennt gezählt und getimt, PBs total/letzte Woche, meistgespielter Raum, Floors. **Unter
+  fünf Versuchen gibt es keinen Median** (`sorted[n/2]` ist der obere Mittelwert, bei n=2 also der
+  langsamere von zweien) — stattdessen `fastest of 3`; das Akkordeon hält denselben Boden. Die
+  PB-Zahl ist ausdrücklich eine Untergrenze: eine Zeile von vor dem `pb`-Feld faltet als `false`.
+  Tabelle auf der Komponentenschicht: `Table`, `Tooltip` (Vanillas lila Box ist weg), `EmptyState`,
+  `Badge`, `Nav`.
+- [x] **Phase 5b — Config-Bildschirm.** Abschnitte + Erklärzeilen, `Stepper` für die zwei
+  Storm-Ticks, **`TextField` für `Config.hypixelKey`** (maskiert, Reveal ist eine Handlung und wird
+  nie persistiert, Copy/Cut verweigert, Commit erst beim Verlassen) — der Einwand im `Config`-KDoc
+  galt einem Feld, das den Key *anzeigt*. `settingRowHeight` ist weg, alle Seiten scrollen über
+  `Scroll`. Shift dreht den Stepper nicht mehr um — dafür gibt es den Minus-Arm; `StormTimer.step`
+  behält `back` und den Wrap.
+- [x] **Drei Überläufe bei Scale 4 gefunden und behoben** (alle vorbestehend): sechs Chips mit Counts
+  wollen 356 px in einer 328-px-Spalte und liefen ungeclippt über den Fensterrand; die Spaltenbrüche
+  waren gegen die *Werte* budgetiert, nicht gegen die breiteren Header (`SECRETS` 60 px gegen 28 px
+  Zeit) — jetzt 25/51/70/83, Trefferzonen aus `Labels.width`; die Detailzeile lief 60 px über. Bei
+  320×240 (Vanilla-Minimum) passen sechs Spalten weiterhin nicht.
+- [x] **Phase 7 (Teil 1)** — kein Farbliteral mehr außerhalb von `ui/theme/`. Die drei Konstanten in
+  `SighteAddons.kt` waren seit Phase 3a Waisen (keine war eine Warnung); `MID` ist jetzt
+  `Tokens.PREVIEW_STAGE`, `FAIL` ist weg — ein Kontrast-Fehlschlag sagt das **Wort** `FAIL`.
+  `UiThemeTest` liest den Quellbaum und fällt bei jedem 8-stelligen ARGB-Literal außerhalb
+  `ui/theme/` (sechsstellige Masken bleiben erlaubt, Kommentarzeilen zählen nicht).
+  **`SecretHud` gelöscht** — seit Phase 3a von nichts aufgerufen. Die CLAUDE.md-Zusicherung wurde
+  vorher geprüft und hält: kein Fallback von `ownSecrets` auf `secretsFound`. Sie ist jetzt
+  `HudSnapshot.roomOwnSecrets`/`runOwnSecrets` und wird von `UiHudSecretsTest` bewacht.
+  **Gallery-Seite 9 `overlay`** — `ClearPopup` und `StormHud` mit 13-s-Skript durch die echten
+  Dateien: alle vier Dringlichkeitsstufen inkl. Inversion, ein Popup überlappt den Countdown, dann
+  ein PB-Popup, dazu Timeline mit Playhead.
+- [x] **Review-Durchgang nach dem Merge** — acht Befunde, alle behoben. `ConfigMigration` liest jeden
+  Wert defensiv (`intOr`/`stringOr`/`boolOr`), `Config` liest `installId` als Allererstes: ein
+  handverkorkstes `config.json` kostete bisher die **Upload-Identität** und verwaiste die ganze
+  Historie auf dem Receiver. `Config.showRoom` wird jetzt gelesen (vorher: Schalter ohne Wirkung).
+  `Palette.scrim` ist ein eigenes Token — `shadow` war im hellen Ramp die Rückwand für Text und maß
+  **1.32:1**; jetzt hält der schlechteste Wert über beiden Ramps und über hellem wie dunklem
+  Weltuntergrund **4.57:1** bei 88 %, 87 % fällt durch. `Config.hudScrim` (Prozent, 88–100, Default
+  90) trägt die Deckkraft. `ClearPopup` klemmt Breite und linke Kante (Scale 4 auf 1366×768 schnitt
+  Raumname und PB-Badge ab). HUD wieder allokationsfrei auf unserer Seite. Raumuhr auf `ScaledText`.
+  Eine Schreibweise für „gegen den Record": `−0:02.8` auf HUD *und* im Chat.
 
 Zwei Sachen aus Phase 1, die nicht in der Vorlage standen:
 
@@ -99,7 +131,9 @@ Drei Sachen aus Phase 3a, die die Vorlage anders wollte:
 - **„Allokationsfrei pro Frame" geht nicht.** `GuiGraphicsExtractor.innerFill` legt pro Aufruf eine
   `ColoredRectangleRenderState` **und** eine defensive `Matrix3x2f`-Kopie an; `fillGradient` boxt
   zusätzlich die zweite Farbe. Zwei bis drei Objekte pro Draw, in Vanilla, ohne Ausweg. Das erreichbare
-  Ziel ist **null Allokation auf unserer Seite, Draw-Calls als Budget** — daher `Format.Cached`.
+  Ziel ist **null Allokation auf unserer Seite, Draw-Calls als Budget** — daher `Format.Cached`,
+  `Format.Cached2` und `Labels`' Tabelle aus Ein-Zeichen-Strings. Offen bleibt der `Origin`, den
+  `Config.hudOrigin` pro Frame anlegt.
 - **Kein Blur hinter dem HUD.** `blurBeforeThisStratum()` blurrt alles bereits Eingereichte,
   bildschirmfüllend, ohne Form — bei `attachElementAfter(OVERLAY_MESSAGE)` also Welt *plus* Hotbar,
   Leben, Hunger und XP-Leiste, während der Chat scharf bleibt. Der Scrim ist nicht der Default,
