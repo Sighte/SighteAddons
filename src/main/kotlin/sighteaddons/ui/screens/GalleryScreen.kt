@@ -3,14 +3,33 @@ package sighteaddons.ui.screens
 import net.minecraft.client.gui.GuiGraphicsExtractor
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.input.KeyEvent
+import net.minecraft.client.input.MouseButtonEvent
 import net.minecraft.network.chat.Component
 import org.lwjgl.glfw.GLFW
+import sighteaddons.RoomHistory
+import sighteaddons.ui.components.Anim
+import sighteaddons.ui.components.Badge
+import sighteaddons.ui.components.Button
+import sighteaddons.ui.components.Controls
+import sighteaddons.ui.components.EmptyState
+import sighteaddons.ui.components.Labels
+import sighteaddons.ui.components.Nav
+import sighteaddons.ui.components.Popover
+import sighteaddons.ui.components.ProgressBar
+import sighteaddons.ui.components.Segmented
+import sighteaddons.ui.components.Slider
+import sighteaddons.ui.components.Sparkline
+import sighteaddons.ui.components.Stepper
+import sighteaddons.ui.components.Table
+import sighteaddons.ui.components.TextField
+import sighteaddons.ui.components.Tooltip
 import sighteaddons.ui.hud.HudRoot
 import sighteaddons.ui.motion.Clock
 import sighteaddons.ui.motion.Easing
 import sighteaddons.ui.motion.Motion
 import sighteaddons.ui.motion.Spring
 import sighteaddons.ui.render.DevicePixels
+import sighteaddons.ui.render.Surface
 import sighteaddons.ui.theme.Contrast
 import sighteaddons.ui.theme.Density
 import sighteaddons.ui.theme.Palette
@@ -40,6 +59,10 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
         MOTION("motion"),
         DENSITY("density"),
         HUD("hud"),
+        CONTROLS("controls"),
+        INPUT("input"),
+        NAV("nav"),
+        DATA("data"),
     }
 
     private var page = Page.COLOUR
@@ -52,6 +75,43 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
     private var previewPaused = false
     private var previewHeldAt = 0.0
     private var previewOffset = 0.0
+
+    // --- Live specimens ---------------------------------------------------------------------
+    //
+    // Every component below is also shown in a frozen matrix of its states, which is the part that can
+    // actually be reviewed: a hover fade caught mid-flight is a screenshot nobody can reproduce. These
+    // few exist alongside that because three things cannot be judged from a still — how *fast* a fade
+    // is, whether a press feels attached to the cursor, and whether a caret blinks at a rate that
+    // reads as a caret rather than as flicker.
+
+    private val anim = Anim()
+
+    /** Whether the live button is currently held. */
+    private var pressed = false
+
+    /** The live segmented control's selection, and the thumb chasing it. */
+    private var segment = 0
+    private val segmentTravel = Spring(0f)
+
+    /** The live rail's selection. */
+    private var railItem = 0
+
+    /** The live sort header's direction, so the caret's rotation can be triggered by hand. */
+    private var sortDesc = true
+
+    /** The live text field. Never typed into — see [keyPressed], where the digits belong to the pages. */
+    private val field = TextField.Edit("Water Board")
+    private val secret = TextField.Edit("0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0")
+
+    // Where the live specimens were drawn last frame, so a click lands on what is on screen. The same
+    // rule the settings screen keeps: hit testing re-derives the drawing layout rather than guessing
+    // at it, and here it re-reads it.
+    private var liveButtonX = 0
+    private var liveButtonY = 0
+    private var railTop = 0
+    private var segmentLeft = 0
+    private var segmentTop = 0
+    private var headerTopY = 0
 
     override fun extractBackground(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int, delta: Float) {
         val window = minecraft.window
@@ -84,12 +144,16 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
             Page.MOTION -> motionPage(graphics, left, top)
             Page.DENSITY -> densityPage(graphics, left, top)
             Page.HUD -> hudPage(graphics, left, top)
+            Page.CONTROLS -> controlsPage(graphics, left, top, mouseX, mouseY)
+            Page.INPUT -> inputPage(graphics, left, top, mouseX, mouseY)
+            Page.NAV -> navPage(graphics, left, top, mouseX, mouseY)
+            Page.DATA -> dataPage(graphics, left, top, mouseX, mouseY)
         }
 
         val footer = if (page == Page.HUD) {
-            "1-4 page  ·  T theme  ·  M reduce motion  ·  space ${if (previewPaused) "run" else "hold"}  ·  , . step  ·  esc close"
+            "1-8 page  ·  T theme  ·  M reduce motion  ·  space ${if (previewPaused) "run" else "hold"}  ·  , . step  ·  esc close"
         } else {
-            "1-4 page  ·  T theme  ·  M reduce motion (${if (Motion.reduceMotion) "on" else "off"})  ·  esc close"
+            "1-8 page  ·  T theme  ·  M reduce motion (${if (Motion.reduceMotion) "on" else "off"})  ·  esc close"
         }
         graphics.flat(footer, left, height - Tokens.SPACE_20, Tokens.textTertiary)
     }
@@ -342,6 +406,418 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
     private fun previewTime(): Double =
         (if (previewPaused) previewHeldAt else Clock.nowMs) + previewOffset
 
+    // --- Controls ---------------------------------------------------------------------------
+
+    /**
+     * Buttons, switches, chips and badges, every one of them in every state it has.
+     *
+     * The matrix is the point. A component reviewed only in the state it happens to be in when the
+     * screen is opened is a component whose disabled variant nobody has ever seen — and disabled and
+     * pressed are exactly the two that go wrong, because both are reached by a code path that a
+     * screenshot of a working screen never takes.
+     */
+    private fun controlsPage(graphics: GuiGraphicsExtractor, left: Int, top: Int, mouseX: Int, mouseY: Int) {
+        val word = "save"
+        val buttonWidth = Button.width(font, word)
+        val step = buttonWidth + Tokens.SPACE_12
+        val right = left + step * 5 + Tokens.SPACE_32
+
+        graphics.label("BUTTON", left, top, Tokens.textSecondary)
+        val captions = listOf("idle", "hover", "press", "off", "focus")
+        for (i in captions.indices) {
+            graphics.flat(captions[i], left + i * step, top + Tokens.SPACE_12, Tokens.textTertiary)
+        }
+
+        var y = top + Tokens.SPACE_24
+        for ((name, variant) in listOf(
+            "primary" to Button.Variant.PRIMARY,
+            "secondary" to Button.Variant.SECONDARY,
+            "ghost" to Button.Variant.GHOST,
+        )) {
+            Button.draw(graphics, font, left, y, buttonWidth, Button.HEIGHT, word, variant)
+            Button.draw(graphics, font, left + step, y, buttonWidth, Button.HEIGHT, word, variant, hover = 1f)
+            Button.draw(graphics, font, left + step * 2, y, buttonWidth, Button.HEIGHT, word, variant, hover = 1f, press = 1f)
+            Button.draw(graphics, font, left + step * 3, y, buttonWidth, Button.HEIGHT, word, variant, enabled = false)
+            Button.draw(graphics, font, left + step * 4, y, buttonWidth, Button.HEIGHT, word, variant, focus = 1f)
+            graphics.flat(name, left + step * 5, y + Tokens.SPACE_6, Tokens.textTertiary)
+            y += Button.HEIGHT + Tokens.SPACE_8
+        }
+
+        // One that is actually wired to the mouse. The matrix above says what each state looks like;
+        // this says how long the fade takes, which no still can.
+        liveButtonX = left
+        liveButtonY = y + Tokens.SPACE_4
+        val overLive = hit(mouseX, mouseY, liveButtonX, liveButtonY, buttonWidth, Button.HEIGHT)
+        val livePress = anim.of("live.press")
+        livePress.animateTo(if (pressed && overLive) 1f else 0f, Motion.INSTANT, Easing.STANDARD, Motion.Kind.OPACITY)
+        Button.draw(
+            graphics, font, liveButtonX, liveButtonY, buttonWidth, Button.HEIGHT, word,
+            Button.Variant.SECONDARY,
+            hover = Controls.hover(anim.of("live.hover"), overLive),
+            press = livePress.value,
+        )
+        graphics.flat("live — hover it, hold it", liveButtonX + step, liveButtonY + Tokens.SPACE_6, Tokens.textTertiary)
+
+        // --- switches, chips, badges, on the right ---
+        graphics.label("TOGGLE", right, top, Tokens.textSecondary)
+        var ty = top + Tokens.SPACE_16
+        for ((name, state) in listOf("off" to 0f, "mid" to 0.5f, "on" to 1f)) {
+            Controls.toggle(graphics, right, ty, Controls.TOGGLE_HEIGHT, state, enabled = true)
+            graphics.flat(name, right + Controls.TOGGLE_WIDTH + Tokens.SPACE_8, ty + Tokens.SPACE_6, Tokens.textTertiary)
+            ty += Controls.TOGGLE_HEIGHT + Tokens.SPACE_6
+        }
+        Controls.toggle(graphics, right, ty, Controls.TOGGLE_HEIGHT, 1f, enabled = false)
+        graphics.flat("disabled", right + Controls.TOGGLE_WIDTH + Tokens.SPACE_8, ty + Tokens.SPACE_6, Tokens.textTertiary)
+
+        val chipTop = ty + Tokens.SPACE_32
+        graphics.label("CHIP  ·  BADGE", right, chipTop, Tokens.textSecondary)
+        var cx = right
+        for ((state, hover) in listOf(0f to 0f, 0f to 1f, 1f to 0f)) {
+            Controls.chip(graphics, font, cx, chipTop + Tokens.SPACE_16, CHIP_H, "puzzle", 14, state, hover)
+            cx += Controls.chipWidth(font, "puzzle", 14) + Tokens.SPACE_6
+        }
+        // The count is -1 for "no count": a chip that has nothing to advertise says nothing rather
+        // than a zero, which would read as a filter that matches no rooms.
+        Controls.chip(graphics, font, cx, chipTop + Tokens.SPACE_16, CHIP_H, "no count", -1, 0f, 0f)
+
+        var bx = right
+        val badgeY = chipTop + Tokens.SPACE_32 + Tokens.SPACE_6
+        Badge.draw(graphics, font, bx, badgeY, "PB", Badge.Style.SOLID)
+        bx += Badge.width(font, "PB") + Tokens.SPACE_6
+        Badge.draw(graphics, font, bx, badgeY, "NEW", Badge.Style.OUTLINE)
+        bx += Badge.width(font, "NEW") + Tokens.SPACE_6
+        Badge.draw(graphics, font, bx, badgeY, "OFF", Badge.Style.SOLID, enabled = false)
+        bx += Badge.width(font, "OFF") + Tokens.SPACE_6
+        Badge.draw(graphics, font, bx, badgeY, "A VERY LONG ONE", Badge.Style.OUTLINE)
+
+        graphics.flat(
+            "solid vs outline, never two greys — 1.27:1 apart is not a state",
+            right, badgeY + Tokens.SPACE_20, Tokens.textTertiary,
+        )
+    }
+
+    // --- Input ------------------------------------------------------------------------------
+
+    /**
+     * Text fields, steppers, sliders and bars — everything a value is edited through.
+     *
+     * The two caret rows are drawn deliberately as `on` and `off` side by side rather than as one
+     * blinking specimen. A reviewer cannot hold a blink still, and the half nobody ever looks at is
+     * the one where the caret is missing and the field looks like it lost focus.
+     */
+    private fun inputPage(graphics: GuiGraphicsExtractor, left: Int, top: Int, mouseX: Int, mouseY: Int) {
+        val fieldWidth = 150
+        val right = left + fieldWidth + 150
+
+        graphics.label("TEXT FIELD", left, top, Tokens.textSecondary)
+        var y = top + Tokens.SPACE_16
+
+        fun row(caption: String, build: () -> Unit) {
+            build()
+            graphics.flat(caption, left + fieldWidth + Tokens.SPACE_12, y + Tokens.SPACE_6, Tokens.textTertiary)
+            y += TextField.HEIGHT + Tokens.SPACE_8
+        }
+
+        row("empty · placeholder") {
+            TextField.draw(
+                graphics, font, left, y, fieldWidth, TextField.HEIGHT, TextField.Edit(),
+                placeholder = "room name",
+            )
+        }
+        row("hovered") {
+            TextField.draw(
+                graphics, font, left, y, fieldWidth, TextField.HEIGHT, TextField.Edit("Water Board"),
+                hover = 1f,
+            )
+        }
+        row("focused · caret on") {
+            val edit = TextField.Edit("Water Board")
+            edit.placeCaret(5)
+            TextField.draw(graphics, font, left, y, fieldWidth, TextField.HEIGHT, edit, focus = 1f, caret = 1f)
+        }
+        row("focused · caret off") {
+            val edit = TextField.Edit("Water Board")
+            edit.placeCaret(5)
+            TextField.draw(graphics, font, left, y, fieldWidth, TextField.HEIGHT, edit, focus = 1f, caret = 0f)
+        }
+        row("selection") {
+            val edit = TextField.Edit("Water Board")
+            edit.placeCaret(0)
+            edit.move(5, extend = true)
+            TextField.draw(graphics, font, left, y, fieldWidth, TextField.HEIGHT, edit, focus = 1f)
+        }
+        row("disabled") {
+            TextField.draw(
+                graphics, font, left, y, fieldWidth, TextField.HEIGHT, TextField.Edit("Water Board"),
+                enabled = false,
+            )
+        }
+        row("overlong · scrolled to the caret") {
+            val edit = TextField.Edit("Thunder · Bigfoot · Beehive · Water Board · Boulder")
+            TextField.draw(graphics, font, left, y, fieldWidth, TextField.HEIGHT, edit, focus = 1f, caret = 1f)
+        }
+        row("live · real blink rate") {
+            TextField.draw(
+                graphics, font, left, y, fieldWidth, TextField.HEIGHT, field,
+                focus = 1f, caret = TextField.caretOn(true),
+            )
+        }
+
+        // The masked variant, which is the only reason this component exists at all: `Config.hypixelKey`
+        // has no UI today, so `SecretApi` has never run once in the game.
+        graphics.label("MASKED  ·  THE HYPIXEL KEY", right, top, Tokens.textSecondary)
+        var my = top + Tokens.SPACE_16
+        TextField.draw(
+            graphics, font, right, my, fieldWidth + Tokens.SPACE_32, TextField.HEIGHT, secret,
+            placeholder = "paste your key", mask = TextField.Mask.DOTS,
+        )
+        graphics.flat("masked", right + fieldWidth + Tokens.SPACE_48, my + Tokens.SPACE_6, Tokens.textTertiary)
+        my += TextField.HEIGHT + Tokens.SPACE_8
+        // Its own edit, not the one above: the two rows measure the same string differently — one by
+        // the mask's advance, one by the font — and sharing the state would leave both scrolled to
+        // whichever of the two drew last.
+        TextField.draw(
+            graphics, font, right, my, fieldWidth + Tokens.SPACE_32, TextField.HEIGHT,
+            TextField.Edit(secret.text),
+            mask = TextField.Mask.DOTS, revealed = true, focus = 1f, caret = 1f,
+        )
+        graphics.flat("revealed", right + fieldWidth + Tokens.SPACE_48, my + Tokens.SPACE_6, Tokens.textTertiary)
+        my += TextField.HEIGHT + Tokens.SPACE_8
+        TextField.draw(
+            graphics, font, right, my, fieldWidth + Tokens.SPACE_32, TextField.HEIGHT, TextField.Edit(),
+            placeholder = "paste your key", mask = TextField.Mask.DOTS,
+        )
+        graphics.flat("empty · masked", right + fieldWidth + Tokens.SPACE_48, my + Tokens.SPACE_6, Tokens.textTertiary)
+
+        // --- stepper and slider ---
+        val stepperTop = my + Tokens.SPACE_32
+        graphics.label("STEPPER  ·  A FEW TICKS AT A TIME", right, stepperTop, Tokens.textSecondary)
+        val ticks = "138 ticks · 6.90s"
+        val stepperWidth = Stepper.width(font, ticks)
+        var sy = stepperTop + Tokens.SPACE_16
+        for ((caption, hovers) in listOf(
+            "idle" to (0f to 0f),
+            "hover +" to (0f to 1f),
+            "hover −" to (1f to 0f),
+        )) {
+            Stepper.draw(
+                graphics, font, right, sy, stepperWidth, Stepper.HEIGHT, ticks,
+                fraction = 138f / 400f, minusHover = hovers.first, plusHover = hovers.second,
+            )
+            graphics.flat(caption, right + stepperWidth + Tokens.SPACE_12, sy + Tokens.SPACE_4, Tokens.textTertiary)
+            sy += Stepper.HEIGHT + Tokens.SPACE_8
+        }
+        Stepper.draw(graphics, font, right, sy, stepperWidth, Stepper.HEIGHT, ticks, 138f / 400f, enabled = false)
+        graphics.flat("disabled", right + stepperWidth + Tokens.SPACE_12, sy + Tokens.SPACE_4, Tokens.textTertiary)
+
+        val sliderTop = y + Tokens.SPACE_16
+        graphics.label("SLIDER  ·  A SHAPE, NOT A NUMBER", left, sliderTop, Tokens.textSecondary)
+        var ly = sliderTop + Tokens.SPACE_16
+        val sliderWidth = 120
+        for ((caption, value) in listOf("0" to 0f, "45" to 0.45f, "100" to 1f)) {
+            Slider.draw(graphics, left, ly, sliderWidth, Slider.HEIGHT, value)
+            graphics.flat(caption, left + sliderWidth + Tokens.SPACE_12, ly + Tokens.SPACE_4, Tokens.textTertiary)
+            ly += Slider.HEIGHT + Tokens.SPACE_6
+        }
+        Slider.draw(graphics, left, ly, sliderWidth, Slider.HEIGHT, 0.6f, hover = 1f, active = true)
+        graphics.flat("held", left + sliderWidth + Tokens.SPACE_12, ly + Tokens.SPACE_4, Tokens.textTertiary)
+        ly += Slider.HEIGHT + Tokens.SPACE_6
+        Slider.draw(graphics, left, ly, sliderWidth, Slider.HEIGHT, 0.6f, enabled = false)
+        graphics.flat("disabled", left + sliderWidth + Tokens.SPACE_12, ly + Tokens.SPACE_4, Tokens.textTertiary)
+        ly += Slider.HEIGHT + Tokens.SPACE_6
+        // Live, so the fraction the cursor asks for can be checked against where the knob lands —
+        // including at the far right, where a slider that measures the wrong span never reaches 1.0.
+        val liveFraction = if (hit(mouseX, mouseY, left, ly, sliderWidth, Slider.HEIGHT)) {
+            Slider.fractionAt(left, sliderWidth, mouseX)
+        } else {
+            0.5f
+        }
+        Slider.draw(graphics, left, ly, sliderWidth, Slider.HEIGHT, liveFraction, hover = 1f)
+        graphics.flat(
+            "live  ·  ${Slider.valueAt(0, 100, liveFraction)}",
+            left + sliderWidth + Tokens.SPACE_12, ly + Tokens.SPACE_4, Tokens.textTertiary,
+        )
+
+        // --- bars, under the stepper so neither column runs off the bottom at gui scale 2 ---
+        val barTop = sy + Tokens.SPACE_32
+        graphics.label("PROGRESS  ·  BAR ABOVE TWELVE, SEGMENTS BELOW", right, barTop, Tokens.textSecondary)
+        var by = barTop + Tokens.SPACE_16
+        for ((caption, value) in listOf("0" to 0f, "1%" to 0.01f, "40%" to 0.4f, "99%" to 0.99f, "100%" to 1f)) {
+            ProgressBar.draw(graphics, right, by, 120, ProgressBar.HEIGHT, value)
+            graphics.flat(caption, right + 120 + Tokens.SPACE_12, by - 2, Tokens.textTertiary)
+            by += Tokens.SPACE_12
+        }
+        Surface.segments(graphics, right, by + 2, 120, ProgressBar.HEIGHT, 6, 4f, Tokens.accent, Tokens.borderDefault)
+        graphics.flat("4 of 6, countable", right + 120 + Tokens.SPACE_12, by, Tokens.textTertiary)
+    }
+
+    // --- Navigation -------------------------------------------------------------------------
+
+    /** The rail, the segmented switch, the section header, and the overlays that float above them. */
+    private fun navPage(graphics: GuiGraphicsExtractor, left: Int, top: Int, mouseX: Int, mouseY: Int) {
+        graphics.label("RAIL  ·  LIVE", left, top, Tokens.textSecondary)
+        railTop = top + Tokens.SPACE_16
+        val names = listOf("hud", "chat", "rooms", "debug")
+        val hovered = Nav.rowAt(railTop, names.size, mouseY).takeIf { mouseX in left until (left + Nav.WIDTH) } ?: -1
+        for (i in names.indices) {
+            val itemY = Nav.rowY(railTop, i)
+            val select = anim.of("nav.sel.$i", if (i == railItem) 1f else 0f)
+            select.animateTo(if (i == railItem) 1f else 0f, Motion.FAST, Easing.STANDARD, Motion.Kind.OPACITY)
+            Nav.item(
+                graphics, font, left, itemY, Nav.WIDTH, Nav.ROW, names[i],
+                select.value,
+                Controls.hover(anim.of("nav.hover.$i"), hovered == i && i != railItem),
+            )
+        }
+        Nav.divider(graphics, left + Nav.WIDTH + Tokens.SPACE_12, railTop, Nav.ROW * names.size)
+
+        val segLeft = left + Nav.WIDTH + Tokens.SPACE_32
+        graphics.label("SEGMENTED  ·  LIVE", segLeft, top, Tokens.textSecondary)
+        segmentLeft = segLeft
+        segmentTop = top + Tokens.SPACE_16
+        segmentTravel.springTo(segment.toFloat(), Motion.BASE)
+        val segHover = Segmented.indexAt(font, SEGMENTS, segmentLeft, mouseX)
+            .takeIf { mouseY in segmentTop until (segmentTop + Segmented.HEIGHT) } ?: -1
+        Segmented.draw(
+            graphics, font, segmentLeft, segmentTop, Segmented.HEIGHT,
+            SEGMENTS, segment, segmentTravel.value, segHover,
+        )
+        val segWidth = Segmented.width(font, SEGMENTS)
+        Segmented.draw(
+            graphics, font, segmentLeft, segmentTop + Segmented.HEIGHT + Tokens.SPACE_8, Segmented.HEIGHT,
+            SEGMENTS, 0, 0f, enabled = false,
+        )
+        graphics.flat("disabled", segmentLeft + segWidth + Tokens.SPACE_12, segmentTop + Segmented.HEIGHT + Tokens.SPACE_12, Tokens.textTertiary)
+
+        // The label style, and what it costs. The tracked width is what an underline or a right-hand
+        // neighbour has to be laid out from; `font.width` alone is short by the tracking.
+        // Below both columns, not below the taller-looking one: the rail is four rows and the switch is
+        // two, and hard-coding whichever is longer today is how a section lands on top of a control the
+        // next time one of them grows an entry.
+        val headerTop = maxOf(
+            Nav.rowY(railTop, names.size),
+            segmentTop + Segmented.HEIGHT * 2 + Tokens.SPACE_8,
+        ) + Tokens.SPACE_32
+        val headerWidth = 300
+        Labels.sectionHeader(graphics, font, "SECTION HEADER", left, headerTop, headerWidth, "12 rooms")
+        Labels.sectionHeader(graphics, font, "NO META", left, headerTop + Tokens.SPACE_16, headerWidth)
+        graphics.flat(
+            "tracked ${Labels.width(font, "SECTION HEADER")}px  ·  untracked ${font.width("SECTION HEADER")}px",
+            left, headerTop + Tokens.SPACE_32, Tokens.textTertiary,
+        )
+        graphics.flat(
+            "truncated to 60px: \"${Labels.fit(font, "SECTION HEADER", 60)}\"",
+            left, headerTop + Tokens.SPACE_32 + Tokens.SPACE_12, Tokens.textTertiary,
+        )
+
+        // --- overlays ---
+        val overlayTop = headerTop + Tokens.SPACE_48 + Tokens.SPACE_16
+        graphics.label("POPOVER  ·  TOOLTIP", left, overlayTop, Tokens.textSecondary)
+        Popover.frame(graphics, left, overlayTop + Tokens.SPACE_16, 160, 44)
+        graphics.flat("a popover", left + Popover.PADDING, overlayTop + Tokens.SPACE_16 + Popover.PADDING, Tokens.textPrimary)
+        graphics.flat(
+            "surfaceOverlay, E2, borderStrong",
+            left + Popover.PADDING, overlayTop + Tokens.SPACE_16 + Popover.PADDING + Tooltip.LINE, Tokens.textTertiary,
+        )
+
+        // Anchored hard against the right edge, which is the case the placement arithmetic exists for:
+        // a tooltip that would run off the screen flips to the other side of its anchor.
+        val edgeX = width - Tokens.SPACE_8
+        Tooltip.draw(
+            graphics, font, edgeX, overlayTop + Tokens.SPACE_24, width, height,
+            listOf("Thunder", "flipped — it would not fit to the right"),
+        )
+        DevicePixels.hairlineV(graphics, edgeX, overlayTop + Tokens.SPACE_16, Tokens.SPACE_24, Tokens.borderStrong)
+
+        // And one following the cursor, so the same arithmetic can be walked into every corner.
+        Tooltip.draw(
+            graphics, font, mouseX, mouseY, width, height,
+            listOf("live tooltip", "$mouseX, $mouseY"),
+        )
+    }
+
+    // --- Data -------------------------------------------------------------------------------
+
+    /** A table: its header, its rows, the detail one drops open, and what it says when it is empty. */
+    private fun dataPage(graphics: GuiGraphicsExtractor, left: Int, top: Int, mouseX: Int, mouseY: Int) {
+        val tableWidth = 300
+        graphics.label("TABLE  ·  CLICK A HEADER", left, top, Tokens.textSecondary)
+
+        headerTopY = top + Tokens.SPACE_16
+        val flip = anim.of("data.sort", if (sortDesc) 1f else 0f)
+        flip.animateTo(if (sortDesc) 1f else 0f, Motion.FAST, Easing.STANDARD, Motion.Kind.OPACITY)
+
+        val columns = listOf(
+            Triple("room", left, false),
+            Triple("clear", left + 150, true),
+            Triple("secrets", left + 220, true),
+            Triple("last", left + tableWidth, true),
+        )
+        for ((index, column) in columns.withIndex()) {
+            val (name, edge, rightAligned) = column
+            val x0 = if (rightAligned) edge - 44 else edge
+            val over = mouseX in x0..edge && mouseY in headerTopY until (headerTopY + Table.HEADER)
+            Table.headerCell(
+                graphics, font, name, x0, edge, headerTopY, rightAligned,
+                sorted = index == 0,
+                flip = flip.value,
+                hover = Controls.hover(anim.of("data.head.$index"), over && index != 0),
+            )
+        }
+        Table.divider(graphics, left, headerTopY + Tokens.SPACE_12, tableWidth)
+
+        var y = headerTopY + Tokens.SPACE_16
+        for ((caption, state) in listOf("idle" to 0, "hovered" to 1, "open" to 2)) {
+            Controls.rowHighlight(
+                graphics, left - Tokens.SPACE_8, y, tableWidth + Tokens.SPACE_16, Table.ROW,
+                if (state == 1) 1f else 0f, state == 2,
+            )
+            val textY = y + (Table.ROW - Labels.CAP) / 2
+            graphics.flat("Water Board", left, textY, if (state == 2) Tokens.textPrimary else Tokens.textSecondary)
+            graphics.flat("0:41.2", left + 150 - font.width("0:41.2"), textY, Tokens.textPrimary)
+            graphics.flat("0:19.8", left + 220 - font.width("0:19.8"), textY, Tokens.textPrimary)
+            graphics.flat("today", left + tableWidth - font.width("today"), textY, Tokens.textTertiary)
+            if (state == 0) {
+                Badge.draw(graphics, font, left + 88, y + (Table.ROW - Badge.HEIGHT) / 2, "PB", Badge.Style.SOLID)
+            }
+            graphics.flat(caption, left + tableWidth + Tokens.SPACE_16, textY, Tokens.textTertiary)
+            y += Table.ROW
+        }
+
+        // The detail the open row drops. Drawn twice — fully open, and halfway through — because the
+        // connector's whole job is to make the second of those read as coming out of the row above.
+        Table.detail(graphics, font, left, y, Table.ROW, "clear", "best 0:41.2 · 18 attempts")
+        Sparkline.draw(graphics, Table.contentX(left) + 140, y + 2, 72, Table.ROW - 4, ATTEMPTS, 120)
+        y += Table.ROW
+        Table.detail(graphics, font, left, y, Table.ROW, "floors", "M7 0:41.2 · F7 0:44.8", open = 0.5f)
+        y += Table.ROW
+        graphics.flat("detail at open = 1.0 and 0.5", left + tableWidth + Tokens.SPACE_16, y - Table.ROW, Tokens.textTertiary)
+
+        // --- empty states, side by side under the table ---
+        val emptyTop = y + Tokens.SPACE_16
+        graphics.label("EMPTY", left, emptyTop, Tokens.textSecondary)
+        val emptyY = emptyTop + Tokens.SPACE_16
+        EmptyState.draw(
+            graphics, font, left, emptyY, 200,
+            "no history yet", "finish a dungeon room and it lands here", "config/sighteaddons/history.jsonl",
+        )
+        EmptyState.draw(
+            graphics, font, left + 220, emptyY, 200,
+            "nothing matches this filter", "esc clears the search · click \"all\" for every room",
+        )
+        // Overlong, at a width that cannot hold it: truncated rather than wrapped, so the block stays
+        // where it was centred instead of growing down out of the panel it was centred in.
+        EmptyState.draw(
+            graphics, font, left + 440, emptyY, 120,
+            "a headline far longer than the space it was given",
+            "and a hint that is longer still, which is the case that has to truncate",
+        )
+    }
+
+    /** Whether ([mouseX], [mouseY]) is inside a rectangle. */
+    private fun hit(mouseX: Int, mouseY: Int, x: Int, y: Int, w: Int, h: Int): Boolean =
+        mouseX >= x && mouseX < x + w && mouseY >= y && mouseY < y + h
+
     // --- Input ------------------------------------------------------------------------------
 
     override fun keyPressed(event: KeyEvent): Boolean {
@@ -350,6 +826,10 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
             GLFW.GLFW_KEY_2 -> page = Page.MOTION
             GLFW.GLFW_KEY_3 -> page = Page.DENSITY
             GLFW.GLFW_KEY_4 -> page = Page.HUD
+            GLFW.GLFW_KEY_5 -> page = Page.CONTROLS
+            GLFW.GLFW_KEY_6 -> page = Page.INPUT
+            GLFW.GLFW_KEY_7 -> page = Page.NAV
+            GLFW.GLFW_KEY_8 -> page = Page.DATA
             GLFW.GLFW_KEY_LEFT -> page = Page.entries[(page.ordinal + Page.entries.size - 1) % Page.entries.size]
             GLFW.GLFW_KEY_RIGHT -> page = Page.entries[(page.ordinal + 1) % Page.entries.size]
             GLFW.GLFW_KEY_T -> dark = !dark
@@ -367,6 +847,50 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
         return true
     }
 
+    /**
+     * The live specimens' input. Everything else on this screen is frozen and needs none.
+     *
+     * A press has to be held to be judged — whether it feels attached to the cursor is the whole
+     * question — so the flag is cleared on release rather than on the next click.
+     */
+    override fun mouseClicked(event: MouseButtonEvent, doubleClick: Boolean): Boolean {
+        val mouseX = event.x().toInt()
+        val mouseY = event.y().toInt()
+        when (page) {
+            Page.CONTROLS -> {
+                pressed = true
+                return true
+            }
+            Page.NAV -> {
+                val row = Nav.rowAt(railTop, 4, mouseY)
+                if (row >= 0 && mouseX in Tokens.SPACE_24 until (Tokens.SPACE_24 + Nav.WIDTH)) {
+                    railItem = row
+                    return true
+                }
+                if (mouseY in segmentTop until (segmentTop + Segmented.HEIGHT)) {
+                    val index = Segmented.indexAt(font, SEGMENTS, segmentLeft, mouseX)
+                    if (index >= 0) {
+                        segment = index
+                        return true
+                    }
+                }
+            }
+            Page.DATA -> {
+                if (mouseY in headerTopY until (headerTopY + Table.HEADER)) {
+                    sortDesc = !sortDesc
+                    return true
+                }
+            }
+            else -> Unit
+        }
+        return super.mouseClicked(event, doubleClick)
+    }
+
+    override fun mouseReleased(event: MouseButtonEvent): Boolean {
+        pressed = false
+        return super.mouseReleased(event)
+    }
+
     /** The gallery is a tool, not a menu — it should not stop the world behind it. */
     override fun isPauseScreen(): Boolean = false
 
@@ -382,18 +906,26 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
      * which is exactly the kind of thing the bundled TTF removes. Until then this is what the label
      * style costs, and seeing it here rather than reading about it is the point of the gallery.
      */
-    private fun GuiGraphicsExtractor.label(str: String, x: Int, y: Int, colour: Int) {
-        var cursor = x.toFloat()
-        for (i in str.indices) {
-            val glyph = str.substring(i, i + 1)
-            text(font, glyph, Math.round(cursor), y, colour, false)
-            cursor += font.width(glyph) + Tokens.TRACKING_LABEL
-        }
-    }
+    private fun GuiGraphicsExtractor.label(str: String, x: Int, y: Int, colour: Int) =
+        Labels.draw(this, font, str, x, y, colour)
 
     private fun hex(argb: Int): String = String.format(Locale.ROOT, "#%06X", argb and 0xFFFFFF)
 
     private companion object {
+        /** The segmented control's specimen options. Three, which is what the control is for. */
+        val SEGMENTS = listOf("all", "F7", "M7")
+
+        /** A room's progression, for the sparkline in the table's detail row. */
+        val ATTEMPTS = listOf(
+            RoomHistory.Attempt(112, 0L, "F7", false),
+            RoomHistory.Attempt(96, 0L, "F7", true),
+            RoomHistory.Attempt(104, 0L, "M7", false),
+            RoomHistory.Attempt(88, 0L, "M7", true),
+            RoomHistory.Attempt(93, 0L, "M7", false),
+            RoomHistory.Attempt(82, 0L, "M7", true),
+        )
+
+        const val CHIP_H = 18
         const val SWATCH = 72
         const val SWATCH_H = 40
         const val PLOT = 72

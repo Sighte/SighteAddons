@@ -54,8 +54,19 @@ nicht gegriffen**, und dann ist die Sidebar-Zeile `Cleared: X%` der nächste Kan
   Live-Overlay steht währenddessen still (`HudRoot.editing`, in `removed()` gelöscht).
   Anchor+Offset statt `hudX`/`hudY` steht weiter aus — heute sind es absolute Pixel, die bei
   einem Auflösungswechsel wandern.
+- [x] **Phase 2** — Komponenten. `ui/components/`: `Labels` (die drei kopierten Tracking-Loops sind
+  jetzt einer), `Button` (3 Varianten), `TextField` + `Edit`, `Stepper`/`Slider`, `Nav`/`Segmented`,
+  `Popover`/`Tooltip`, `Badge`, `EmptyState`, `Table`, `ProgressBar`. Gallery-Seiten 5–8 (`controls`,
+  `input`, `nav`, `data`) zeigen jede in jedem Zustand. **`SettingsScreen` ist absichtlich noch nicht
+  umgestellt** — das ist Phase 4/5, und die Screens werden dort ohnehin neu gebaut.
+  Das Textfeld existiert für `Config.hypixelKey`, der bis heute keine UI hat: maskiert per Default,
+  Reveal ist eine Handlung und kein gespeicherter Schalter — der Einwand in `Config` gilt einem Feld,
+  das den Key *anzeigt*, nicht einem Feld.
+  Nebenbefund: `SettingsScreen` reicht lange Raumnamen an `setTooltipForNextFrame` weiter, und
+  Vanillas Box ist mit ihrem lila Rand das einzige Farbige auf dem ganzen Bildschirm. `Tooltip` ersetzt
+  sie, sobald Phase 4 den Screen anfasst.
 - [ ] Phase 3b Rest: StormHud/ClearPopup auf das Design-System umstellen
-- [ ] Phase 2 Komponenten · 4 Stats · 5 Config+Migration · 6 Chat · 7 Politur
+- [ ] 4 Stats · 5 Config+Migration · 6 Chat · 7 Politur
 
 Zwei Sachen aus Phase 1, die nicht in der Vorlage standen:
 

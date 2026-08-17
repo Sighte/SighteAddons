@@ -4,6 +4,7 @@ import net.minecraft.client.gui.Font
 import net.minecraft.client.gui.GuiGraphicsExtractor
 import sighteaddons.Config
 import sighteaddons.ui.Format
+import sighteaddons.ui.components.Labels
 import sighteaddons.ui.motion.Animatable
 import sighteaddons.ui.motion.Clock
 import sighteaddons.ui.motion.Easing
@@ -228,7 +229,7 @@ internal class HudRoot {
         if (!snapshot.inRoom) {
             // Between rooms is a state worth showing rather than a gap to hide: it is exactly when
             // the idle and navigation counters are the numbers that are moving.
-            graphics.label(font, "BETWEEN ROOMS", left, y + 2, Tokens.fade(Tokens.textTertiary, appear))
+            Labels.draw(graphics, font, "BETWEEN ROOMS", left, y + 2, Tokens.fade(Tokens.textTertiary, appear))
             return y + ROOM_BLOCK
         }
 
@@ -255,8 +256,8 @@ internal class HudRoot {
 
         val nameLeft = left + Glyphs.SIZE + Tokens.SPACE_6
         val nameRoom = right - clockWidth - Tokens.SPACE_8 - nameLeft
-        graphics.label(
-            font, fitLabel(font, snapshot.roomName.uppercase(), nameRoom),
+        Labels.draw(
+            graphics, font, Labels.fit(font, snapshot.roomName.uppercase(), nameRoom),
             nameLeft, y + NAME_Y,
             Tokens.fade(Tokens.textPrimary, appear),
         )
@@ -273,25 +274,6 @@ internal class HudRoot {
         }
 
         return y + ROOM_BLOCK
-    }
-
-    /**
-     * Truncates [value] to [maxWidth], measured *with* label tracking.
-     *
-     * `Font.plainSubstrByWidth` cannot be used directly here: it measures the glyphs alone, while
-     * [label] adds tracking between every pair of them. On a long room name that difference is several
-     * pixels, which is the difference between a name that stops short of the clock and one that runs
-     * underneath it.
-     */
-    private fun fitLabel(font: Font, value: String, maxWidth: Int): String {
-        if (maxWidth <= 0) return ""
-        var width = 0f
-        for (i in value.indices) {
-            val glyph = font.width(value.substring(i, i + 1)) + Tokens.TRACKING_LABEL
-            if (width + glyph > maxWidth) return value.substring(0, i)
-            width += glyph
-        }
-        return value
     }
 
     private fun drawSecrets(
@@ -436,22 +418,6 @@ internal class HudRoot {
 
     /** Config carries the scrim's opacity as a percentage; the spec's default range is 55–70 %. */
     private fun scrimAlpha(): Int = 160
-
-    /**
-     * An 11px uppercase label with tracking, drawn glyph by glyph.
-     *
-     * The bitmap font has no letter-spacing, so tracking costs one draw per character. That is the
-     * strongest single argument for the bundled TTF, and it is deliberately visible here rather than
-     * hidden behind a helper that quietly drops the tracking.
-     */
-    private fun GuiGraphicsExtractor.label(font: Font, value: String, x: Int, y: Int, argb: Int) {
-        var cursor = x.toFloat()
-        for (i in value.indices) {
-            val glyph = value.substring(i, i + 1)
-            text(font, glyph, Math.round(cursor), y, argb, false)
-            cursor += font.width(glyph) + Tokens.TRACKING_LABEL
-        }
-    }
 
     companion object {
         /** The one attached to the HUD element. */
