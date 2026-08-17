@@ -73,14 +73,15 @@ internal class HudRoot {
     private var summarySecrets = Int.MIN_VALUE
     private var summaryText = ""
 
-    /** Whether the run totals are open. Toggled by [HudKeys], animated here. */
-    private var expanded = false
+    /**
+     * How open the run totals are, animated. **Whether** they are open is [Config.totalsOpen].
+     *
+     * The state used to be a field here, flipped by [HudKeys] and reset to closed on every game start —
+     * which meant a player who wanted the panel had to press a key every session, and a player whose key
+     * was unbound could not have it at all. It is a setting now, so both the `/sa` row and the keybind
+     * change one value, and this class holds only the curve between the two ends of it.
+     */
     private val totalsOpen = Animatable(0f)
-
-    fun toggleTotals() {
-        expanded = !expanded
-        totalsOpen.animateTo(if (expanded) 1f else 0f, Motion.BASE, Easing.STANDARD, Motion.Kind.OPACITY)
-    }
 
     /** The live overlay: config position, live snapshot. */
     fun render(graphics: GuiGraphicsExtractor, font: Font) {
@@ -137,6 +138,15 @@ internal class HudRoot {
             Motion.BASE,
             if (snapshot.inBoss) Easing.EXIT else Easing.ENTRANCE,
             Motion.Kind.OPACITY,
+        )
+
+        // The panel follows the setting, on the same terms and for the same reason as the line above:
+        // `animateTo` ignores a target it is already heading to, so this costs one comparison per frame
+        // and needs no field to remember that it ran. It also means the `/sa` switch animates the panel
+        // while the screen is open, which is the only way to see what that switch does.
+        totalsOpen.animateTo(
+            if (Config.totalsOpen) 1f else 0f,
+            Motion.BASE, Easing.STANDARD, Motion.Kind.OPACITY,
         )
 
         val appear = cardAlpha.value
@@ -395,6 +405,12 @@ internal class HudRoot {
      * between rooms all of it is. Both halves of what the old corner readout showed live in here: the
      * per-player ClearPoints standings and the two run counters. Neither was dropped in the rebuild —
      * they moved behind a key rather than occupying five permanent lines.
+     *
+     * **"By default" is now the whole of that claim.** [Config.totalsOpen] can hold the panel open for a
+     * player who wants the numbers there all the time, which the rebuild had no way of expressing: the
+     * state was a field here, so the only answer to "I want to see this" was a keybind pressed every
+     * session. The argument above is why the *default* is still closed and not why the choice should not
+     * exist — five permanent lines is a bad default, not a forbidden preference.
      */
     private fun drawTotals(
         graphics: GuiGraphicsExtractor, font: Font, snapshot: HudSnapshot,

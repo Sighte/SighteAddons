@@ -170,7 +170,15 @@ class SighteAddons : ClientModInitializer {
     private fun onTick(client: Minecraft) {
         // Outside the dungeon gate: the key is drained every tick regardless, so a press made while
         // the queue is not being read does not sit there and fire on the next dungeon entry.
-        if (HudKeys.tick()) HudRoot.live.toggleTotals()
+        // The keybind and the `/sa` switch change one value, so a player can have the panel either way
+        // round: open all the time, or a keypress away. Written to the file, because the alternative is a
+        // panel that forgets every game start — which is what the flag this replaced did, and half of why
+        // switching on "idle & nav" looked like nothing happening. One small write per keypress, and a
+        // keypress is a human action; the per-frame case this file is careful about is the scrim slider.
+        if (HudKeys.tick()) {
+            Config.totalsOpen = !Config.totalsOpen
+            Config.save()
+        }
 
         if (!DungeonSession.inDungeon(client)) return
 

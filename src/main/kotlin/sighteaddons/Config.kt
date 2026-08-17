@@ -104,8 +104,28 @@ object Config {
      * The live "Idle · Nav" line — see [IdleTime]. Its own switch for the same reason
      * [showSecrets] has one: it is a standing readout about the whole run, and the navigation half
      * is at its most interesting exactly when the current-room block is empty.
+     *
+     * Drawn inside the run-totals panel, so it needs [totalsOpen] as well as this.
      */
     var showIdle = true
+
+    /**
+     * Whether the run-totals panel is open — the standings and the idle/navigation split.
+     *
+     * **A setting, since a player switched on [showIdle] and correctly reported that nothing happened.**
+     * It was a field on `HudRoot`, flipped only by `HudKeys.expandTotals`, and that keybind ships
+     * unbound: two switches controlling lines inside a panel with no reachable handle, and the panel
+     * forgot itself on every game start even for somebody who had bound one.
+     *
+     * The keybind flips this same value rather than a second copy of it — one state with two ways in, so
+     * the `/sa` row can never disagree with what is on screen. Which also means the panel now persists: a
+     * player who wants it open all the time switches it on once.
+     *
+     * Closed by default, and that is deliberate rather than inherited. Both switches inside it default to
+     * on, so an open default would put the old permanent five-line corner readout back — exactly what the
+     * HUD rebuild took out. The choice is the player's; the default stays the redesigned one.
+     */
+    var totalsOpen = false
 
     /**
      * The large centred line when you finish a room yourself. Separate from [hud] on purpose:
@@ -320,6 +340,7 @@ object Config {
             showStandings = obj.bool("showStandings", showStandings)
             showSecrets = obj.bool("showSecrets", showSecrets)
             showIdle = obj.bool("showIdle", showIdle)
+            totalsOpen = obj.bool("totalsOpen", totalsOpen)
             clearPopup = obj.bool("clearPopup", clearPopup)
             stormTimer = obj.bool("stormTimer", stormTimer)
             // Clamped on the way in as well as on the way round in `/sa`. A hand-edited config is the
@@ -368,6 +389,7 @@ object Config {
         obj.addProperty("showStandings", showStandings)
         obj.addProperty("showSecrets", showSecrets)
         obj.addProperty("showIdle", showIdle)
+        obj.addProperty("totalsOpen", totalsOpen)
         obj.addProperty("clearPopup", clearPopup)
         obj.addProperty("stormTimer", stormTimer)
         obj.addProperty("stormCountdownTicks", stormCountdownTicks)

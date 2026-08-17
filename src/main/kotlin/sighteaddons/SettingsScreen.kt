@@ -1000,6 +1000,18 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         // nothing on this screen that could have said why. See HudKeys. The grouping is the fix and the
         // row is the rest of it: knowing the key is missing is no use without a way to set it.
         section("run totals")
+        // **The panel's own switch, which is the same value the keybind flips.** One state with two ways
+        // in, so this row can never disagree with what is on screen, and a player who wants the panel
+        // permanently switches it on once instead of pressing a key every session — see
+        // Config.totalsOpen for why it used to be neither.
+        toggle("show the panel", Config.totalsOpen) { Config.totalsOpen = !Config.totalsOpen }
+        note(
+            if (Config.totalsOpen) {
+                "stays open — in every run, and after a restart"
+            } else {
+                "closed: the two lines below are inside it"
+            },
+        )
         HudKeys.expand?.let { key ->
             action("expand key", if (key.isUnbound) "unbound · bind" else "${key.translatedKeyMessage.string} · change") {
                 // Vanilla's screen rather than a bind capture of our own: this screen has no widget tree
@@ -1008,11 +1020,14 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
                 // screen as the parent means Done comes back here.
                 minecraft.setScreen(KeyBindsScreen(this@SettingsScreen, minecraft.options))
             }
+            // Three states and three sentences, because the useless one is a *pair* of settings rather
+            // than either of them: a closed panel with an unbound key is the case where switching on
+            // "idle & nav" does nothing at all, and it is the only case worth a warning.
             note(
-                if (key.isUnbound) {
-                    "nothing below can show until this is bound"
-                } else {
-                    "press it in a run to open the panel"
+                when {
+                    !key.isUnbound -> "press it in a run to open and close the panel"
+                    Config.totalsOpen -> "the panel is open above, so this is optional"
+                    else -> "unbound and closed: nothing below can show"
                 },
             )
         }

@@ -65,6 +65,15 @@ nicht gegriffen**, und dann ist die Sidebar-Zeile `Cleared: X%` der nächste Kan
   `FabricLoader`). **Ein v0-File wird erst umgerechnet, wenn eine echte `guiScaled`-Größe vorliegt** —
   aus zwei absoluten Pixeln allein ist der Anker nicht ableitbar; bis dahin bleibt die Datei v0 und die
   Karte steht auf demselben Pixel wie vorher.
+- [x] **Das Run-Totals-Panel ist eine Einstellung** (`Config.totalsOpen`, Default zu) — auf Wunsch des
+  Users, nachdem der Keybind-Fix nur die halbe Antwort war. Der Zustand war ein Feld auf `HudRoot`, das
+  bei jedem Spielstart auf „zu" zurückfiel; jetzt ein Config-Wert, den **Keybind und `/sa`-Schalter
+  beide umlegen** — ein Zustand, zwei Wege, also kann die Zeile im Screen nicht widersprechen, und wer
+  es dauerhaft will, klickt einmal. `HudRoot` hält nur noch die Kurve (`animateTo` gegen
+  `Config.totalsOpen` pro Frame, mit demselben Argument wie `cardAlpha`), wodurch der Schalter das
+  Panel *im laufenden Screen* auf- und zufahren lässt. Default bleibt zu: `showIdle` **und**
+  `showStandings` sind an, offen wäre also der alte Fünf-Zeilen-Corner-Readout zurück, den der Rebuild
+  rausgenommen hat — fünf Dauerzeilen sind ein schlechter Default, keine verbotene Vorliebe.
 - [x] **Der Run-Totals-Keybind war eine Falle** — vom User gefunden: „idle & nav" anschalten, im HUD
   passiert nichts. Kein Zählfehler (`IdleTime.tick` läuft, `HudSnapshot` trägt beide Felder, `HudRoot`
   zeichnet sie) — die beiden Zeilen sitzen **im ausklappbaren Panel**, dessen einziger Griff
