@@ -2,7 +2,7 @@
 
 ## Stand — 2026-08-17
 
-`main` = 321 Tests / 24 Klassen / grün. `mod_version` 0.15.0, released, Modrinth-Version `YNlbBvlI`
+`main` = 324 Tests / 24 Klassen / grün. `mod_version` 0.15.0, released, Modrinth-Version `YNlbBvlI`
 mit identischem Jar. `RunReport.SCHEMA` 6, Receiver (`master` `1a7f435`) akzeptiert `idleTicks`/
 `navTicks` als optional und ist deployt — **dem Receiver ist nichts geschuldet.**
 
@@ -24,6 +24,9 @@ CLAUDE.md-Regel 2, gilt nur hier und fällt danach zurück.
   `Glyphs`, `HudKeys`), HUD-Vorschau als Gallery-Seite 4 mit gescriptetem Lauf.
   Der alte Corner-Readout ist weg; `idle`/`nav` und die Standings sitzen jetzt in den ausklappbaren
   Run-Totals (Keybind, standardmäßig ungebunden).
+  Die Karte blendet sich beim Betreten des Bossraums aus (`inBoss` auf dem Snapshot) — der Run-Clock
+  läuft darunter weiter. **Der User testet gerade `0.16.0-dev4`** (nur `build/libs`, `assemble check`
+  mit `-Pmod_version=…`, `dist/` bleibt das released 0.15.0).
 - [ ] Phase 3b HUD-Editor (Anchor+Offset statt `hudX`/`hudY`), StormHud/ClearPopup umstellen
 - [ ] Phase 2 Komponenten · 4 Stats · 5 Config+Migration · 6 Chat · 7 Politur
 
