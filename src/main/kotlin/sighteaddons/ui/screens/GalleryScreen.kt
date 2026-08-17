@@ -5,6 +5,7 @@ import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.input.KeyEvent
 import net.minecraft.network.chat.Component
 import org.lwjgl.glfw.GLFW
+import sighteaddons.ui.hud.HudRoot
 import sighteaddons.ui.motion.Clock
 import sighteaddons.ui.motion.Easing
 import sighteaddons.ui.motion.Motion
@@ -38,6 +39,7 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
         COLOUR("colour"),
         MOTION("motion"),
         DENSITY("density"),
+        HUD("hud"),
     }
 
     private var page = Page.COLOUR
@@ -45,11 +47,15 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
     private val knob = Spring(0f)
     private var knobFlippedAt = 0.0
 
+    /** The preview's own HUD instance, so its animation stamps never touch the live overlay's. */
+    private val previewHud = HudRoot()
+    private var previewPaused = false
+    private var previewHeldAt = 0.0
+    private var previewOffset = 0.0
+
     override fun extractBackground(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int, delta: Float) {
-        val window = minecraft?.window
-        if (window != null) {
-            Density.beginFrame(window.width, window.height, window.guiScaledWidth, window.guiScaledHeight)
-        }
+        val window = minecraft.window
+        Density.beginFrame(window.width, window.height, window.guiScaledWidth, window.guiScaledHeight)
         Clock.frame(paused = false)
         Tokens.theme(dark)
         graphics.fill(0, 0, width, height, Tokens.surfaceBase)
@@ -77,9 +83,14 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
             Page.COLOUR -> colourPage(graphics, left, top)
             Page.MOTION -> motionPage(graphics, left, top)
             Page.DENSITY -> densityPage(graphics, left, top)
+            Page.HUD -> hudPage(graphics, left, top)
         }
 
-        val footer = "1-3 page  ·  T theme  ·  M reduce motion (${if (Motion.reduceMotion) "on" else "off"})  ·  esc close"
+        val footer = if (page == Page.HUD) {
+            "1-4 page  ·  T theme  ·  M reduce motion  ·  space ${if (previewPaused) "run" else "hold"}  ·  , . step  ·  esc close"
+        } else {
+            "1-4 page  ·  T theme  ·  M reduce motion (${if (Motion.reduceMotion) "on" else "off"})  ·  esc close"
+        }
         graphics.flat(footer, left, height - Tokens.SPACE_20, Tokens.textTertiary)
     }
 
@@ -228,26 +239,25 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
     // --- Density ----------------------------------------------------------------------------
 
     private fun densityPage(graphics: GuiGraphicsExtractor, left: Int, top: Int) {
-        val window = minecraft?.window
+        val window = minecraft.window
         graphics.label("DEVICE SCALE", left, top, Tokens.textSecondary)
 
         var y = top + Tokens.SPACE_16
-        if (window != null) {
-            // Both numbers, side by side, because the whole point is that they differ. If the two
-            // scale rows ever read the same as the nominal row, the derivation has been lost.
-            val rows = listOf(
-                "framebuffer" to "${window.width} x ${window.height}",
-                "gui scaled" to "${window.guiScaledWidth} x ${window.guiScaledHeight}",
-                "nominal gui scale" to "${window.guiScale}",
-                "derived scale x" to String.format(Locale.ROOT, "%.4f", Density.scaleX),
-                "derived scale y" to String.format(Locale.ROOT, "%.4f", Density.scaleY),
-                "hairline" to "${Density.hairline} device px",
-            )
-            for ((name, value) in rows) {
-                graphics.flat(name, left, y, Tokens.textTertiary)
-                graphics.flat(value, left + 160, y, Tokens.textPrimary)
-                y += Tokens.SPACE_12
-            }
+        // The nominal scale and the derived one, side by side, because the whole point is that they
+        // differ. If the two derived rows ever read exactly the nominal value at a window size that
+        // does not divide evenly, the per-axis derivation has been lost somewhere.
+        val rows = listOf(
+            "framebuffer" to "${window.width} x ${window.height}",
+            "gui scaled" to "${window.guiScaledWidth} x ${window.guiScaledHeight}",
+            "nominal gui scale" to "${window.guiScale}",
+            "derived scale x" to String.format(Locale.ROOT, "%.4f", Density.scaleX),
+            "derived scale y" to String.format(Locale.ROOT, "%.4f", Density.scaleY),
+            "hairline" to "${Density.hairline} device px",
+        )
+        for ((name, value) in rows) {
+            graphics.flat(name, left, y, Tokens.textTertiary)
+            graphics.flat(value, left + 160, y, Tokens.textPrimary)
+            y += Tokens.SPACE_12
         }
 
         // The comparison that justifies the whole device-pixel path. At GUI scale 1 these two look
@@ -286,6 +296,52 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
         }
     }
 
+    // --- HUD --------------------------------------------------------------------------------
+
+    /**
+     * The HUD, fed a scripted run.
+     *
+     * Drawn twice at two GUI scales side by side, because the two things most likely to be wrong are
+     * both scale-dependent: the hairline border and the fixed card width against variable text.
+     */
+    private fun hudPage(graphics: GuiGraphicsExtractor, left: Int, top: Int) {
+        val elapsed = previewTime()
+        val snapshot = HudPreview.at(elapsed)
+
+        graphics.label("SCRIPTED RUN  ·  %.1fs OF %.0fs".format(Locale.ROOT, (elapsed % HudPreview.CYCLE_MS) / 1000.0, HudPreview.CYCLE_MS / 1000.0), left, top, Tokens.textSecondary)
+
+        // The card over a mid grey rather than over the screen background: the HUD's whole backdrop
+        // problem is that it sits on something bright and busy, and previewing it on a near-black
+        // panel would flatter the scrim into looking like it works.
+        val stageTop = top + Tokens.SPACE_16
+        val stageWidth = HudRoot.WIDTH + Tokens.SPACE_32
+        graphics.fill(left, stageTop, left + stageWidth, stageTop + 190, MID)
+        previewHud.draw(graphics, font, snapshot, left + Tokens.SPACE_16, stageTop + Tokens.SPACE_16)
+
+        // The same card again at double size, for reading the layout and checking that text still
+        // fits its box. Note what it does *not* show: under a scaled pose DevicePixels bails to its
+        // one-GUI-pixel fallback, so the borders here are the fallback path, not the device-pixel one.
+        // Judging hairline thickness needs the game's own GUI scale changed, not this.
+        val zoomX = left + stageWidth + Tokens.SPACE_24
+        graphics.label("AT 2x", zoomX, top, Tokens.textSecondary)
+        val pose = graphics.pose()
+        pose.pushMatrix()
+        pose.translate(zoomX.toFloat(), stageTop.toFloat())
+        pose.scale(2f, 2f)
+        graphics.fill(0, 0, stageWidth, 190, MID)
+        // A second HUD instance would be needed for correct animation state here; reusing the same one
+        // is deliberate, so both cards show exactly the same frame of the same script.
+        previewHud.draw(graphics, font, snapshot, Tokens.SPACE_16, Tokens.SPACE_16)
+        pose.popMatrix()
+
+        val notes = "scrim is the only backdrop — blurBeforeThisStratum would blur the hotbar too"
+        graphics.flat(notes, left, stageTop + 200, Tokens.textTertiary)
+    }
+
+    /** Preview time, honouring the hold and the manual step. */
+    private fun previewTime(): Double =
+        (if (previewPaused) previewHeldAt else Clock.nowMs) + previewOffset
+
     // --- Input ------------------------------------------------------------------------------
 
     override fun keyPressed(event: KeyEvent): Boolean {
@@ -293,10 +349,19 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
             GLFW.GLFW_KEY_1 -> page = Page.COLOUR
             GLFW.GLFW_KEY_2 -> page = Page.MOTION
             GLFW.GLFW_KEY_3 -> page = Page.DENSITY
+            GLFW.GLFW_KEY_4 -> page = Page.HUD
             GLFW.GLFW_KEY_LEFT -> page = Page.entries[(page.ordinal + Page.entries.size - 1) % Page.entries.size]
             GLFW.GLFW_KEY_RIGHT -> page = Page.entries[(page.ordinal + 1) % Page.entries.size]
             GLFW.GLFW_KEY_T -> dark = !dark
             GLFW.GLFW_KEY_M -> Motion.reduceMotion = !Motion.reduceMotion
+            // Hold the script so a single frame of an animation can be studied, and step it by a
+            // quarter second either way. A 400ms pulse is otherwise over before it can be judged.
+            GLFW.GLFW_KEY_SPACE -> {
+                previewPaused = !previewPaused
+                if (previewPaused) previewHeldAt = Clock.nowMs
+            }
+            GLFW.GLFW_KEY_COMMA -> previewOffset -= STEP_MS
+            GLFW.GLFW_KEY_PERIOD -> previewOffset += STEP_MS
             else -> return super.keyPressed(event)
         }
         return true
@@ -335,6 +400,10 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
         const val DOT = 10
         const val LOOP_MS = 2000.0
         const val SPRING_FLIP_MS = 1200.0
+        const val STEP_MS = 250.0
+
+        /** The stage the HUD preview sits on — a mid grey standing in for a lit dungeon. */
+        val MID = 0xFF6E7378.toInt()
 
         /**
          * The one colour in this UI that is not in the ramp, and it is not part of the design: it

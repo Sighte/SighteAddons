@@ -2,7 +2,7 @@
 
 ## Stand — 2026-08-17
 
-`main` = 314 Tests / 23 Klassen / grün. `mod_version` 0.15.0, released, Modrinth-Version `YNlbBvlI`
+`main` = 321 Tests / 24 Klassen / grün. `mod_version` 0.15.0, released, Modrinth-Version `YNlbBvlI`
 mit identischem Jar. `RunReport.SCHEMA` 6, Receiver (`master` `1a7f435`) akzeptiert `idleTicks`/
 `navTicks` als optional und ist deployt — **dem Receiver ist nichts geschuldet.**
 
@@ -18,7 +18,14 @@ CLAUDE.md-Regel 2, gilt nur hier und fällt danach zurück.
 - [x] **Phase 1** — Tokens, Motion, Gallery. `ui/theme/` (`Tokens`, `Palette`, `Contrast`,
   `Density`), `ui/motion/` (`Clock`, `Easing`, `Animatable`, `Spring`, `Motion`),
   `ui/render/DevicePixels`, `ui/screens/GalleryScreen` hinter `/sa gallery`. Nichts sichtbar geändert.
-- [ ] Phase 2 Komponenten · 3 HUD+Editor · 4 Stats · 5 Config+Migration · 6 Chat · 7 Politur
+- [x] **Phase 3a** — HUD. Auf Wunsch des Users vor Phase 2 gezogen; Komponenten werden nachgereicht,
+  wie das HUD sie braucht. Sprite-Sheet (`tools/gen_ui_sheet.py` → 7 KB, **die ersten Texturen der
+  Mod**), `ui/render/` (`Sheet`, `Surface`, `Effects`), `ui/hud/` (`HudSnapshot`, `HudRoot`,
+  `Glyphs`, `HudKeys`), HUD-Vorschau als Gallery-Seite 4 mit gescriptetem Lauf.
+  Der alte Corner-Readout ist weg; `idle`/`nav` und die Standings sitzen jetzt in den ausklappbaren
+  Run-Totals (Keybind, standardmäßig ungebunden).
+- [ ] Phase 3b HUD-Editor (Anchor+Offset statt `hudX`/`hudY`), StormHud/ClearPopup umstellen
+- [ ] Phase 2 Komponenten · 4 Stats · 5 Config+Migration · 6 Chat · 7 Politur
 
 Zwei Sachen aus Phase 1, die nicht in der Vorlage standen:
 
@@ -29,6 +36,24 @@ Zwei Sachen aus Phase 1, die nicht in der Vorlage standen:
 - **`Density` leitet den Maßstab aus `framebuffer / guiScaled` ab, pro Achse** — nicht aus
   `getGuiScale()`. Bei 1366×768 / Scale 4 ist x = 3.9942 und y = 4.0; mit der nominellen 4 driftet
   eine 420px-Fläche um 0.6 Gerätepixel, und ein Rand verschwindet.
+
+Drei Sachen aus Phase 3a, die die Vorlage anders wollte:
+
+- **„Allokationsfrei pro Frame" geht nicht.** `GuiGraphicsExtractor.innerFill` legt pro Aufruf eine
+  `ColoredRectangleRenderState` **und** eine defensive `Matrix3x2f`-Kopie an; `fillGradient` boxt
+  zusätzlich die zweite Farbe. Zwei bis drei Objekte pro Draw, in Vanilla, ohne Ausweg. Das erreichbare
+  Ziel ist **null Allokation auf unserer Seite, Draw-Calls als Budget** — daher `Format.Cached`.
+- **Kein Blur hinter dem HUD.** `blurBeforeThisStratum()` blurrt alles bereits Eingereichte,
+  bildschirmfüllend, ohne Form — bei `attachElementAfter(OVERLAY_MESSAGE)` also Welt *plus* Hotbar,
+  Leben, Hunger und XP-Leiste, während der Chat scharf bleibt. Der Scrim ist nicht der Default,
+  sondern die einzige Option.
+- **Ein 1-Gerätepixel-Rand um eine *Rundung* geht aus einem festaufgelösten Sprite nicht.** Gerade
+  Hairlines sind exakt; die Bögen sind 1 *GUI*-Pixel. `Surface.roundedBorder` besitzt die
+  Entscheidung, ein Upgrade auf pro-Scale gebackene Ringe fasst keine Aufrufstelle an.
+
+`fabric-key-binding-api-v1` heißt in 26.1.2 **`fabric-key-mapping-api-v1`**, der Helper
+`KeyMappingHelper.registerKeyMapping`, und die Kategorie ist ein `KeyMapping.Category`-Record um eine
+`Identifier` — Sprachschlüssel `key.category.<namespace>.<path>`.
 
 Das Modrinth-Projekt antwortet Nicht-Eingeloggten mit 404 (noch in Review), der Build ist also nur
 per direktem CDN-Link erreichbar. Veröffentlichen ist dein Schritt.

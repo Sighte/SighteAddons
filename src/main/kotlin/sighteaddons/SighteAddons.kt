@@ -11,8 +11,14 @@ import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry
 import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements
 import net.minecraft.ChatFormatting
 import net.minecraft.client.Minecraft
+import net.minecraft.client.gui.Font
 import net.minecraft.client.gui.GuiGraphicsExtractor
+import sighteaddons.ui.hud.HudKeys
+import sighteaddons.ui.hud.HudRoot
+import sighteaddons.ui.hud.HudSnapshot
+import sighteaddons.ui.motion.Clock
 import sighteaddons.ui.screens.GalleryScreen
+import sighteaddons.ui.theme.Density
 import net.minecraft.network.chat.Component
 import net.minecraft.resources.Identifier
 import sighteaddons.mixin.PlayerTabOverlayAccessor
@@ -44,6 +50,7 @@ class SighteAddons : ClientModInitializer {
             ContributionTracker.onChunkLoad(chunk.pos.x, chunk.pos.z)
         }
         SecretTracker.init()
+        HudKeys.register()
         // The second parameter marks action bar messages, which is where Hypixel puts the current
         // room's secret progress — everything else is ordinary chat.
         ClientReceiveMessageEvents.GAME.register { text, overlay ->
@@ -63,6 +70,10 @@ class SighteAddons : ClientModInitializer {
             // RunReport.reported.
             RunReport.write(complete = false)
             DungeonSession.reset()
+            // The HUD is gated on calibration and so is already invisible here, but a snapshot of the
+            // previous run left in the field would be the first thing the next one draws before its
+            // own first tick lands.
+            HudSnapshot.clear()
             uploadNotice()
         }
         // The other way out of a floor, and the one that cost a real M7 on 2026-08-14: quitting the
@@ -154,13 +165,23 @@ class SighteAddons : ClientModInitializer {
     }
 
     private fun onTick(client: Minecraft) {
+        // Outside the dungeon gate: the key is drained every tick regardless, so a press made while
+        // the queue is not being read does not sit there and fire on the next dungeon entry.
+        if (HudKeys.tick()) HudRoot.live.toggleTotals()
+
         if (!DungeonSession.inDungeon(client)) return
         val map = DungeonMapReader.mapState(client) ?: return
         val wasCalibrated = DungeonSession.calibrated
         if (!DungeonSession.update(client, map)) {
             // In the boss: stop sampling rooms but keep the run clock going, so the summary
             // reports the real run time and not just the clear phase.
-            if (DungeonSession.calibrated) DungeonSession.tickClock()
+            if (DungeonSession.calibrated) {
+                DungeonSession.tickClock()
+                // Republish, or the HUD freezes on the last clear-phase snapshot and the run clock
+                // stops on screen while it is still running underneath. The old readout kept ticking
+                // here because it read the field live; the snapshot has to be told.
+                HudSnapshot.publish(client)
+            }
             return
         }
         if (!wasCalibrated) {
@@ -186,6 +207,13 @@ class SighteAddons : ClientModInitializer {
         // early returns above: the boss advances the clock without being either a room or a
         // corridor, and counting it as navigation would make every run look like an hour of walking.
         IdleTime.tick(currentRoom(client))
+
+        // Last, so the snapshot the HUD reads is built from state every tracker above has already
+        // advanced this tick. The renderer never reaches into the trackers itself: records(),
+        // attempts() and pointsByPlayer() all hand out their live internal maps, and ensureLoaded()
+        // does file I/O on whichever thread asks first. One immutable object, published by reference
+        // swap, is the whole of the synchronisation.
+        HudSnapshot.publish(client)
     }
 
     private fun onActionBar(text: String) {
@@ -371,6 +399,14 @@ class SighteAddons : ClientModInitializer {
         val client = Minecraft.getInstance()
         val font = client.font
 
+        // The per-frame preamble for the whole UI, and the only place it happens. Density must be
+        // established before anything draws a hairline; the clock is safe to drive from here and from
+        // an open screen in the same frame, because it derives from the wall clock rather than
+        // accumulating deltas.
+        val window = client.window
+        Density.beginFrame(window.width, window.height, window.guiScaledWidth, window.guiScaledHeight)
+        Clock.frame(paused = client.isPaused)
+
         // Storm's countdown, and the only thing here drawn *before* the calibration gate below.
         // Storm is a boss phase and `calibrated` means the dungeon map was read during the clear
         // phase — the same argument that keeps `onCrit` off that gate. Its own state is the gate that
@@ -387,66 +423,9 @@ class SighteAddons : ClientModInitializer {
         // itself out is not part of the anchored block, and must not disappear with it.
         ClearPopup.render(graphics, font, client.window.guiScaledWidth, client.window.guiScaledHeight)
 
-        if (!Config.hud) return
-        var y = Config.hudY
-
-        fun line(text: String, color: Int) {
-            graphics.text(font, Component.literal(text), Config.hudX, y, color)
-            y += 10
-        }
-
-        line(
-            "Sighte ${DungeonSession.floor ?: ""} ${DungeonGrid.formatTicks(DungeonSession.runTicks)}" +
-                "  ${ContributionTracker.roomsCleared} rooms",
-            WHITE,
-        )
-
-        // Standing, and directly under the header on purpose: the header is the one line that is
-        // always drawn, so anchoring here is what keeps this readout from moving up and down the
-        // screen as another toggle changes. Its own switch rather than a part of `showRoom` — it is
-        // about the run as much as about the room, and it still says something while you are walking
-        // between rooms, which is when the room block below has nothing at all.
-        //
-        // Both reads are of state the client thread owns and the block around it already reads —
-        // `currentRoom` is `ContributionTracker.roomAt`, and `visitedRooms()` is the same snapshot
-        // `ContributionTracker.tick` takes every tick. Nothing off-thread mutates that map: the
-        // DISCONNECT path deliberately does not reset (see the comment on its registration above),
-        // which is what makes this a read of the existing shared state rather than a new one.
-        if (Config.showSecrets) line(SecretHud.line(currentRoom(client), ContributionTracker.visitedRooms()), WHITE)
-
-        // Same anchoring argument and the same thread argument as the line above: two run-level
-        // counters that keep saying something while you are between rooms, which is precisely when
-        // one of them is the number that is moving. The read is of two `Int`s the client thread
-        // itself advances in `onTick` — nothing off-thread writes them (see IdleTime).
-        if (Config.showIdle) line(IdleTime.line(), GREY)
-
-        if (Config.showRoom) currentRoom(client)?.let { room ->
-            val self = client.player?.name?.string
-            val inRoom = self?.let { room.ticks[it] } ?: 0
-            line("${room.label()}  ${DungeonGrid.formatTicks(inRoom)}", YELLOW)
-            // Independent: a room can be cleared long before its last secret is found, or never get one.
-            line("  cleared  ${room.clearedAtTick?.let(DungeonGrid::formatTicks) ?: "--:--.-"}", GREY)
-            // Two numbers, never a blended one: room total from the action bar, and the subset that
-            // coincided with your own interaction.
-            val max = room.info?.secrets ?: 0
-            val secrets = if (max > 0) "  ${room.secretsFound}/$max (${room.ownSecrets} you)" else ""
-            // The secret run, live: it starts with the room's first secret and goes back to dashes
-            // when the run is discarded, so a stalled room never reads as a fast one.
-            val elapsed = room.secretRunElapsed(DungeonSession.runTicks)
-            line("  secrets  ${elapsed?.let(DungeonGrid::formatTicks) ?: "--:--.-"}$secrets", GREY)
-        }
-
-        if (!Config.showStandings) return
-        // Read every frame, and since `secretpoints-001` it moves between clears: your own secrets
-        // are credited into this map on the tick they are attributed, not on the next checkmark.
-        val points = ContributionTracker.pointsByPlayer()
-        PartyTracker.roster()
-            .map { it.name to (points[it.name] ?: 0.0) }
-            .sortedByDescending { it.second }
-            .forEach { (name, earned) ->
-                // Locale.ROOT: a German default locale would render "2,50", inconsistent with the JSON log.
-                line("%.2f  %s".format(Locale.ROOT, earned, name), GREY)
-            }
+        // The corner readout, rebuilt on the design system. Everything below draws from
+        // HudSnapshot.current, which the client tick published — see onTick.
+        HudRoot.live.render(graphics, font)
     }
 
     private fun currentRoom(client: Minecraft): TrackedRoom? {
