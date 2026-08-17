@@ -59,8 +59,11 @@ internal object StormHud {
     private const val PAD_X = Tokens.SPACE_12
     private const val PAD_Y = Tokens.SPACE_6
 
-    /** The scrim behind the countdown, matching the HUD card's and [ClearPopup]'s. */
-    private const val SCRIM_ALPHA = 160
+    /**
+     * The scrim behind the countdown, matching the HUD card's and [ClearPopup]'s — the same one, read
+     * from the same setting, for the reason [ClearPopup] states.
+     */
+    private fun scrimAlpha(): Int = Tokens.scrimAlpha(Config.hudScrim)
 
     /** One mark per urgency step below the window. Three, because there are three counting states. */
     private const val MARKS = 3
@@ -128,7 +131,7 @@ internal object StormHud {
 
         Surface.roundedFill(
             graphics, left, top, width, height, radius,
-            Tokens.alpha(Tokens.shadow, SCRIM_ALPHA),
+            Tokens.alpha(Tokens.scrim, scrimAlpha()),
         )
         Surface.roundedBorder(graphics, left, top, width, height, radius, border(readout.urgency))
         Surface.topHighlight(graphics, left, top, width, radius, Tokens.highlight)
@@ -150,12 +153,20 @@ internal object StormHud {
         ScaledText.draw(graphics, font, readout.text, left + PAD_X + markWidth, textTop, Tokens.textPrimary)
     }
 
-    /** How many of the three marks are lit. The whole ordinal signal, and the only one that counts. */
+    /**
+     * How many of the three marks are lit. The whole ordinal signal, and the only one that counts.
+     *
+     * **The window lights none of them.** It is not a fourth step on this scale — it is the inversion,
+     * which draws no marks at all and returns from [draw] before this is ever asked. The branch said
+     * [MARKS], which read as "the window is all three marks filled" and described a chip that has never
+     * been on screen; zero is what the window actually draws, so if the early return is ever taken out
+     * this stays true instead of quietly starting to lie.
+     */
     private fun filled(urgency: StormTimer.Urgency): Int = when (urgency) {
         StormTimer.Urgency.CALM -> 1
         StormTimer.Urgency.CLOSING -> 2
         StormTimer.Urgency.IMMINENT -> 3
-        StormTimer.Urgency.NOW -> MARKS
+        StormTimer.Urgency.NOW -> 0
     }
 
     /** The frame weight, which says the same thing a second time for a reader who is not counting. */

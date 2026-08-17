@@ -27,23 +27,43 @@ internal object Format {
     fun ticks(ticks: Int): String =
         if (ticks < 0) MISSING else DungeonGrid.formatTicks(ticks)
 
+    /** The one minus sign in this mod. U+2212, never a hyphen — see [delta]. */
+    const val MINUS = "−"
+
     /**
-     * A signed split against a personal best, in seconds: `-4.2s` when faster, `+1.8s` when slower.
+     * A signed split against a personal best: `−0:04.2` when faster, `+0:01.8` when slower.
      *
      * The sign is always shown. An unsigned delta forces the reader to remember which direction is
      * good, and this UI has no colour to tell them.
      *
-     * The minus is U+2212, not a hyphen: at the sizes this is read, a hyphen is barely distinguishable
-     * from the plus it alternates with.
+     * **One spelling of a duration, and one minus sign.** The magnitude is [DungeonGrid.formatTicks]
+     * like every other duration this mod prints — this function used to say `−2.8s`, which put a
+     * fourth dialect back into the very class that exists to have collapsed the first three, and put
+     * it next to `0:41.2` on the same HUD card and in the same chat line. The minus is U+2212 rather
+     * than a hyphen for two reasons that both still hold: at the size the HUD draws this, a hyphen is
+     * barely distinguishable from the plus it alternates with, and `Chat.FIELD` chose `·` as its
+     * separator on the stated grounds that it cannot be confused with *the* minus sign. There is one,
+     * and this is it. [sighteaddons.RoomHistory.pbSuffix] writes its record delta through here.
      */
-    fun delta(deltaTicks: Int): String {
-        val seconds = deltaTicks / 20.0
-        return if (deltaTicks < 0) {
-            String.format(Locale.ROOT, "−%.1fs", -seconds)
-        } else {
-            String.format(Locale.ROOT, "+%.1fs", seconds)
-        }
+    fun delta(deltaTicks: Int): String =
+        if (deltaTicks < 0) MINUS + DungeonGrid.formatTicks(-deltaTicks) else "+" + DungeonGrid.formatTicks(deltaTicks)
+
+    /**
+     * A ClearPoints figure to two decimals, from [hundredths] rather than from the Double it came from.
+     *
+     * An Int input so it can sit behind a [Cached]: the standings are redrawn every frame and change
+     * once a room, and `String.format` on a Double is a `Formatter`, an `Object[]` and a boxed argument
+     * each time. [hundredths] is the rounding, kept separate so the cache key is the number the reader
+     * can actually see — keying on the raw Double would rebuild the string for a change nothing renders.
+     */
+    fun points(hundredths: Int): String {
+        val sign = if (hundredths < 0) MINUS else ""
+        val magnitude = if (hundredths < 0) -hundredths else hundredths
+        return String.format(Locale.ROOT, "%s%d.%02d", sign, magnitude / 100, magnitude % 100)
     }
+
+    /** [value] rounded to hundredths, which is what [points] prints and what a cache keys on. */
+    fun hundredths(value: Double): Int = Math.round(value * 100.0).toInt()
 
     /**
      * A string cache for a value that changes far more slowly than the frame rate.
@@ -61,6 +81,29 @@ internal object Format {
             if (value != last) {
                 last = value
                 text = format(value)
+            }
+            return text
+        }
+    }
+
+    /**
+     * [Cached] for a line that states two numbers — `3/6`, `idle 0:12.0   nav 0:41.2`.
+     *
+     * Its own class rather than two [Cached]s glued together with a template, because the template is
+     * the allocation: caching each half and then concatenating them per frame builds exactly the string
+     * the cache was there to avoid. The key is both inputs, so the line is rebuilt when either moves
+     * and never otherwise.
+     */
+    class Cached2(private val format: (Int, Int) -> String) {
+        private var lastA = Int.MIN_VALUE
+        private var lastB = Int.MIN_VALUE
+        private var text = MISSING
+
+        fun of(a: Int, b: Int): String {
+            if (a != lastA || b != lastB) {
+                lastA = a
+                lastB = b
+                text = format(a, b)
             }
             return text
         }

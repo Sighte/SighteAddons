@@ -3,6 +3,7 @@ package sighteaddons
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import net.fabricmc.loader.api.FabricLoader
+import sighteaddons.ui.theme.Tokens
 import java.nio.file.Files
 
 /**
@@ -43,6 +44,20 @@ object Config {
      * player who opens `/sa` and flips an unrelated switch before ever entering a dungeon.
      */
     private var pendingHud: JsonObject? = null
+
+    /**
+     * How opaque the backdrop under the HUD card and the two centred overlays is, as a percentage.
+     *
+     * A setting because how much of the dungeon a player wants to see through it is genuinely
+     * personal — the same argument [Slider][sighteaddons.ui.components.Slider] was built on — and
+     * clamped because the answer "none of it" is not a preference, it is an unreadable card, and an
+     * unreadable card is our fault rather than theirs.
+     *
+     * The bounds live in [sighteaddons.ui.theme.Tokens] and not here: they are not a taste, they are
+     * where the 4.5:1 contrast floor stops holding against a world we do not own, and they have to move
+     * with the palette they were measured against.
+     */
+    var hudScrim = Tokens.SCRIM_PERCENT
 
     var showRoom = true
     var showStandings = true
@@ -228,9 +243,7 @@ object Config {
      * would be two chances for a key to be spelt differently in the one path nobody exercises.
      */
     private fun readHud(obj: JsonObject) {
-        hudAnchor = HudPlacement.Anchor.of(
-            if (obj.has("hudAnchor")) obj.get("hudAnchor").asString else hudAnchor.name,
-        )
+        hudAnchor = HudPlacement.Anchor.of(obj.str("hudAnchor", hudAnchor.name))
         hudOffsetX = obj.int("hudOffsetX", hudOffsetX)
         hudOffsetY = obj.int("hudOffsetY", hudOffsetY)
     }
@@ -238,6 +251,18 @@ object Config {
     private fun read() {
         try {
             val raw = JsonParser.parseString(Files.readString(FILE)).asJsonObject
+
+            // The identity first, before anything else in this function can go wrong.
+            //
+            // Every read below is written not to throw, so today this is belt and braces — but it is
+            // the one line whose loss is not recoverable. A blank installId sends [load] off to mint a
+            // new UUID and save it, which retires the id every run this install has ever uploaded is
+            // filed under: the history does not move, it is orphaned, and there is no way back because
+            // the old id is only in the file that was just overwritten. Every other setting in here
+            // costs a switch the player can flip again. So it is read where nothing precedes it, and
+            // the next person to add a line to this function does not have to notice why.
+            installId = raw.str("installId", installId)
+
             // As far forward as this file can go without a screen — which for version 0 is nowhere.
             // See ConfigMigration: the HUD position is the one key whose old form cannot be read
             // without knowing what it was once measured against.
@@ -245,6 +270,10 @@ object Config {
             if (ConfigMigration.versionOf(obj) >= ConfigMigration.CURRENT) readHud(obj) else pendingHud = obj
 
             hud = obj.bool("hud", hud)
+            // Clamped on the way in for the reason the storm ticks are: `config.json` is hand-edited,
+            // and a 0 here would be a HUD card with nothing readable on it that still looked switched on.
+            hudScrim = obj.int("hudScrim", hudScrim)
+                .coerceIn(Tokens.SCRIM_MIN_PERCENT, Tokens.SCRIM_MAX_PERCENT)
             showRoom = obj.bool("showRoom", showRoom)
             showStandings = obj.bool("showStandings", showStandings)
             showSecrets = obj.bool("showSecrets", showSecrets)
@@ -266,8 +295,7 @@ object Config {
             upload = obj.bool("upload", upload)
             uploadName = obj.bool("uploadName", uploadName)
             uploadNoticeShown = obj.bool("uploadNoticeShown", uploadNoticeShown)
-            hypixelKey = if (obj.has("hypixelKey")) obj.get("hypixelKey").asString else hypixelKey
-            installId = if (obj.has("installId")) obj.get("installId").asString else installId
+            hypixelKey = obj.str("hypixelKey", hypixelKey)
         } catch (e: Exception) {
             // A broken config must never cost the run — the defaults above are already in place.
             SighteAddons.LOGGER.error("Could not read {}, keeping defaults", FILE, e)
@@ -290,6 +318,7 @@ object Config {
             obj.addProperty("hudOffsetY", hudOffsetY)
         }
         obj.addProperty("hud", hud)
+        obj.addProperty("hudScrim", hudScrim)
         obj.addProperty("showRoom", showRoom)
         obj.addProperty("showStandings", showStandings)
         obj.addProperty("showSecrets", showSecrets)
@@ -316,7 +345,13 @@ object Config {
         }
     }
 
-    private fun JsonObject.bool(key: String, fallback: Boolean) = if (has(key)) get(key).asBoolean else fallback
+    // All three read through ConfigMigration, which is where the argument for them is written down:
+    // a hand-edited file is a supported way to set this one, and a value of the wrong shape must cost
+    // the key it is in rather than every key below it — including installId. Kept as extensions here
+    // so the call sites above read as a list of settings rather than as a list of parses.
+    private fun JsonObject.bool(key: String, fallback: Boolean) = ConfigMigration.boolOr(this, key, fallback)
 
-    private fun JsonObject.int(key: String, fallback: Int) = if (has(key)) get(key).asInt else fallback
+    private fun JsonObject.int(key: String, fallback: Int) = ConfigMigration.intOr(this, key, fallback)
+
+    private fun JsonObject.str(key: String, fallback: String) = ConfigMigration.stringOr(this, key, fallback)
 }

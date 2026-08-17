@@ -24,6 +24,23 @@ internal object Labels {
     const val CAP = 8
 
     /**
+     * The single-character strings the loops below hand to the font, one per ASCII code point.
+     *
+     * Both `draw` and `fit` need each glyph as a `String`, because that is what `Font` measures and
+     * draws — and `value.substring(i, i + 1)` builds a new one every time. On the HUD that was two
+     * strings per character per frame, thirty-six of them for an eighteen-character room name at up to
+     * two hundred and forty frames a second, for a set of objects that is finite and never changes.
+     * So it is built once. Anything outside ASCII — a room name never is, but a section header could
+     * one day be — falls back to allocating, which is the rare path and stays correct.
+     */
+    private val ASCII = Array(128) { it.toChar().toString() }
+
+    private fun glyph(value: String, index: Int): String {
+        val c = value[index]
+        return if (c.code < ASCII.size) ASCII[c.code] else c.toString()
+    }
+
+    /**
      * Draws [value] at ([x], [y]) with [Tokens.TRACKING_LABEL] between glyphs.
      *
      * Callers uppercase their own strings. Doing it here would make a label that is deliberately
@@ -32,7 +49,7 @@ internal object Labels {
     fun draw(graphics: GuiGraphicsExtractor, font: Font, value: String, x: Int, y: Int, argb: Int) {
         var cursor = x.toFloat()
         for (i in value.indices) {
-            val glyph = value.substring(i, i + 1)
+            val glyph = glyph(value, i)
             graphics.text(font, glyph, Math.round(cursor), y, argb, false)
             cursor += font.width(glyph) + Tokens.TRACKING_LABEL
         }
@@ -48,7 +65,7 @@ internal object Labels {
     fun width(font: Font, value: String): Int {
         if (value.isEmpty()) return 0
         var glyphs = 0
-        for (i in value.indices) glyphs += font.width(value.substring(i, i + 1))
+        for (i in value.indices) glyphs += font.width(glyph(value, i))
         return trackedWidth(glyphs, value.length)
     }
 
@@ -73,11 +90,35 @@ internal object Labels {
         if (maxWidth <= 0) return ""
         var glyphs = 0
         for (i in value.indices) {
-            val next = glyphs + font.width(value.substring(i, i + 1))
+            val next = glyphs + font.width(glyph(value, i))
             if (trackedWidth(next, i + 1) > maxWidth) return value.substring(0, i)
             glyphs = next
         }
         return value
+    }
+
+    /**
+     * [fit]'s answer, held while the string and the width are what they were.
+     *
+     * A truncated name is one `substring` per frame, and the frame is where this UI is not allowed to
+     * allocate — but a room name changes once a room and the width it is measured against changes when
+     * the window does. Holding both is cheaper than either comparison it replaces. An instance per
+     * call site, not a shared one: two cards fitting two different names would otherwise evict each
+     * other every frame and be slower than no cache at all.
+     */
+    class Fitter {
+        private var source = ""
+        private var width = Int.MIN_VALUE
+        private var text = ""
+
+        fun of(font: Font, value: String, maxWidth: Int): String {
+            if (maxWidth != width || value != source) {
+                source = value
+                width = maxWidth
+                text = fit(font, value, maxWidth)
+            }
+            return text
+        }
     }
 
     /**

@@ -38,7 +38,41 @@ internal object Tokens {
     val accent get() = palette.accent
     val accentText get() = palette.accentText
     val shadow get() = palette.shadow
+    val scrim get() = palette.scrim
     val highlight get() = palette.highlight
+
+    /**
+     * The scrim's opacity range, as a percentage, and the reason it is not `0..100`.
+     *
+     * A scrim is the only backdrop this UI has over the world — there is no blur available (see
+     * `HudRoot`) — so it is the entire reason the text on the HUD card and the two centred overlays is
+     * readable at all. How much of the dungeon shows through is genuinely a matter of taste, which is
+     * why it is a setting; *whether the text can be read* is not, which is why the setting has a floor.
+     *
+     * [SCRIM_MIN_PERCENT] is measured rather than chosen. At that opacity the worst pairing in either
+     * ramp — light `textTertiary` on a white scrim over a black dungeon — sits at **4.57:1**, and one
+     * percent lower it is **4.48:1**, under the floor. `UiThemeTest` computes both ends rather than
+     * trusting this paragraph.
+     *
+     * The number is high, and that is the honest cost of holding the floor against a backdrop we do not
+     * own: the world behind the card can be anything from a black corridor to a snow floor, and a wash
+     * that has to work over both has very little translucency to spend. The spec asked for 55–70 %,
+     * which measures 1.6:1 to 2.8:1 in the worst case — a card with nothing legible on it.
+     */
+    const val SCRIM_MIN_PERCENT = 88
+    const val SCRIM_MAX_PERCENT = 100
+
+    /** The default: inside the range with room to move, and still a tenth of the dungeon showing. */
+    const val SCRIM_PERCENT = 90
+
+    /**
+     * [percent] as an alpha byte, clamped into the legible range.
+     *
+     * Returned as an alpha rather than as a finished colour because both callers multiply it by their
+     * own fade before it reaches [alpha], and a token faded twice is a token at the wrong opacity.
+     */
+    fun scrimAlpha(percent: Int): Int =
+        Math.round(percent.coerceIn(SCRIM_MIN_PERCENT, SCRIM_MAX_PERCENT) * 255f / 100f)
 
     /**
      * The grey the gallery stands a HUD element on, so a scrim can be judged over something lit.

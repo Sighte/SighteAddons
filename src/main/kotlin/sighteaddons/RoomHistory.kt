@@ -6,6 +6,7 @@ import net.fabricmc.loader.api.FabricLoader
 import net.minecraft.client.Minecraft
 import net.minecraft.network.chat.Component
 import net.minecraft.network.chat.MutableComponent
+import sighteaddons.ui.Format
 import java.io.BufferedWriter
 import java.nio.file.Files
 import java.nio.file.StandardOpenOption
@@ -447,7 +448,7 @@ object RoomHistory {
     }
 
     /**
-     * `· PB -0:02.8`, or `· PB first` when there was nothing to beat. The one pattern for "better
+     * `· PB −0:02.8`, or `· PB first` when there was nothing to beat. The one pattern for "better
      * than before", on every kind of line.
      *
      * **How a record is emphasised now that there is no gold to do it with.** Three signals, and the
@@ -461,19 +462,28 @@ object RoomHistory {
      *     tertiary at 1.27:1 from its secondary, and `accent` is `#FFFFFF` against a `value` of
      *     `#F6F7F8`, so luminance alone is not something a reader can be asked to notice here.
      *
-     * **`-0:02.8` rather than `(was 0:44.0)`.** The old form made the reader do the subtraction to
+     * **`−0:02.8` rather than `(was 0:44.0)`.** The old form made the reader do the subtraction to
      * learn the only thing the field is for, and it printed a time that is no longer true — the
      * record is the new one now. The delta is shorter, it answers directly, and its sign is the
      * fourth signal: this mod's times are lower-is-better, so a record always carries a minus.
      *
-     * Written with [DungeonGrid.formatTicks] like every other time in this mod rather than as
-     * `-2.8s`. Two spellings for a duration on the same line is exactly the thing this pass removed.
+     * **Through [Format.delta], which is the only place a signed duration is spelled.** It is written
+     * as [DungeonGrid.formatTicks] like every other time in this mod — two spellings for a duration on
+     * one line is what this pass removed — and the minus is U+2212, which is the one this mod's HUD
+     * has always drawn and the one `Chat.FIELD` picked its separator against. It used to be an ASCII
+     * hyphen here and U+2212 four inches higher on the same screen, in the same second, for the same
+     * idea; a reader has no way to know those are the same notation, and neither did the two KDocs
+     * that each claimed the other's spelling did not exist.
+     *
+     * The *number* still differs from the HUD's, and legitimately: the HUD shows a running time
+     * against the record, this shows by how much the new record beat the old one. Same notation, two
+     * questions — which is exactly what one notation is for.
      */
     internal fun pbSuffix(previous: Int?, ticks: Int): MutableComponent = Chat.meta(Chat.FIELD)
         .append(Chat.emphasis("PB"))
         .append(
             Chat.meta(
-                if (previous == null) " first" else " -${DungeonGrid.formatTicks(previous - ticks)}",
+                if (previous == null) " first" else " ${Format.delta(ticks - previous)}",
             ),
         )
 

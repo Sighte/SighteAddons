@@ -40,8 +40,57 @@ object ConfigMigration {
      */
     const val CURRENT = 1
 
-    /** A file with no `version` is version 0: everything written before this existed. */
-    fun versionOf(obj: JsonObject): Int = if (obj.has("version")) obj.get("version").asInt else 0
+    /**
+     * A file with no `version` is version 0: everything written before this existed.
+     *
+     * And so is a file whose `version` is not a number. That is not defensiveness for its own sake:
+     * [Config.read] calls [migrate] as its very first statement, so anything thrown here takes the
+     * *whole* read with it — including `installId`, which [Config.load] then finds blank, regenerates,
+     * and saves over. A misplaced comma in a hand-edited `config.json` would silently retire the
+     * player's upload identity and orphan every run already filed under it on the receiver. Reading a
+     * broken version as 0 costs at worst one redundant migration pass, which is idempotent.
+     *
+     * Hand-editing is a supported way to set this file — see [Config.hypixelKey], which has no UI at
+     * all — so a typo has to cost the key it was in and nothing else. Same call
+     * [HudPlacement.Anchor.of] already makes.
+     */
+    fun versionOf(obj: JsonObject): Int = intOr(obj, "version", 0)
+
+    /**
+     * [key] as an Int, or [fallback] for absent, null, structured, or unparseable values.
+     *
+     * Gson's `asInt` throws four different ways — `NumberFormatException` on `"x"`, `ClassCastException`
+     * on `true`, `UnsupportedOperationException` on `{}` and on `null` — and every one of them means
+     * the same thing here: this key does not carry a number, so use the value that says nobody set it.
+     * Catching the supertype rather than listing three is deliberate; a fifth kind of malformed JSON
+     * must not be the one that gets through.
+     */
+    internal fun intOr(obj: JsonObject, key: String, fallback: Int): Int = try {
+        val value = obj.get(key)
+        if (value == null || !value.isJsonPrimitive) fallback else value.asInt
+    } catch (e: RuntimeException) {
+        fallback
+    }
+
+    /** [key] as a String, on [intOr]'s reasoning: a structured or absent value is nobody's setting. */
+    internal fun stringOr(obj: JsonObject, key: String, fallback: String): String = try {
+        val value = obj.get(key)
+        if (value == null || !value.isJsonPrimitive) fallback else value.asString
+    } catch (e: RuntimeException) {
+        fallback
+    }
+
+    /**
+     * [key] as a Boolean, on [intOr]'s reasoning.
+     *
+     * Gson reads any other primitive as `false` rather than throwing, which is worse than a throw: a
+     * `"hud": "yes"` would switch the HUD off and look like a setting. So only a real boolean counts.
+     */
+    internal fun boolOr(obj: JsonObject, key: String, fallback: Boolean): Boolean {
+        val value = obj.get(key) ?: return fallback
+        if (!value.isJsonPrimitive || !value.asJsonPrimitive.isBoolean) return fallback
+        return value.asBoolean
+    }
 
     /**
      * [obj] brought forward as far as it can go, against a [screenW]×[screenH] GUI-scaled screen
@@ -77,7 +126,8 @@ object ConfigMigration {
      * The old keys are read with [HudPlacement.DEFAULT_OFFSET] as the fallback rather than zero. A
      * file missing `hudX` is a file that never had a position, and the position it never had was four
      * pixels in — reading it as zero would move a card nobody moved, which is precisely the class of
-     * bug the whole of [Config]'s explicit-fallback style exists to prevent.
+     * bug the whole of [Config]'s explicit-fallback style exists to prevent. A `hudX` that is *not a
+     * number* reads the same way, through [intOr]: see [versionOf] for what a throw on this path costs.
      *
      * The old keys are then removed. They are not carried along: a config file with both shapes in it
      * has two answers to where the HUD is, and the next person to read this file would have to know
@@ -87,8 +137,8 @@ object ConfigMigration {
         if (screenW <= 0 || screenH <= 0 || cardW <= 0 || cardH <= 0) return null
 
         val out = obj.deepCopy()
-        val x = if (out.has("hudX")) out.get("hudX").asInt else HudPlacement.DEFAULT_OFFSET
-        val y = if (out.has("hudY")) out.get("hudY").asInt else HudPlacement.DEFAULT_OFFSET
+        val x = intOr(out, "hudX", HudPlacement.DEFAULT_OFFSET)
+        val y = intOr(out, "hudY", HudPlacement.DEFAULT_OFFSET)
         val placement = HudPlacement.nearest(x, y, screenW, screenH, cardW, cardH)
 
         out.remove("hudX")

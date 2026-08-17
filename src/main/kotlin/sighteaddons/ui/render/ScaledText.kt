@@ -43,6 +43,17 @@ internal object ScaledText {
     fun width(font: Font, value: String): Int = Math.round(font.width(value) * SCALE)
 
     /**
+     * The longest prefix of [value] that fits [maxWidth] **GUI** pixels once drawn at this scale.
+     *
+     * The division is the whole function: `Font.plainSubstrByWidth` measures in font units, every
+     * caller here thinks in the pixels on the screen, and passing one to the other is a truncation at
+     * twice the width that only shows up on a narrow window. Floored rather than rounded, because a
+     * prefix that is half a pixel too wide is a prefix that does not fit.
+     */
+    fun fit(font: Font, value: String, maxWidth: Int): String =
+        if (maxWidth <= 0) "" else font.plainSubstrByWidth(value, (maxWidth / SCALE).toInt())
+
+    /**
      * One run of text with its top-left at ([x], [y]) in GUI pixels.
      *
      * No drop shadow, ever. These lines sit over a bright, moving dungeon and the backdrop is a scrim,
