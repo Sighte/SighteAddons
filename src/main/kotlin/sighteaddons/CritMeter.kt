@@ -240,7 +240,7 @@ internal object CritMeter {
      * [footer] is called **only** when a crit has already matched inside the window — reading the tab
      * list is a mixin accessor call and there is no reason to make it on every chat line in the game.
      * Passing it as a lambda is what lets a test drive this end to end without a live `Minecraft`,
-     * the same seam [SecretHud] and [IdleTime] use one layer down.
+     * the same seam [IdleTime] uses one layer down.
      *
      * The window is updated before the match is attempted, so Maxor's own opening line arriving in
      * the same batch as the first crit cannot lose it. [inCombat] is not reset by the crit itself:

@@ -86,7 +86,25 @@ internal object StormHud {
     fun render(graphics: GuiGraphicsExtractor, font: Font, screenWidth: Int, screenHeight: Int, worldTime: Long?) {
         if (!Config.stormTimer) return
         if (worldTime == null) return
-        val readout = readout(worldTime) ?: return
+        draw(graphics, font, screenWidth, screenHeight, readout(worldTime) ?: return)
+    }
+
+    /**
+     * One [readout], drawn on a screen of the given size.
+     *
+     * Split from [render] for the gallery, which has neither a world time nor a Storm: the four steps
+     * are three seconds apart in a fight nobody can reach from a development client, so the only way
+     * to see them is to hand this function a readout directly. Everything above it — the switch, the
+     * world clock, the memo — is wiring; everything below is the design decision, and this is the seam
+     * between them.
+     */
+    internal fun draw(
+        graphics: GuiGraphicsExtractor,
+        font: Font,
+        screenWidth: Int,
+        screenHeight: Int,
+        readout: StormTimer.Readout,
+    ) {
         val now = readout.urgency == StormTimer.Urgency.NOW
 
         val markWidth = if (now) 0 else MARKS * Glyphs.SIZE + Tokens.SPACE_8
