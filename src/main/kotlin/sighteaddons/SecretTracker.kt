@@ -70,8 +70,8 @@ object SecretTracker {
     private val slotItems = arrayOfNulls<Item>(SLOTS)
     private val slotCounts = IntArray(SLOTS)
 
-    /** Whitelisted items and how many of each were in the inventory at the last change. */
-    private var lastSecretItems: Map<String, Int> = emptyMap()
+    /** Every item name in the inventory and its count, as of the last change. */
+    private var lastItems: Map<String, Int> = emptyMap()
 
     /** Whether a baseline has been taken. Until it has, everything already carried looks new. */
     private var primed = false
@@ -329,7 +329,7 @@ object SecretTracker {
         // Superboom TNT would read as the next floor's first secret.
         slotItems.fill(null)
         slotCounts.fill(0)
-        lastSecretItems = emptyMap()
+        lastItems = emptyMap()
         primed = false
     }
 
@@ -448,18 +448,31 @@ object SecretTracker {
         val items = player.inventory.nonEquipmentItems
         if (!slotsChanged(items)) return
 
+        // Every item, not only the whitelisted ones, because the whitelist is the thing in doubt.
+        // The solo M1 of 2026-08-17 21:02 lost three secrets in rooms where nothing was clicked and
+        // nothing was collected, and this path stayed silent through all three — by design, since it
+        // only ever spoke for names it already knew. A list that is missing a name and a path that
+        // says nothing about names it does not know cannot be told apart from the outside.
         val totals = HashMap<String, Int>()
         for (stack in items) {
             if (stack.isEmpty) continue
-            val item = secretItem(stack.hoverName.string) ?: continue
-            totals[item] = (totals[item] ?: 0) + stack.count
+            val name = strip(stack.hoverName.string).lowercase()
+            totals[name] = (totals[name] ?: 0) + stack.count
         }
         if (primed) {
-            for ((item, count) in totals) {
-                if (count > (lastSecretItems[item] ?: 0)) onItemGiven(item)
+            for ((name, count) in totals) {
+                if (count <= (lastItems[name] ?: 0)) continue
+                if (name in SECRET_ITEMS) {
+                    onItemGiven(name)
+                } else if (noteUnmatched(name)) {
+                    // Capped and deduped by name, the same way an unrecognised pickup is. A floor
+                    // hands over maybe a dozen distinct things, so this is a short list of exactly
+                    // the vocabulary [SECRET_ITEMS] is being guessed against.
+                    DebugLog.event("item_gained", "item" to name, "at" to DungeonSession.runTicks)
+                }
             }
         }
-        lastSecretItems = totals
+        lastItems = totals
         primed = true
     }
 
