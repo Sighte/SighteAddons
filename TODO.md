@@ -2,8 +2,9 @@
 
 ## Stand — 2026-08-17
 
-`main` = 391 Tests / 34 Klassen / grün. `mod_version` 0.15.0, released, Modrinth-Version `YNlbBvlI`
-mit identischem Jar. `RunReport.SCHEMA` 6, Receiver (`master` `1a7f435`) akzeptiert `idleTicks`/
+`main` = 391 Tests / 34 Klassen / grün und **gepusht**. `mod_version` 0.16.0, released (`v0.16.0`,
+56 Commits seit 0.15.0), Modrinth-Version `kIbj76Z4` mit identischem Jar — SHA1
+`931b1152…` steht auf beiden Seiten, `dist/sighteaddons-0.16.0.jar` ist die committete Datei. `RunReport.SCHEMA` 6, Receiver (`master` `1a7f435`) akzeptiert `idleTicks`/
 `navTicks` als optional und ist deployt — **dem Receiver ist nichts geschuldet.**
 
 ## Laufend: UI-Redesign (7 Phasen, Review-Gate nach jeder)
