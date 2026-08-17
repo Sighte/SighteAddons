@@ -2,6 +2,7 @@ package sighteaddons.ui
 
 import sighteaddons.DungeonGrid
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 /**
  * Display formatting for durations, in one place.
@@ -42,6 +43,30 @@ internal object Format {
             String.format(Locale.ROOT, "−%.1fs", -seconds)
         } else {
             String.format(Locale.ROOT, "+%.1fs", seconds)
+        }
+    }
+
+    /**
+     * How long ago [ts] was, coarsely: `today`, `yesterday`, or a day count.
+     *
+     * A wall-clock timestamp is not a duration, but "when did I last play this" is the only question
+     * anybody asks of one here, and it is a question about elapsed time — so it is written the same way
+     * in the history table and in the stats overview, which is what this file exists to guarantee. It
+     * used to be a private helper on `SettingsScreen`, and a second copy on the overview would have
+     * been a second answer to "is a run from eleven hours ago yesterday".
+     *
+     * A zero [ts] is a record with no timestamp at all — a line written before the field existed — and
+     * gets [MISSING] rather than "56 years ago".
+     *
+     * [now] is a parameter rather than a `currentTimeMillis()` call so the answer is pinnable.
+     */
+    fun ago(ts: Long, now: Long): String {
+        if (ts == 0L) return MISSING
+        val days = TimeUnit.MILLISECONDS.toDays(now - ts)
+        return when {
+            days <= 0L -> "today"
+            days == 1L -> "yesterday"
+            else -> "${days}d ago"
         }
     }
 

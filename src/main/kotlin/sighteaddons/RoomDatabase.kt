@@ -38,6 +38,16 @@ object RoomDatabase {
 
     val size get() = byCore.size
 
+    /**
+     * How many distinct rooms the database holds, which is **not** [size].
+     *
+     * [size] counts cores, and a room has one per shape variant it can appear in — the bundled file has
+     * several thousand cores for a few hundred rooms. Both numbers belong on the debug tab, and the
+     * stats overview needs this one: "47 of 4192 rooms recorded" would read as a history covering
+     * nothing at all when it covers a fifth of the dungeon.
+     */
+    val roomCount get() = byName.size
+
     fun lookup(core: Int): RoomInfo? = byCore[core]
 
     /**
