@@ -81,21 +81,25 @@ class StormTimerTest {
 
     /**
      * Three seconds and one second, the source mod's boundaries, expressed in ticks so they land
-     * exactly. A countdown that never changed colour would look completely correct and be useless at
-     * the only moment it matters.
+     * exactly. A countdown that never escalated would look completely correct and be useless at the
+     * only moment it matters.
+     *
+     * The step is a named state and no longer an ARGB value: this UI is monochrome, so which four
+     * things four states look like is `StormHud`'s decision and not this file's. Pinned as the four
+     * constants rather than as "four distinct values", because with an enum the latter is true by
+     * construction and would have stopped being a test.
      */
     @Test
-    fun `the colour changes at three seconds and at one`() {
-        fun colorAt(elapsed: Long) = StormTimer.readout(elapsed, 138, 20)?.color
+    fun `the urgency steps up at three seconds and at one`() {
+        fun urgencyAt(elapsed: Long) = StormTimer.readout(elapsed, 138, 20)?.urgency
 
-        val blue = colorAt(0)
-        val yellow = colorAt(138 - 60)
-        val red = colorAt(138 - 20)
-        val shoot = colorAt(138)
+        assertEquals(StormTimer.Urgency.CALM, urgencyAt(0))
+        assertEquals(StormTimer.Urgency.CLOSING, urgencyAt(138 - 60))
+        assertEquals(StormTimer.Urgency.IMMINENT, urgencyAt(138 - 20))
+        assertEquals(StormTimer.Urgency.NOW, urgencyAt(138))
 
-        assertEquals(blue, colorAt(138 - 61), "just above three seconds is still blue")
-        assertEquals(yellow, colorAt(138 - 21), "just above one second is still yellow")
-        assertEquals(4, setOf(blue, yellow, red, shoot).size, "four states, four distinct colours")
+        assertEquals(StormTimer.Urgency.CALM, urgencyAt(138 - 61), "just above three seconds is still calm")
+        assertEquals(StormTimer.Urgency.CLOSING, urgencyAt(138 - 21), "just above one second has not stepped yet")
     }
 
     /**

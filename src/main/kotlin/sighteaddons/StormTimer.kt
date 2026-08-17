@@ -17,7 +17,7 @@ import java.util.Locale
  * The source mod hard-codes **138 ticks** of countdown and **20 ticks** of `SHOOT NOW` and explains
  * neither, and there is no derivation for either anywhere in this repository. They are defaults, not
  * facts. **Unlike a wrong string a wrong tick count never announces itself** — the readout still
- * counts down, still turns red, still says `SHOOT NOW`, and simply says it at the wrong moment. A
+ * counts down, still escalates, still says `SHOOT NOW`, and simply says it at the wrong moment. A
  * player watching it has no way to tell "this is 6.9 s because that is Storm's cast time" from "this
  * is 6.9 s because a stranger's decompiled jar said so".
  *
@@ -83,21 +83,9 @@ internal object StormTimer {
     const val SHOOT_MIN = 1
     const val SHOOT_MAX = 100
 
-    /** Above three seconds. Blue, and the source mod's colour. */
-    private const val BLUE = 0xFF5555FF.toInt()
-
-    /** Above one second. */
-    private const val YELLOW = 0xFFFFFF55.toInt()
-
-    /** The last second of the countdown. */
-    private const val RED = 0xFFFF5555.toInt()
-
-    /** `SHOOT NOW`, a stronger red than the last second so the two cannot be confused at a glance. */
-    private const val SHOOT = 0xFFFF0000.toInt()
-
-    /** Three seconds and one second, in ticks. */
-    private const val BLUE_ABOVE = 60
-    private const val YELLOW_ABOVE = 20
+    /** Three seconds and one second, in ticks — where [Urgency] steps up. */
+    private const val CALM_ABOVE = 60
+    private const val CLOSING_ABOVE = 20
 
     /**
      * `client.level.gameTime` when Storm last spoke, or null for no countdown running.
@@ -162,8 +150,35 @@ internal object StormTimer {
         return if (TRIGGER.matchEntire(line) == null) line else null
     }
 
-    /** What is on screen: the text and its colour. Null from [readout] means nothing is drawn. */
-    internal data class Readout(val text: String, val color: Int)
+    /**
+     * How close the shot is, in the four steps the source mod drew as four colours.
+     *
+     * A step and not an ARGB value, because this file has no business owning one. The source mod
+     * returned blue/yellow/red/bright-red; this UI is monochrome by design and has no hue to spend,
+     * so *how* four steps are told apart is a question only the presentation layer can answer — and
+     * the answer it gives ([StormHud]) is a count of filled marks and a border weight, not four
+     * greys. Had the timer kept returning colours, the only monochrome answer available to the
+     * drawing half would have been luminance alone, which this design explicitly forbids.
+     *
+     * Four steps and not three: `SHOOT NOW` is a different statement from "the last second", and the
+     * source mod already separated them.
+     */
+    internal enum class Urgency {
+        /** More than three seconds out. */
+        CALM,
+
+        /** Inside three seconds. */
+        CLOSING,
+
+        /** The last second of the countdown. */
+        IMMINENT,
+
+        /** The window itself. */
+        NOW,
+    }
+
+    /** What is on screen: the text and how hard it should land. Null from [readout] draws nothing. */
+    internal data class Readout(val text: String, val urgency: Urgency)
 
     /**
      * The whole display decision, as a function of the ticks since the trigger.
@@ -175,22 +190,22 @@ internal object StormTimer {
      *
      * The seconds shown are the countdown's remaining ticks over twenty, so the last frame before
      * `SHOOT NOW` reads `0.1s` and never `0.0s` — at zero remaining the state has already changed.
-     * The colour boundaries are the source mod's three seconds and one second, expressed in ticks so
-     * they land exactly rather than on whichever side of `3.0f` a float division puts them.
+     * The [Urgency] boundaries are the source mod's three seconds and one second, expressed in ticks
+     * so they land exactly rather than on whichever side of `3.0f` a float division puts them.
      */
     internal fun readout(elapsed: Long?, countdown: Int, shoot: Int): Readout? {
         if (elapsed == null || elapsed < 0L) return null
         if (elapsed >= countdown.toLong() + shoot.toLong()) return null
-        if (elapsed >= countdown.toLong()) return Readout("SHOOT NOW", SHOOT)
+        if (elapsed >= countdown.toLong()) return Readout("SHOOT NOW", Urgency.NOW)
         val remaining = countdown - elapsed
-        val color = when {
-            remaining > BLUE_ABOVE -> BLUE
-            remaining > YELLOW_ABOVE -> YELLOW
-            else -> RED
+        val urgency = when {
+            remaining > CALM_ABOVE -> Urgency.CALM
+            remaining > CLOSING_ABOVE -> Urgency.CLOSING
+            else -> Urgency.IMMINENT
         }
         // Locale.ROOT for the reason every number this mod prints uses it: a German default locale
         // renders "6,9" and the readout would stop matching everything around it.
-        return Readout("Storm  %.1fs".format(Locale.ROOT, remaining / 20.0), color)
+        return Readout("Storm  %.1fs".format(Locale.ROOT, remaining / 20.0), urgency)
     }
 
     /** The readout as it stands, for [worldTime]. The wiring; [readout] is the contract a test drives. */

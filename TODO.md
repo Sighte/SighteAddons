@@ -2,7 +2,7 @@
 
 ## Stand — 2026-08-17
 
-`main` = 333 Tests / 26 Klassen / grün. `mod_version` 0.15.0, released, Modrinth-Version `YNlbBvlI`
+`main` = 336 Tests / 27 Klassen / grün. `mod_version` 0.15.0, released, Modrinth-Version `YNlbBvlI`
 mit identischem Jar. `RunReport.SCHEMA` 6, Receiver (`master` `1a7f435`) akzeptiert `idleTicks`/
 `navTicks` als optional und ist deployt — **dem Receiver ist nichts geschuldet.**
 
@@ -54,7 +54,12 @@ nicht gegriffen**, und dann ist die Sidebar-Zeile `Cleared: X%` der nächste Kan
   Live-Overlay steht währenddessen still (`HudRoot.editing`, in `removed()` gelöscht).
   Anchor+Offset statt `hudX`/`hudY` steht weiter aus — heute sind es absolute Pixel, die bei
   einem Auflösungswechsel wandern.
-- [ ] Phase 3b Rest: StormHud/ClearPopup auf das Design-System umstellen
+- [x] **Phase 3b Rest** — StormHud/ClearPopup auf dem Design-System. Beide sind jetzt Chips aus
+  `Surface`/`Tokens` statt roher Literale; das Gold für einen PB ist weg und der PB reist auf drei
+  Kanälen ohne Luminanz (Chevron, das Wort `PB`, stärkerer Rahmen). `StormTimer.readout` gibt eine
+  `Urgency`-Stufe statt ARGB zurück — vier Zustände sind gefüllte Marken plus Rahmengewicht, und
+  `SHOOT NOW` invertiert den Chip. Chrome zeichnet in GUI-Space, nur der Text betritt `scale(2)`:
+  `DevicePixels.push` verweigert jede Pose, die keine reine Translation ist.
 - [ ] Phase 2 Komponenten · 4 Stats · 5 Config+Migration · 6 Chat · 7 Politur
 
 Zwei Sachen aus Phase 1, die nicht in der Vorlage standen:
