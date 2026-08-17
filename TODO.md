@@ -27,9 +27,16 @@ CLAUDE.md-Regel 2, gilt nur hier und fällt danach zurück.
   Die Karte blendet sich beim Betreten des Bossraums aus (`inBoss` auf dem Snapshot) — der Run-Clock
   läuft darunter weiter. **Der User testet gerade `0.16.0-dev8`** (nur `build/libs`, `assemble check`
   mit `-Pmod_version=…`, `dist/` bleibt das released 0.15.0).
-- [x] **Chat-Tag** — `SA »`, monochrom, vor jeder Zeile die die Mod schreibt. Ein Funnel (`Chat.say`),
-  die drei alten Selbstbezeichnungen sind weg. Der Rest von Phase 6 (Wortlaut, Farben der Zeilen
-  selbst) steht noch aus.
+- [x] **Phase 6 — Chat.** Tag (`SA »`, ein Funnel `Chat.say`, die drei alten Selbstbezeichnungen
+  sind weg) **plus** Farben und Wortlaut. Kein `ChatFormatting` mehr in einer Zeile, die die Mod
+  schreibt — vier benannte Rollen in `Chat.kt` (`value`/`label`/`meta`/`emphasis`) auf `Palette.DARK`,
+  ein Feldtrenner (`Chat.FIELD`, ` · `) statt vier, eine Satzreihenfolge (wer — was — wie lange — wie
+  gut), eine Zeitschreibweise (`DungeonGrid.formatTicks`, auch für das PB-Delta). Betonung ohne
+  Farbton: Position (PB immer letztes Feld) + Wort (`PB`, `too many`) + erst dann die Rampe.
+  Kontrast gegen Vanillas `0x80000000`-Backdrop über schwarzer Welt gemessen; über *weißer* Welt
+  schafft **nichts** 4.5:1 (Maximum 4.00:1, reines Weiß) — steht als Begründung in `Chat.kt`.
+  `ChatFormatting.stripFormatting` in `DungeonSession.kt`/`SighteAddons.kt` liest fremde Namen und
+  bleibt.
 - [x] **Blood-Room = Odins `Blood Clear`-Split** (`BloodClear.kt`), eigener Kind `bloodclear`, kein
   `clear` mehr für den Raum. Die 8 alten Blood-Zeilen aus der lokalen `history.jsonl` sind gelöscht
   (Backup `history.jsonl.bak-20260817-190525`), der Server ist **nicht** angefasst — die Blood-Zeilen
@@ -60,7 +67,7 @@ nicht gegriffen**, und dann ist die Sidebar-Zeile `Cleared: X%` der nächste Kan
   `Urgency`-Stufe statt ARGB zurück — vier Zustände sind gefüllte Marken plus Rahmengewicht, und
   `SHOOT NOW` invertiert den Chip. Chrome zeichnet in GUI-Space, nur der Text betritt `scale(2)`:
   `DevicePixels.push` verweigert jede Pose, die keine reine Translation ist.
-- [ ] Phase 2 Komponenten · 4 Stats · 5 Config+Migration · 6 Chat · 7 Politur
+- [ ] Phase 2 Komponenten · 4 Stats · 5 Config+Migration · 7 Politur
 
 Zwei Sachen aus Phase 1, die nicht in der Vorlage standen:
 

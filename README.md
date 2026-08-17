@@ -122,13 +122,17 @@ record.
 
 ## Chat
 
+Every line the mod writes carries the `SA »` tag and is written in the mod's own monochrome ramp, so
+it is never mistaken for something Hypixel said. Fields are separated by ` · `, times are always
+`m:ss.t`, and the sentence order is the same everywhere: **who, what, how long, how well.**
+
 Every clear reports who did it and how long they were in there. Credit goes to whoever spent the most
-time in the room; `(+n)` counts the others who were also there long enough to earn points.
+time in the room; `n others` counts the players who were also there long enough to earn points.
 
 ```
-bush_on_hide cleared Catwalk in 0:03.6 (+3)
-Catwalk secrets in 0:14.8 (6, 4 yours)  PB (was 0:19.2)
-Sighte cleared Water Board in 0:41.2  PB (was 0:52.8)
+SA » bush_on_hide cleared Catwalk in 0:03.6 · 3 others
+SA » Catwalk secrets in 0:14.8 · 6 found, 4 yours · PB -0:04.4
+SA » Sighte cleared Water Board in 0:41.2 · PB -0:11.6
 ```
 
 A secret run names the **room**, not a player: the clock runs from the room's first secret to its
@@ -136,16 +140,19 @@ last no matter whose hands took them, so crediting one player would be a claim t
 back. What it does know is how many of them were yours, and that rides along.
 
 Your own record rides along on the same line rather than producing a second, near-identical message.
+It is always the **last** field, it always says `PB`, and the number after it is how much faster this
+run was than the old record — there is no hue in this UI to mark it with, so position and the word do
+the marking.
 
 At the end of the run (triggered by Hypixel's results headline):
 
 ```
-Sighte F7 — 6:42.1, 31 rooms
-   8.50  Nordwand (12 rooms · – secrets)
-   6.00  Sighte (9 rooms · 14 secrets)
-   0.00  AFKler (0 rooms · – secrets)
-   2.25 rooms unattributed
-  3 new records
+SA » F7 · 6:42.1 · 31 rooms
+SA »    8.50 · Nordwand · 12 rooms · – secrets
+SA »    6.00 · Sighte · 9 rooms · 14 of 29 secrets
+SA »    0.00 · AFKler · 0 rooms · – secrets
+SA »   2.25 rooms unattributed
+SA »   3 new records
 ```
 
 The number in front is the contribution score, the breakdown behind it is what produced it: rooms the

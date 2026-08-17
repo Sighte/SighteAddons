@@ -19,7 +19,6 @@ import sighteaddons.ui.hud.HudSnapshot
 import sighteaddons.ui.motion.Clock
 import sighteaddons.ui.screens.GalleryScreen
 import sighteaddons.ui.theme.Density
-import net.minecraft.network.chat.Component
 import net.minecraft.resources.Identifier
 import sighteaddons.mixin.PlayerTabOverlayAccessor
 import java.util.Locale
@@ -136,12 +135,18 @@ class SighteAddons : ClientModInitializer {
         // The one line that spells the mod's name out in full rather than leaving it at the tag. The
         // tag says which mod is speaking; this sentence has to be readable on its own by somebody who
         // has never seen the tag before, because it is a disclosure and it gets exactly one showing.
+        //
+        // Wording untouched by the chat redesign, alone among this mod's lines. Every other line is
+        // a reading and was shortened towards its numbers; this one is a disclosure with no numbers
+        // in it, it is read once by somebody who has never seen the mod, and trimming it would trim
+        // the part that says what leaves the machine. [Chat.label] end to end for the same reason:
+        // there is no value on it to make a value of.
         Chat.say(
-            Component.literal(
+            Chat.label(
                 "Sighte Addons sends a report of each dungeon run to the mod's analysis server: " +
                     "rooms, times and classes, under a random id, without your name. " +
                     "Turn it off — or put your name on it — with /sa → debug.",
-            ).withStyle(ChatFormatting.GRAY),
+            ),
         )
     }
 
@@ -355,9 +360,12 @@ class SighteAddons : ClientModInitializer {
      */
     private fun onCrit(text: String) {
         if (Config.critLine) {
-            CritMeter.onChat(text, ::tabFooter)?.let { line ->
-                Chat.say(Component.literal(line).withStyle(ChatFormatting.AQUA))
-            }
+            // [Chat.fields] rather than [Chat.value] on the whole string: a crit readout is three
+            // figures with units between them and no sentence to label, so every part of it is a
+            // value — but its separators have to be the same grey as the separators on every other
+            // line, and `value(line)` painted them a shade brighter. The wording stays in CritMeter,
+            // where CritMeterTest can drive it without a Minecraft.
+            CritMeter.onChat(text, ::tabFooter)?.let { line -> Chat.say(Chat.fields(line)) }
         }
         // A crit line Hypixel sent and CritMeter could not read. Carries no player name — see
         // CritMeter.nearMiss for why that makes it safe to log unredacted — and it is the only thing
