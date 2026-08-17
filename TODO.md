@@ -2,7 +2,7 @@
 
 ## Stand — 2026-08-17
 
-`main` = 324 Tests / 24 Klassen / grün. `mod_version` 0.15.0, released, Modrinth-Version `YNlbBvlI`
+`main` = 327 Tests / 25 Klassen / grün. `mod_version` 0.15.0, released, Modrinth-Version `YNlbBvlI`
 mit identischem Jar. `RunReport.SCHEMA` 6, Receiver (`master` `1a7f435`) akzeptiert `idleTicks`/
 `navTicks` als optional und ist deployt — **dem Receiver ist nichts geschuldet.**
 
@@ -25,8 +25,15 @@ CLAUDE.md-Regel 2, gilt nur hier und fällt danach zurück.
   Der alte Corner-Readout ist weg; `idle`/`nav` und die Standings sitzen jetzt in den ausklappbaren
   Run-Totals (Keybind, standardmäßig ungebunden).
   Die Karte blendet sich beim Betreten des Bossraums aus (`inBoss` auf dem Snapshot) — der Run-Clock
-  läuft darunter weiter. **Der User testet gerade `0.16.0-dev4`** (nur `build/libs`, `assemble check`
+  läuft darunter weiter. **Der User testet gerade `0.16.0-dev5`** (nur `build/libs`, `assemble check`
   mit `-Pmod_version=…`, `dist/` bleibt das released 0.15.0).
+- [x] **Chat-Tag** — `SA »`, monochrom, vor jeder Zeile die die Mod schreibt. Ein Funnel (`Chat.say`),
+  die drei alten Selbstbezeichnungen sind weg. Der Rest von Phase 6 (Wortlaut, Farben der Zeilen
+  selbst) steht noch aus.
+
+**`Cleared: X%` aus der Sidebar ist der vierte Boss-Kandidat**, falls `boss_start` im nächsten Log
+fehlt. Heute liest `observeSidebar` nur die Floor-Zeile; die Zeile mit dem Prozentsatz steht direkt
+darunter und ist im Boss 100 %.
 - [ ] Phase 3b HUD-Editor (Anchor+Offset statt `hudX`/`hudY`), StormHud/ClearPopup umstellen
 - [ ] Phase 2 Komponenten · 4 Stats · 5 Config+Migration · 6 Chat · 7 Politur
 
