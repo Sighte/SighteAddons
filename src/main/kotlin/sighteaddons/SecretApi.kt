@@ -8,6 +8,7 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * The **true** per-player secret count for a run, taken from Hypixel's API.
@@ -72,6 +73,13 @@ object SecretApi {
     private val REQUEST_TIMEOUT: Duration = Duration.ofSeconds(10)
 
     /**
+     * How long a whole snapshot may take, across all players. Two seconds past [REQUEST_TIMEOUT], so
+     * a request that runs its full course still counts and one that hangs past it does not hold the
+     * run summary any longer than the request itself was ever allowed to.
+     */
+    private const val DEADLINE_MS = 12_000L
+
+    /**
      * A Hypixel player object carries every game mode's stats and is genuinely large. The cap is a
      * refusal to buffer something pathological, not a size anybody is expected to approach.
      */
@@ -123,17 +131,29 @@ object SecretApi {
      * Blocking the client thread on a network call at the exact moment a floor ends is the one thing
      * this must never do, and a summary that appears late is worse than a follow-up that appears.
      */
-    fun settle(players: Map<String, UUID>, then: (Map<String, Int>) -> Unit) {
-        if (!enabled || state != State.BASELINE || players.isEmpty()) return
+    fun settle(players: Map<String, UUID>, then: (Map<String, Int>) -> Unit): Boolean {
+        if (!enabled || state != State.BASELINE || players.isEmpty()) return false
         state = State.SETTLED
         val key = Config.hypixelKey
         val before = baseline
         thread("sighteaddons-secrets-end") {
-            val after = snapshot(newClient(), HOST, key, players)
-            val counts = delta(before, after)
-            DebugLog.event("secret_api_settle", "before" to before.size, "after" to after.size, "got" to counts.size)
-            if (counts.isNotEmpty()) then(counts)
+            // Every failure lands on an empty map rather than on no call at all. The summary now
+            // waits for this answer, so a callback that silently never comes is a summary the player
+            // never sees — the one outcome worse than a summary with dashes in it.
+            val counts = try {
+                val after = snapshot(newClient(), HOST, key, players)
+                DebugLog.event(
+                    "secret_api_settle",
+                    "before" to before.size, "after" to after.size, "got" to delta(before, after).size,
+                )
+                delta(before, after)
+            } catch (e: Exception) {
+                SighteAddons.LOGGER.error("Closing secret snapshot failed", e)
+                emptyMap()
+            }
+            then(counts)
         }
+        return true
     }
 
     /**
@@ -151,15 +171,41 @@ object SecretApi {
             if (rise >= 0) name to rise else null
         }.toMap()
 
-    /** One snapshot of every player that answers. A player that does not is simply absent. */
+    /**
+     * One snapshot of every player that answers. A player that does not is simply absent.
+     *
+     * **Concurrent, one thread per player, because the summary now waits for the closing snapshot.**
+     * Sequentially this was `players * REQUEST_TIMEOUT` in the worst case — a five-player party where
+     * every request hangs is fifty seconds, and that used to cost nothing because nobody was waiting.
+     * In parallel the worst case is one timeout, and the ordinary case is one request instead of five.
+     * A party is at most five, so this is five threads twice a run and needs no pool.
+     *
+     * [DEADLINE_MS] is the ceiling on the whole snapshot, not per player: joining each thread for the
+     * full timeout would add them back up again. A thread still running when it expires is abandoned
+     * rather than killed — it is a daemon holding a socket with its own timeout, and its answer is
+     * simply not in the map.
+     */
     internal fun snapshot(
         client: HttpClient,
         base: String,
         key: String,
         players: Map<String, UUID>,
-    ): Map<String, Int> = players.mapNotNull { (name, id) ->
-        fetch(client, base, key, id)?.let { name to it }
-    }.toMap()
+    ): Map<String, Int> {
+        if (players.isEmpty()) return emptyMap()
+        val found = ConcurrentHashMap<String, Int>()
+        val threads = players.map { (name, id) ->
+            Thread({ fetch(client, base, key, id)?.let { found[name] = it } }, "sighteaddons-secrets-fetch")
+                .apply { isDaemon = true }
+        }
+        threads.forEach { it.start() }
+        val deadline = System.nanoTime() + DEADLINE_MS * 1_000_000L
+        for (worker in threads) {
+            val left = (deadline - System.nanoTime()) / 1_000_000L
+            if (left <= 0) break
+            worker.join(left)
+        }
+        return found.toMap()
+    }
 
     /**
      * One player's lifetime count, or null for every way this can fail.

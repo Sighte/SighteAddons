@@ -133,7 +133,7 @@ class SecretApiTest {
 
     private class Api(private val answer: (HttpExchange) -> Unit) : AutoCloseable {
         private val server: HttpServer = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
-        val asked = mutableListOf<Asked>()
+        val asked = java.util.Collections.synchronizedList(mutableListOf<Asked>())
         val base: String get() = "http://127.0.0.1:${server.address.port}"
 
         init {

@@ -420,52 +420,92 @@ object RoomHistory {
 
         val rooms = ContributionTracker.visitedRooms()
         val self = Minecraft.getInstance().player?.name?.string
-        PartyTracker.roster()
+
+        // Everything below the headline is captured now and printed once the true counts are in.
+        //
+        // **The rest of the summary waits for the API, and only when a key is configured.** The
+        // per-player rows are the place a reader looks for "who found what", and until there was a
+        // source for a teammate's count they showed a dash — a deliberate refusal to guess, not a
+        // gap. There is a source now, so the rows are held for it rather than printed with the dash
+        // and corrected two lines later. Without a key nothing is waited for and the summary prints
+        // exactly as it always did, which is still the path most installs are on.
+        //
+        // Every value the rows need is read here rather than in the callback: by the time an answer
+        // lands the player may already be in the next floor, and ContributionTracker, DungeonTab and
+        // PartyTracker will all have been reset by it.
+        val standings = PartyTracker.roster()
             .map { it.name to (points[it.name] ?: 0.0) }
             .sortedByDescending { it.second }
-            .forEach { (name, earned) ->
-                val contributed = rooms.count { (it.ticks[name] ?: 0) >= ContributionTracker.MIN_TICKS }
-                // Only the local player's secrets are provable. Hypixel reports secrets per room and
-                // only for the room you are standing in, so a teammate's count would be a guess —
-                // they get a dash instead, the same way the history refuses an estimated middle number.
-                val secrets = if (name == self) rooms.sumOf { it.ownSecrets } else null
-                // The floor's true party-wide total, read out of the tab list rather than summed out
-                // of the rooms this client happened to be inside. Only ever shown next to the local
-                // player's provable count, because it is a fact about the floor and not about them.
-                val ofTotal = if (name == self) DungeonTab.secretsFound else null
-                announce(
-                    Component.literal("  %5.2f".format(Locale.ROOT, earned)).withStyle(ChatFormatting.AQUA)
-                        .append(Component.literal("  $name ").withStyle(ChatFormatting.WHITE))
-                        .append(Component.literal(breakdown(contributed, secrets, ofTotal)).withStyle(ChatFormatting.DARK_GRAY)),
-                )
-            }
-
-        // The true per-player counts, if a key is configured. Deliberately not waited for: this runs
-        // off the run-end chat line and a network call here would hold up the whole summary. It
-        // arrives as its own line a moment later, or not at all.
-        //
-        // `estimated` is taken here rather than inside the callback, so the comparison is against
-        // what this run measured rather than against whatever the tracker holds by the time the
-        // answer lands — which, for a player who starts the next floor quickly, is a different run.
-        // `announce` schedules onto the client thread itself, so the callback is safe where it is.
+        val contributed = standings.associate { (name, _) ->
+            name to rooms.count { (it.ticks[name] ?: 0) >= ContributionTracker.MIN_TICKS }
+        }
         val estimated = rooms.sumOf { it.ownSecrets }
-        // Captured here for the same reason `estimated` is: by the time the answer lands the player
-        // may be on the next floor, and DungeonTab will have been reset by it.
+        // The floor's true party-wide total, read out of the tab list rather than summed out of the
+        // rooms this client happened to be inside.
         val floorTracked = DungeonTab.secretsFound
+        val unattributed = ContributionTracker.unattributed()
+        val records = newThisRun.size
         val roster = PartyTracker.rosterIds()
-        SecretApi.settle(roster) { counts ->
-            announce(secretLine(counts))
-            // The live tracker, graded against the one source that knows. `ownsecrets-001` has never
-            // had a number for this; every run with a key now writes one.
-            val audit = SecretAudit.of(estimated, counts, self, floorTracked, roster.size)
-            DebugLog.event(
-                "secret_audit",
-                "verdict" to audit.verdict.name.lowercase(),
-                "tracked" to audit.tracked, "actual" to audit.actual, "delta" to audit.delta,
-                "floorTracked" to audit.floorTracked, "floorActual" to audit.floorActual,
-                "answered" to audit.answered, "asked" to audit.asked,
+
+        val finish = { counts: Map<String, Int> ->
+            body(standings, contributed, counts, self, estimated, floorTracked, unattributed, records)
+            if (counts.isNotEmpty()) {
+                announce(secretLine(counts))
+                // The live tracker, graded against the one source that knows. `ownsecrets-001` has
+                // never had a number for this; every run with a key now writes one.
+                val audit = SecretAudit.of(estimated, counts, self, floorTracked, roster.size)
+                DebugLog.event(
+                    "secret_audit",
+                    "verdict" to audit.verdict.name.lowercase(),
+                    "tracked" to audit.tracked, "actual" to audit.actual, "delta" to audit.delta,
+                    "floorTracked" to audit.floorTracked, "floorActual" to audit.floorActual,
+                    "answered" to audit.answered, "asked" to audit.asked,
+                )
+                announce(auditLine(audit))
+            }
+        }
+
+        // `settle` answers false when there is nothing to wait for — no key, no roster, no baseline —
+        // and when it answers true it always calls back, including on every failure. Both halves
+        // matter: the first is the keyless path staying immediate, the second is the summary not
+        // being lost to a network error.
+        if (!SecretApi.settle(roster) { finish(it) }) finish(emptyMap())
+    }
+
+    /**
+     * The per-player rows and the two closing lines, with [counts] filled in where Hypixel answered.
+     *
+     * [counts] empty is the keyless path and the old rendering exactly: the local player's provable
+     * estimate, a dash for everybody else.
+     */
+    private fun body(
+        standings: List<Pair<String, Double>>,
+        contributed: Map<String, Int>,
+        counts: Map<String, Int>,
+        self: String?,
+        estimated: Int,
+        floorTracked: Int?,
+        unattributed: Double,
+        records: Int,
+    ) {
+        for ((name, earned) in standings) {
+            // Hypixel's own number first, for everybody. It is the only per-player count that is a
+            // fact; the estimate below it is this client's inference and exists for the local player
+            // alone. A teammate with no answer keeps the dash, which still means what it always
+            // meant — this client cannot know — rather than zero.
+            val secrets = counts[name] ?: if (name == self) estimated else null
+            // The floor total sits beside a count only when the count is the local player's, because
+            // it is a fact about the floor and `7 of 29` next to a teammate invites reading the
+            // remainder as somebody's.
+            val ofTotal = if (name == self) floorTracked else null
+            announce(
+                Component.literal("  %5.2f".format(Locale.ROOT, earned)).withStyle(ChatFormatting.AQUA)
+                    .append(Component.literal("  $name ").withStyle(ChatFormatting.WHITE))
+                    .append(
+                        Component.literal(breakdown(contributed[name] ?: 0, secrets, ofTotal))
+                            .withStyle(ChatFormatting.DARK_GRAY),
+                    ),
             )
-            announce(auditLine(audit))
         }
 
         // Was `> 0.01` against an inline subtraction — the same guard against the same split residue
@@ -477,7 +517,6 @@ object RoomHistory {
         //
         // Rooms, deliberately, not points — a room nobody was in is one unattributed room whatever
         // it was worth. See ContributionTracker.unattributed.
-        val unattributed = ContributionTracker.unattributed()
         if (unattributed > 0.0) {
             announce(
                 Component.literal("  %.2f rooms unattributed".format(Locale.ROOT, unattributed))
@@ -488,8 +527,8 @@ object RoomHistory {
         // than repeating your own count next to them.
         announce(
             Component.literal(
-                if (newThisRun.isEmpty()) "  no new records" else "  ${newThisRun.size} new records",
-            ).withStyle(if (newThisRun.isEmpty()) ChatFormatting.DARK_GRAY else ChatFormatting.GOLD),
+                if (records == 0) "  no new records" else "  $records new records",
+            ).withStyle(if (records == 0) ChatFormatting.DARK_GRAY else ChatFormatting.GOLD),
         )
     }
 
