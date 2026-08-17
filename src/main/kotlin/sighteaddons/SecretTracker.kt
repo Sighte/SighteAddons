@@ -130,15 +130,26 @@ object SecretTracker {
      * at an item name, so the twenty session logs cannot contain the answer.
      */
     private val SECRET_ITEMS = setOf(
+        "architect's first draft",
+        "candycomb",
         "decoy",
         "defuse kit",
         "dungeon chest key",
+        // Five spellings of one potion, all of them Odin's. Hypixel has written the strength as a
+        // numeral and as a roman, before and after the noun, and a name this list gets wrong is a
+        // secret that silently stops counting rather than a visible failure.
+        "healing 8 splash potion",
+        "healing potion 8 splash potion",
+        "healing potion viii splash potion",
         "healing viii splash potion",
+        "health potion viii splash potion",
         "inflatable jerry",
         "revive stone",
+        "secret dye",
         "spirit leap",
         "superboom tnt",
         "training weights",
+        "trap",
         "treasure talisman",
     )
 
@@ -362,6 +373,33 @@ object SecretTracker {
         // followed it. Zero of these in a floor with item secrets means the packet never reached
         // the mixin; plenty of these and no `attributedBy: pickup` means the window is wrong.
         DebugLog.event("own_pickup", "item" to item, "at" to lastOwnInteraction)
+    }
+
+    /**
+     * A secret item that stopped existing next to the local player, with nobody named as taking it.
+     *
+     * **The route the take-item packet does not cover, and the one the solo M1 of 2026-08-17 20:51
+     * went down.** Six secrets in one room, party of one, and the first arrived with no signal at
+     * all — no `own_pickup`, no `pickup_unmatched`, not even the `pickup_unresolved` added to report
+     * a packet whose entity could not be named. There was no packet. Hypixel removes the entity
+     * instead, and Odin's dispatcher listens for exactly that as its second item route.
+     *
+     * **Weaker than [onItemPickup] and guarded differently.** That one carries a collector id, so it
+     * is proof; this carries a list of ids and no reason, so the *name* stands in for the proof — only
+     * an item whose sole source is a secret gets through, and only from within six blocks. It still
+     * only arms the window. A teammate taking a Spirit Leap beside you can mis-arm it, and
+     * [SecretAudit] is what would say so, as an over-credit, in the run's own log.
+     *
+     * Silent for anything off the whitelist, unlike [onItemPickup]: every item that despawns or that
+     * anybody picks up near you comes through here, so logging the misses would bury the ones worth
+     * reading inside one floor.
+     */
+    fun onItemVanished(rawName: String) {
+        if (!DungeonSession.calibrated) return
+        val item = secretItem(rawName) ?: return
+        lastOwnInteraction = DungeonSession.runTicks
+        lastOwnSource = PICKUP
+        DebugLog.event("own_vanished", "item" to item, "at" to lastOwnInteraction)
     }
 
     /**
