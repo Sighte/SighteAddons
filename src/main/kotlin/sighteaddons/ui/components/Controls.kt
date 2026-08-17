@@ -195,6 +195,38 @@ internal object Controls {
         indicator(graphics, x, y, height, if (selected) 1f else hover, Tokens.accent)
     }
 
+    /**
+     * A dashed hairline rectangle — what a disabled control wears instead of a solid outline.
+     *
+     * Shared by every control that can be switched off, because "unavailable" has to be one mark
+     * everywhere or it is not a mark at all. It is a *pattern* rather than a fainter grey for the
+     * reason the palette states: `textSecondary` and `textTertiary` sit 1.27:1 apart, so a control
+     * that says it is disabled by being slightly dimmer is not saying it to everyone.
+     *
+     * Square corners on purpose. The sheet's corner sprites are solid arcs and cannot be dashed, so a
+     * rounded version would have four solid corners and read as a broken border rather than a
+     * deliberate one.
+     */
+    fun dashedBorder(graphics: GuiGraphicsExtractor, x: Int, y: Int, width: Int, height: Int, argb: Int) {
+        var cursor = 0
+        while (cursor < width) {
+            val run = minOf(DASH, width - cursor)
+            graphics.fill(x + cursor, y, x + cursor + run, y + 1, argb)
+            graphics.fill(x + cursor, y + height - 1, x + cursor + run, y + height, argb)
+            cursor += DASH + DASH_GAP
+        }
+        cursor = 0
+        while (cursor < height) {
+            val run = minOf(DASH, height - cursor)
+            graphics.fill(x, y + cursor, x + 1, y + cursor + run, argb)
+            graphics.fill(x + width - 1, y + cursor, x + width, y + cursor + run, argb)
+            cursor += DASH + DASH_GAP
+        }
+    }
+
+    private const val DASH = 3
+    private const val DASH_GAP = 2
+
     /** Linear interpolation between two packed ARGB colours, per channel including alpha. */
     fun blend(from: Int, to: Int, amount: Float): Int {
         val t = amount.coerceIn(0f, 1f)
