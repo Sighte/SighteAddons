@@ -65,6 +65,10 @@ internal class HudRoot {
     /** The live overlay: config position, live snapshot. */
     fun render(graphics: GuiGraphicsExtractor, font: Font) {
         if (!Config.hud) return
+        // The placement editor draws the card itself, from the same config this reads. Both at once
+        // is two cards: this one at the position being edited away from, the editor's under the
+        // cursor — and no way to tell which is the one being moved.
+        if (editing) return
         draw(graphics, font, HudSnapshot.current, Config.hudX, Config.hudY)
     }
 
@@ -185,7 +189,7 @@ internal class HudRoot {
      * the two drifting apart is invisible in code and obvious on screen — a card whose border stops
      * above its own last row, or an element drawn where the one below it already is.
      */
-    private fun measure(snapshot: HudSnapshot): Int {
+    internal fun measure(snapshot: HudSnapshot): Int {
         var height = PADDING * 2
         height += ROOM_BLOCK
         if (Config.showSecrets) height += SECRETS_BLOCK
@@ -452,6 +456,15 @@ internal class HudRoot {
     companion object {
         /** The one attached to the HUD element. */
         val live = HudRoot()
+
+        /**
+         * Whether the placement editor owns the screen right now, in which case [live] stands down.
+         *
+         * Cleared by `SettingsScreen.removed`, not only by leaving placement mode: a screen can be
+         * closed from under itself — the game can force it, a keybind can replace it — and a flag
+         * left true would take the HUD off the player's screen with no way to bring it back.
+         */
+        var editing = false
 
         /** Card width in GUI pixels. Fixed so the layout does not reflow as room names change. */
         const val WIDTH = 196

@@ -12,6 +12,7 @@ import sighteaddons.ui.components.Anim
 import sighteaddons.ui.components.Controls
 import sighteaddons.ui.components.Sparkline
 import sighteaddons.ui.hud.HudRoot
+import sighteaddons.ui.hud.HudSnapshot
 import sighteaddons.ui.motion.Clock
 import sighteaddons.ui.motion.Easing
 import sighteaddons.ui.motion.Motion
@@ -65,6 +66,18 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     )
 
     private var placing = false
+
+    /** Whether the card is currently held. Only true between a press on it and the release. */
+    private var dragging = false
+
+    /** Where inside the card it was grabbed, so it does not jump to meet the cursor. */
+    private var grabX = 0
+    private var grabY = 0
+
+    /** Where the card was when placement started, for the escape hatch. */
+    private var originX = 0
+    private var originY = 0
+
     private var scroll = 0
 
     /**
@@ -135,6 +148,18 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         val window = minecraft.window
         Density.beginFrame(window.width, window.height, window.guiScaledWidth, window.guiScaledHeight)
         Clock.frame(paused = false)
+        // **Placing is the one mode that must not paint over the game.** The whole question it exists
+        // to answer is where the card sits against a dungeon — the hotbar, the health bar, the boss
+        // bar, whatever the player actually looks past it at — and a flat surface behind it answers
+        // that question about a flat surface. A settings screen earns an opaque background; a
+        // placement tool cannot have one.
+        //
+        // Not nothing, either: a scrim this light leaves the world plainly readable and still gives
+        // the hint line something to sit on.
+        if (placing) {
+            graphics.fill(0, 0, width, height, Tokens.alpha(Tokens.shadow, PLACING_SCRIM))
+            return
+        }
         graphics.fill(0, 0, width, height, Tokens.surfaceBase)
     }
 
@@ -375,18 +400,74 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     }
 
     /**
-     * Full-screen placement mode: the next left click puts the HUD where the cursor is.
+     * Placement mode: the card sits where it currently is and is dragged from there.
      *
-     * Draws the real card with scripted data rather than a five-line mock of it. The old preview was
-     * five `flat` calls that happened to resemble the HUD; anything that drifted between them and the
-     * actual overlay was invisible until you placed it and looked.
+     * **It shows the card at its own position rather than under the cursor, and that is the change
+     * that makes this an editor.** Before, the preview followed the mouse and a click dropped its
+     * top-left corner there — so the one thing a player wanted to see, where the HUD *is*, was the
+     * one thing the mode never showed, and moving it three pixels meant re-aiming at nothing.
+     *
+     * Draws the real card, and with the live run when there is one: [HudSnapshot.current] is what the
+     * overlay itself reads, so during a dungeon this is the actual HUD, at actual width, with the
+     * actual room in it. Outside a run there is no live data to show and the scripted preview stands
+     * in — the same one the gallery uses, so a card that drifts from the overlay is visible here too.
      */
     private fun renderPlacing(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
-        previewHud.draw(graphics, font, HudPreview.at(Clock.nowMs), mouseX, mouseY)
+        val snapshot = placingSnapshot()
+        previewHud.draw(graphics, font, snapshot, Config.hudX, Config.hudY)
+
+        // The numbers, under the card and out of it, so a player who wants an exact position can read
+        // one off while dragging rather than guessing at what they landed on.
+        val below = Config.hudY + previewHud.measure(snapshot) + Tokens.SPACE_6
         graphics.text(
-            font, "left click places it · right click cancels",
+            font, "${Config.hudX}, ${Config.hudY}", Config.hudX, below,
+            if (dragging) Tokens.textPrimary else Tokens.textTertiary, false,
+        )
+
+        graphics.text(
+            font,
+            if (dragging) "release to place it · esc cancels"
+            else "drag the card · click anywhere else when done · esc cancels",
             frameLeft, headerY, Tokens.textTertiary, false,
         )
+    }
+
+    /** The live run when there is one, the scripted preview when there is not. */
+    private fun placingSnapshot(): HudSnapshot =
+        HudSnapshot.current.takeIf { it.inDungeon } ?: HudPreview.at(Clock.nowMs)
+
+    /** Whether ([x], [y]) is on the card, which is what can be grabbed. */
+    private fun onCard(x: Int, y: Int): Boolean {
+        val height = previewHud.measure(placingSnapshot())
+        return x >= Config.hudX && x < Config.hudX + HudRoot.WIDTH &&
+            y >= Config.hudY && y < Config.hudY + height
+    }
+
+    /**
+     * Moves the card so the point that was grabbed stays under the cursor.
+     *
+     * Clamped against the card's real size rather than against a token 8 pixels, which is what the
+     * click-to-place version did: the corner it clamped was the only part of the card it knew about,
+     * so a card placed near the right edge hung off the screen by everything except its first eight
+     * pixels.
+     */
+    private fun dragTo(mouseX: Int, mouseY: Int) {
+        val cardHeight = previewHud.measure(placingSnapshot())
+        Config.hudX = (mouseX - grabX).coerceIn(0, (width - HudRoot.WIDTH).coerceAtLeast(0))
+        Config.hudY = (mouseY - grabY).coerceIn(0, (height - cardHeight).coerceAtLeast(0))
+    }
+
+    /** Leaves placement mode, keeping [keep] or putting the card back where it was picked up. */
+    private fun stopPlacing(keep: Boolean) {
+        if (keep) {
+            Config.save()
+        } else {
+            Config.hudX = originX
+            Config.hudY = originY
+        }
+        placing = false
+        dragging = false
+        HudRoot.editing = false
     }
 
     // --- Data (unchanged from the previous version) ------------------------------------------
@@ -394,7 +475,18 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     private fun rows(): List<Row> = when (tab) {
         Tab.HUD -> listOf(
             Row("show HUD", Config.hud.word(), Config.hud) { Config.hud = !Config.hud },
-            Row("position", "${Config.hudX}, ${Config.hudY} · place") { placing = true },
+            Row("position", "${Config.hudX}, ${Config.hudY} · move") {
+                placing = true
+                dragging = false
+                // Where to put it back if the player changes their mind.
+                originX = Config.hudX
+                originY = Config.hudY
+                // The live overlay stands down while its own position is being edited: it draws from
+                // the same config this is changing, so leaving it on renders two cards — the real one
+                // stuck at the old spot and the one under the cursor — and the player has to work out
+                // which of them they are moving.
+                HudRoot.editing = true
+            },
             Row("current room", Config.showRoom.word(), Config.showRoom) { Config.showRoom = !Config.showRoom },
             // "your secrets", not "secrets": the action bar already counts the room's, and the whole
             // point of the line is that this one is about you.
@@ -547,13 +639,22 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         val mouseY = event.y().toInt()
 
         if (placing) {
-            placing = false
-            if (event.button() == 0) {
-                // Clamped so the HUD can never be parked outside the visible screen.
-                Config.hudX = mouseX.coerceIn(0, width - 8)
-                Config.hudY = mouseY.coerceIn(0, height - 8)
-                Config.save()
+            // Right click is the same cancel it has always been, and now Escape is too.
+            if (event.button() != 0) {
+                stopPlacing(keep = false)
+                return true
             }
+            if (onCard(mouseX, mouseY)) {
+                // The grab offset is the whole of drag-and-drop feeling right: without it the card
+                // jumps so its corner meets the cursor the moment you touch it, and every drag starts
+                // by throwing the thing you were aiming at.
+                dragging = true
+                grabX = mouseX - Config.hudX
+                grabY = mouseY - Config.hudY
+                return true
+            }
+            // Anywhere off the card means done. There is nothing else on this screen to hit.
+            stopPlacing(keep = true)
             return true
         }
 
@@ -616,6 +717,23 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         return super.mouseClicked(event, doubleClick)
     }
 
+    override fun mouseDragged(event: MouseButtonEvent, dragX: Double, dragY: Double): Boolean {
+        if (!dragging) return super.mouseDragged(event, dragX, dragY)
+        dragTo(event.x().toInt(), event.y().toInt())
+        return true
+    }
+
+    /**
+     * Dropping it. Saved here rather than on every frame of the drag: [Config.save] writes the file,
+     * and a drag across the screen is a hundred writes of a config nobody asked to have written yet.
+     */
+    override fun mouseReleased(event: MouseButtonEvent): Boolean {
+        if (!dragging) return super.mouseReleased(event)
+        dragging = false
+        Config.save()
+        return true
+    }
+
     override fun mouseScrolled(mouseX: Double, mouseY: Double, scrollX: Double, scrollY: Double): Boolean {
         if (tab != Tab.RECORDS) return false
         build()
@@ -628,6 +746,12 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
      * is a state you leave, and closing the whole screen to get out of it loses your place.
      */
     override fun keyPressed(event: KeyEvent): Boolean {
+        // Escape out of placing puts the card back, rather than closing the screen with a position
+        // the player was in the middle of changing their mind about.
+        if (placing && event.key() == GLFW.GLFW_KEY_ESCAPE) {
+            stopPlacing(keep = false)
+            return true
+        }
         if (tab == Tab.RECORDS) {
             if (event.key() == GLFW.GLFW_KEY_BACKSPACE && query.isNotEmpty()) {
                 query = query.dropLast(1)
@@ -753,6 +877,18 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         }
     }
 
+    /**
+     * The screen going away for any reason, which is not only the ways this screen knows about.
+     *
+     * [HudRoot.editing] hides the live overlay, and a screen closed from under itself — by the game,
+     * by a keybind that opens another one — would leave it hidden with nothing left running to turn
+     * it back on. The position is kept: a drag that reached this point was released.
+     */
+    override fun removed() {
+        HudRoot.editing = false
+        super.removed()
+    }
+
     override fun isPauseScreen(): Boolean = false
 
     private companion object {
@@ -768,6 +904,15 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         const val DETAIL_INDENT = 16
         const val DETAIL_LABEL = 44
         const val SPARK_W = 72
+
+        /**
+         * Alpha of the scrim behind placement mode, out of 255.
+         *
+         * Low on purpose. It is there so the hint line has something to sit on, not to dim the game —
+         * the game is the reference the card is being placed against, and anything that greys it out
+         * makes this tool answer a question about a grey rectangle.
+         */
+        const val PLACING_SCRIM = 48
 
         /** Read from the jar rather than typed, so it cannot disagree with what is actually running. */
         private val VERSION: String = TelemetryUpload.modVersion().takeUnless { it == "unknown" } ?: ""
