@@ -363,14 +363,13 @@ object RoomHistory {
     fun printSummary() {
         if (!Config.runSummary) return
         val points = ContributionTracker.pointsByPlayer()
+        // No self-identification of its own any more: the tag [Chat.say] puts on the front says who
+        // is speaking, and a gold "Sighte" in front of that said it twice.
         announce(
-            Component.literal("Sighte ").withStyle(ChatFormatting.GOLD)
-                .append(
-                    Component.literal(
-                        "${DungeonSession.floor ?: "?"} — ${DungeonGrid.formatTicks(DungeonSession.runTicks)}, " +
-                            "${ContributionTracker.roomsCleared} rooms",
-                    ).withStyle(ChatFormatting.GRAY),
-                ),
+            Component.literal(
+                "${DungeonSession.floor ?: "?"} — ${DungeonGrid.formatTicks(DungeonSession.runTicks)}, " +
+                    "${ContributionTracker.roomsCleared} rooms",
+            ).withStyle(ChatFormatting.GRAY),
         )
 
         val rooms = ContributionTracker.visitedRooms()
@@ -580,8 +579,9 @@ object RoomHistory {
         }
     }
 
-    private fun announce(text: MutableComponent) {
-        val client = Minecraft.getInstance()
-        client.schedule { client.gui.chat.addClientSystemMessage(text) }
-    }
+    /**
+     * Every line this file puts on screen. [Chat.say] is what puts the tag on it and what schedules
+     * it onto the client thread — see there for why both are one function.
+     */
+    private fun announce(text: MutableComponent) = Chat.say(text)
 }
