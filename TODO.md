@@ -2,7 +2,7 @@
 
 ## Stand — 2026-08-17
 
-`main` = 328 Tests / 25 Klassen / grün. `mod_version` 0.15.0, released, Modrinth-Version `YNlbBvlI`
+`main` = 333 Tests / 26 Klassen / grün. `mod_version` 0.15.0, released, Modrinth-Version `YNlbBvlI`
 mit identischem Jar. `RunReport.SCHEMA` 6, Receiver (`master` `1a7f435`) akzeptiert `idleTicks`/
 `navTicks` als optional und ist deployt — **dem Receiver ist nichts geschuldet.**
 
@@ -25,7 +25,7 @@ CLAUDE.md-Regel 2, gilt nur hier und fällt danach zurück.
   Der alte Corner-Readout ist weg; `idle`/`nav` und die Standings sitzen jetzt in den ausklappbaren
   Run-Totals (Keybind, standardmäßig ungebunden).
   Die Karte blendet sich beim Betreten des Bossraums aus (`inBoss` auf dem Snapshot) — der Run-Clock
-  läuft darunter weiter. **Der User testet gerade `0.16.0-dev7`** (nur `build/libs`, `assemble check`
+  läuft darunter weiter. **Der User testet gerade `0.16.0-dev8`** (nur `build/libs`, `assemble check`
   mit `-Pmod_version=…`, `dist/` bleibt das released 0.15.0).
 - [x] **Chat-Tag** — `SA »`, monochrom, vor jeder Zeile die die Mod schreibt. Ein Funnel (`Chat.say`),
   die drei alten Selbstbezeichnungen sind weg. Der Rest von Phase 6 (Wortlaut, Farben der Zeilen
@@ -37,6 +37,12 @@ CLAUDE.md-Regel 2, gilt nur hier und fällt danach zurück.
   **Offen dazu:** das HUD zeigt für den Blood-Room keinen Split. Die Live-Uhr dort sind deine Ticks
   im Raum, der Record ist die Tür-bis-Pass-Spanne — ein Delta zwischen beiden wäre eine Lüge. Wenn es
   aufs HUD soll, muss die laufende Blood-Uhr in den Snapshot.
+- [x] **`SecretAudit`** — der Live-Tracker wird am Runende gegen die API benotet, `secret_audit` ins
+  Debug-Log, zwei Richtungen getrennt (`missed` ist Design, `too many` ist ein Defekt).
+  **Läuft noch nie:** `Config.hypixelKey` ist leer und hat **keine UI** — nur `config.json`. Kein
+  einziges `secret_api_baseline` in irgendeinem Log. Solange der Key fehlt, ist `SecretApi` inert und
+  weder die Teammate-Zeile noch das Audit erscheinen. Ein Textfeld im `/sa`-Debug-Tab wäre der
+  nächste Schritt, wenn der User es will.
 
 **Boss = Koordinaten pro Tick, wie in Odins `DungeonListener`** — dieselben Schwellen, kein Latch,
 kein Chat. `[BOSS] ` ist als Signal verbrannt: The Watcher steht im Blood-Room und trägt denselben
