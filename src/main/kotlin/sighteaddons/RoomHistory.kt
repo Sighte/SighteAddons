@@ -59,8 +59,24 @@ object RoomHistory {
      */
     const val SECRETS = "secretrun"
 
+    /**
+     * The blood room, from the door opening to the Watcher's pass line — Odin's `Blood Clear` split.
+     *
+     * **Its own kind rather than a redefined [CLEAR], and that is the rule rather than a preference.**
+     * Every `clear` line already in the file means the local player's ticks in a room; a blood room
+     * that started writing a different span under the same name would make those lines incomparable
+     * with each other, which is precisely the failure the `secrets` -> [SECRETS] rename exists to
+     * prevent. A new kind cannot do that: nothing reads it yet, so it has no history to contradict.
+     *
+     * The blood room writes no [CLEAR] line at all any more — see [onRoomCleared]. That is a gate on
+     * *whether* a line is written, which is the change this file's contract does allow.
+     *
+     * See [BloodClear] for what the span is and why it has no ownership gate.
+     */
+    const val BLOOD = "bloodclear"
+
     /** The kinds still read back. A line of any other kind stays in the file — see [SECRETS]. */
-    private val KINDS = setOf(CLEAR, SECRETS)
+    private val KINDS = setOf(CLEAR, SECRETS, BLOOD)
 
     /** "<room>|<kind>" -> the record and how it was reached. Derived from [FILE] at startup. */
     private val best = HashMap<String, Record>()
@@ -154,6 +170,12 @@ object RoomHistory {
      * The **record** is a separate decision and a much stricter one — see [ownClear].
      */
     fun onRoomCleared(room: TrackedRoom) {
+        // The blood room is measured and announced by [BloodClear] instead, on Odin's definition, and
+        // it speaks for itself — so this returns rather than adding a second line about the same room
+        // with a different number in it. Nothing else is lost by leaving early: the points for the
+        // room are awarded in ContributionTracker, not here.
+        if (room.type == RoomType.BLOOD) return
+
         val eligible = room.ticks.filterValues { it >= ContributionTracker.MIN_TICKS }
         val (topPlayer, topTicks) = eligible.maxByOrNull { it.value } ?: return
 
@@ -227,6 +249,30 @@ object RoomHistory {
                     Component.literal(" (${room.secretsFound}, ${room.ownSecrets} yours)")
                         .withStyle(ChatFormatting.DARK_GRAY),
                 )
+                .apply { pb?.let { append(it) } },
+        )
+    }
+
+    /**
+     * The blood room finished, timed by [BloodClear].
+     *
+     * Announced like [onSecretRun] rather than like [onRoomCleared]: the line names the room and not
+     * a player, because the measurement belongs to the fight and the party did it together. Both chat
+     * switches still apply — this is a room message, and a player who turned those off did not ask
+     * for one more.
+     */
+    fun onBloodCleared(room: TrackedRoom, ticks: Int) {
+        val pb = record(room, BLOOD, ticks)
+        val name = room.name ?: return
+        ClearPopup.show(name, secrets = false, ticks, pb != null)
+
+        if (!Config.roomMessages) return
+        if (Config.ownPbsOnly && pb == null) return
+
+        announce(
+            Component.literal(name).withStyle(ChatFormatting.WHITE)
+                .append(Component.literal(" cleared in ").withStyle(ChatFormatting.GRAY))
+                .append(Component.literal(DungeonGrid.formatTicks(ticks)).withStyle(ChatFormatting.AQUA))
                 .apply { pb?.let { append(it) } },
         )
     }

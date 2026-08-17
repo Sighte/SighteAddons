@@ -96,6 +96,10 @@ object DungeonSession {
         // unrelated floors.
         SecretApi.reset()
         ClearPopup.reset()
+        // The blood room belongs to the floor it was fought on. A start tick carried into the next
+        // run would be subtracted from that run's pass line and file a blood clear measured across
+        // two floors.
+        BloodClear.reset()
     }
 
     /** Reads the floor from the sidebar as a side effect; that is also the in-dungeon check. */

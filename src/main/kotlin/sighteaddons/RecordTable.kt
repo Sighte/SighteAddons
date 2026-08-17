@@ -67,7 +67,11 @@ internal object RecordTable {
      */
     fun rows(records: Map<String, RoomHistory.Record>, typeOf: (String) -> String?): List<Row> =
         RoomHistory.roomsWithRecords(records.keys).map { room ->
-            val clear = records["$room|${RoomHistory.CLEAR}"]
+            // The blood room's record is its own kind, measured door-to-pass rather than in ticks
+            // spent inside, and it belongs under the clear column because that is where a reader
+            // looks for "how fast was this room". Its own kind first: an install that still carries a
+            // legacy `Blood|clear` from before 0.16.0 must not have it beat the real one.
+            val clear = records["$room|${RoomHistory.BLOOD}"] ?: records["$room|${RoomHistory.CLEAR}"]
             val secrets = records["$room|${RoomHistory.SECRETS}"]
             Row(
                 room = room,

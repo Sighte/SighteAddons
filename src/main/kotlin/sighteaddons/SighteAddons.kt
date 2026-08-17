@@ -307,8 +307,15 @@ class SighteAddons : ClientModInitializer {
             // carrying a key it has not learned is a 400 that TelemetryUpload files under rejected/
             // and never retries. The receiver moves first; until it has, these are diagnostics.
             is ChatEvents.Event.WitherDoor -> attributed("wither_door", resolve(event.player))
-            // The one event with no name in it — Hypixel does not say who opened the blood door.
-            ChatEvents.Event.BloodDoor -> DebugLog.event("blood_door")
+            // The one event with no name in it — Hypixel does not say who opened the blood door. It
+            // is also one of the two ways the blood room's clock can start; see BloodClear.onOpen for
+            // why the first of the two wins.
+            ChatEvents.Event.BloodDoor -> {
+                DebugLog.event("blood_door")
+                BloodClear.onOpen(at)
+            }
+            ChatEvents.Event.BloodOpen -> BloodClear.onOpen(at)
+            ChatEvents.Event.BloodDone -> BloodClear.onDone(at)
             is ChatEvents.Event.PuzzleSolved -> attributed("puzzle_solved", resolve(event.player))
             is ChatEvents.Event.PuzzleFailed -> attributed("puzzle_failed", resolve(event.player))
         }

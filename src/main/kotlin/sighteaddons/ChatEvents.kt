@@ -95,6 +95,26 @@ internal object ChatEvents {
         data object BloodDoor : Event
 
         /**
+         * The Watcher's greeting, which is the other way the blood room can be seen to start.
+         *
+         * Eight set pieces, one per visit type, taken verbatim from Odin's `BLOOD_OPEN_REGEX`
+         * (`SplitsManager.kt`) — the same alternation, minus the `The BLOOD DOOR has been opened!`
+         * branch, which is [BloodDoor] here and stays its own event because it is its own fact and is
+         * already logged as one. [BloodClear] takes whichever of the two arrives first, exactly as
+         * Odin does by folding them into one `Split`.
+         */
+        data object BloodOpen : Event
+
+        /**
+         * `[BOSS] The Watcher: You have proven yourself. You may pass.` — the blood room is done.
+         *
+         * The end of Odin's `Blood Clear` split, and the only line that states it. The map's
+         * checkmark says the same thing a moment later but says it about the room; this says it
+         * about the fight.
+         */
+        data object BloodDone : Event
+
+        /**
          * `PUZZLE SOLVED! <name> <what they did>!`
          *
          * Source: `SkyHanni`'s `DungeonChatFilter.puzzlePatterns`, which carries two full examples
@@ -148,6 +168,24 @@ internal object ChatEvents {
     private val REVIVED = Regex("""$LEAD❣ $NAME was revived.*$""")
     private val WITHER_DOOR = Regex("""$LEAD$RANKS$NAME opened a WITHER door!$""")
     private val BLOOD_DOOR = Regex("""${LEAD}The BLOOD DOOR has been opened!$""")
+
+    /** Only the server writes `[BOSS] `, which is what both Watcher patterns below rest on. */
+    private const val WATCHER = """\[BOSS] The Watcher:"""
+
+    private val BLOOD_OPEN = Regex(
+        "$LEAD$WATCHER (?:" +
+            """Congratulations, you made it through the Entrance\.|""" +
+            """Ah, you've finally arrived\.|""" +
+            """Ah, we meet again\.\.\.|""" +
+            """So you made it this far\.\.\. interesting\.|""" +
+            """You've managed to scratch and claw your way here, eh\?|""" +
+            """I'm starting to get tired of seeing you around here\.\.\.|""" +
+            """Oh\.\. hello\?|""" +
+            """Things feel a little more roomy now, eh\?""" +
+            ")$",
+    )
+
+    private val BLOOD_DONE = Regex("""$LEAD$WATCHER You have proven yourself\. You may pass\.$""")
     private val PUZZLE_SOLVED = Regex("""${LEAD}PUZZLE SOLVED! $NAME .+$""")
     private val PUZZLE_FAILED = Regex("""${LEAD}PUZZLE FAIL! $NAME .+$""")
     private val QUIZ_WRONG = Regex("""$LEAD\[STATUE] Oruo the Omniscient: $NAME chose the wrong answer!.*$""")
@@ -177,6 +215,10 @@ internal object ChatEvents {
         DEATH.matchEntire(stripped)?.let { return Event.Death(it.groupValues[1]) }
         REVIVED.matchEntire(stripped)?.let { return Event.Revived(it.groupValues[1]) }
         if (BLOOD_DOOR.matchEntire(stripped) != null) return Event.BloodDoor
+        // Done before open: the two are disjoint, but the end of the split is the line that must
+        // never be missed, and reading it first says so.
+        if (BLOOD_DONE.matchEntire(stripped) != null) return Event.BloodDone
+        if (BLOOD_OPEN.matchEntire(stripped) != null) return Event.BloodOpen
         WITHER_DOOR.matchEntire(stripped)?.let { return Event.WitherDoor(it.groupValues[1]) }
         PUZZLE_SOLVED.matchEntire(stripped)?.let { return Event.PuzzleSolved(it.groupValues[1]) }
         PUZZLE_FAILED.matchEntire(stripped)?.let { return Event.PuzzleFailed(it.groupValues[1]) }
@@ -192,7 +234,7 @@ internal object ChatEvents {
      * front of anything a player says — so a line beginning with one of these came from the server.
      * That is what makes it safe to write a redacted copy of the line into the debug log.
      */
-    private val OPENERS = listOf("☠", "❣", "PUZZLE SOLVED!", "PUZZLE FAIL!", "[STATUE] Oruo")
+    private val OPENERS = listOf("☠", "❣", "PUZZLE SOLVED!", "PUZZLE FAIL!", "[STATUE] Oruo", "[BOSS] The Watcher")
 
     /**
      * A line that is unmistakably one of ours and that [parse] did not understand, or null.
@@ -202,7 +244,7 @@ internal object ChatEvents {
      * reports the difference precisely — a `chat_unparsed` line in a session file is a pattern that
      * needs correcting, an empty log is patterns that held.
      *
-     * Narrow on purpose, in the direction that costs coverage rather than privacy. Three of the seven
+     * Narrow on purpose, in the direction that costs coverage rather than privacy. Three of the nine
      * shapes ([Event.WitherDoor], [Event.SecretFound], [Event.BloodDoor]) begin with a player name or
      * with ordinary words, so no opener can distinguish them from something a teammate typed — they
      * get no near-miss reporting at all, and a broken pattern for those is found the slow way. Chat

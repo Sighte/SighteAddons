@@ -209,6 +209,44 @@ class ChatEventsTest {
     }
 
     /**
+     * The two ends of Odin's `Blood Clear` split, which is what the blood room's personal best is
+     * measured between.
+     *
+     * All eight greetings, because they are one alternation copied from another codebase and a
+     * mistyped branch in the middle of it is invisible — it would simply never match, on the one
+     * visit type that produces it, and the blood clock would start at the door line instead. Odin
+     * takes whichever arrives first, so that failure is silent by construction.
+     */
+    @Test
+    fun `reads both ends of the blood room`() {
+        for (greeting in listOf(
+            "Congratulations, you made it through the Entrance.",
+            "Ah, you've finally arrived.",
+            "Ah, we meet again...",
+            "So you made it this far... interesting.",
+            "You've managed to scratch and claw your way here, eh?",
+            "I'm starting to get tired of seeing you around here...",
+            "Oh.. hello?",
+            "Things feel a little more roomy now, eh?",
+        )) {
+            assertEquals(
+                ChatEvents.Event.BloodOpen, parse("[BOSS] The Watcher: $greeting"),
+                "greeting: $greeting",
+            )
+        }
+
+        assertEquals(
+            ChatEvents.Event.BloodDone,
+            parse("§c[BOSS] The Watcher§f: You have proven yourself. You may pass.§r"),
+        )
+
+        // The Watcher talks during the fight as well, and none of it ends the split.
+        assertNull(parse("[BOSS] The Watcher: Ah, you're one of those, are you?"))
+        // And a party member cannot end it by typing it: Hypixel puts their name in front.
+        assertNull(parse("Sighte: [BOSS] The Watcher: You have proven yourself. You may pass."))
+    }
+
+    /**
      * The deliberate hole, pinned rather than described. Three shapes begin with a player name or
      * with ordinary words, so nothing distinguishes a broken one from something a teammate typed —
      * and a diagnostic that logged strangers' conversation to find a regex bug would be a worse
