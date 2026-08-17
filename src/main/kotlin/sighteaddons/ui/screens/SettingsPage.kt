@@ -38,14 +38,19 @@ internal object SettingsPage {
      * figure with its sample beside it — the stats overview's only line kind, here rather than in its
      * own list so both pages share the loop and the scroll.
      */
-    enum class Kind { SECTION, NOTE, TOGGLE, ACTION, INFO, STEPPER, FIELD, STAT }
+    enum class Kind { SECTION, NOTE, TOGGLE, ACTION, INFO, STEPPER, SLIDER, FIELD, STAT }
 
     /**
      * One line.
      *
      * [click] is what a press does; [step] is the stepper's version of it, taking the direction, so the
-     * two arms are one lambda rather than two. A line with neither is not a target and gets no hover
-     * wash — which is the only signal separating a fact from a control on a screen with no hue.
+     * two arms are one lambda rather than two; [slide] is the slider's, taking the fraction the cursor
+     * is asking for. A line with none of the three is not a target and gets no hover wash — which is
+     * the only signal separating a fact from a control on a screen with no hue.
+     *
+     * [slide] takes a fraction rather than a value because the bounds belong to whoever built the item:
+     * the scrim's floor is a *measured* contrast limit in `Tokens`, not a number this file or the
+     * screen may hold a copy of.
      */
     class Item(
         val kind: Kind,
@@ -57,6 +62,7 @@ internal object SettingsPage {
         val fraction: Float = -1f,
         val click: (() -> Unit)? = null,
         val step: ((back: Boolean) -> Unit)? = null,
+        val slide: ((fraction: Float) -> Unit)? = null,
     ) {
         /**
          * How tall this line is.
@@ -75,7 +81,8 @@ internal object SettingsPage {
             }
 
         /** Whether a press on this line does anything, which is what earns it a hover wash. */
-        val interactive: Boolean get() = click != null || step != null || kind == Kind.FIELD
+        val interactive: Boolean
+            get() = click != null || step != null || slide != null || kind == Kind.FIELD
     }
 
     /** A control row. Tall enough for a switch that is still a switch at GUI scale 4. */
