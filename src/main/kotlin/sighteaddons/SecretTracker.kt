@@ -7,6 +7,8 @@ import net.minecraft.core.BlockPos
 import net.minecraft.world.InteractionResult
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.ambient.Bat
+import net.minecraft.world.item.Item
+import net.minecraft.world.item.ItemStack
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.entity.SkullBlockEntity
@@ -61,6 +63,18 @@ object SecretTracker {
 
     /** Bats already seen dying this run, so a twenty-tick death animation is one signal. */
     private val dyingBats = HashSet<Int>()
+
+    /** Inventory slots watched for [tickInventory]. The main inventory; armour is not a secret. */
+    private const val SLOTS = 36
+
+    private val slotItems = arrayOfNulls<Item>(SLOTS)
+    private val slotCounts = IntArray(SLOTS)
+
+    /** Whitelisted items and how many of each were in the inventory at the last change. */
+    private var lastSecretItems: Map<String, Int> = emptyMap()
+
+    /** Whether a baseline has been taken. Until it has, everything already carried looks new. */
+    private var primed = false
 
     /** Entity classes swung at this run, so [onAttack]'s diagnostic is one line per kind. */
     private val attackedKinds = HashSet<String>()
@@ -300,6 +314,12 @@ object SecretTracker {
         // Entity ids are per world and a run is a server transfer, so carrying these across would
         // silence a bat in the next dungeon that happens to reuse an id.
         dyingBats.clear()
+        // The inventory baseline goes with the run. Kept across one, the first floor's leftover
+        // Superboom TNT would read as the next floor's first secret.
+        slotItems.fill(null)
+        slotCounts.fill(0)
+        lastSecretItems = emptyMap()
+        primed = false
     }
 
     /**
@@ -342,6 +362,84 @@ object SecretTracker {
         // followed it. Zero of these in a floor with item secrets means the packet never reached
         // the mixin; plenty of these and no `attributedBy: pickup` means the window is wrong.
         DebugLog.event("own_pickup", "item" to item, "at" to lastOwnInteraction)
+    }
+
+    /**
+     * A secret item that appeared in the inventory without any item entity being collected.
+     *
+     * **The signal the pickup packet cannot carry, measured on the solo M1 of 2026-08-17 20:51.**
+     * Six secrets in the Pirate room, party of one, so every one of them was the local player's. Five
+     * were credited — one bat, four clicks — and the first, at tick 303, had no signal of any kind in
+     * front of it: no click, no bat, no `own_pickup`, no `pickup_unmatched`, and not even the
+     * `pickup_unresolved` dev13 added. The mixin applied cleanly, so the conclusion is the one that
+     * silence leaves: `ClientboundTakeItemEntityPacket` was never sent, because nothing was ever
+     * collected. Hypixel put the item straight into the inventory, and an item that never exists in
+     * the world cannot be seen being picked up.
+     *
+     * Whitelisted and silent otherwise, unlike [onItemPickup]. That path is told "you collected an
+     * item entity", which is rare and specific enough that an unrecognised name is worth logging.
+     * This one sees every single thing the server ever puts in the inventory, so a `pickup_unmatched`
+     * here would fill its own cap with loot inside one floor and hide the names worth reading.
+     */
+    fun onItemGiven(rawName: String) {
+        if (!DungeonSession.calibrated) return
+        val item = secretItem(rawName) ?: return
+        lastOwnInteraction = DungeonSession.runTicks
+        lastOwnSource = PICKUP
+        DebugLog.event("own_given", "item" to item, "at" to lastOwnInteraction)
+    }
+
+    /**
+     * Watches the inventory for [onItemGiven]. Called once per tick from the clear phase.
+     *
+     * Two stages, because the cheap question answers itself almost every tick. Stage one compares
+     * each slot's item identity and count against the last tick — no allocation, no name resolution,
+     * and false on the overwhelming majority of ticks. Only when something actually moved does stage
+     * two resolve names, and only for the whitelist.
+     *
+     * **Totals per item, not per slot.** A slot whose count went up is not a new item — dragging a
+     * Spirit Leap from one slot to another makes the destination grow, and crediting that would arm
+     * the window every time a player tidies their hotbar. The sum across the inventory is what only
+     * rises when something arrived.
+     *
+     * [primed] is why the first pass after a reset credits nothing: at that moment every item in the
+     * inventory looks new, including the Superboom TNT that has been sitting there since the hub.
+     */
+    fun tickInventory(client: Minecraft) {
+        val player = client.player ?: return
+        val items = player.inventory.nonEquipmentItems
+        if (!slotsChanged(items)) return
+
+        val totals = HashMap<String, Int>()
+        for (stack in items) {
+            if (stack.isEmpty) continue
+            val item = secretItem(stack.hoverName.string) ?: continue
+            totals[item] = (totals[item] ?: 0) + stack.count
+        }
+        if (primed) {
+            for ((item, count) in totals) {
+                if (count > (lastSecretItems[item] ?: 0)) onItemGiven(item)
+            }
+        }
+        lastSecretItems = totals
+        primed = true
+    }
+
+    /** Whether any slot's item or count differs from the last look. Updates the snapshot as it goes. */
+    private fun slotsChanged(items: List<ItemStack>): Boolean {
+        var changed = false
+        for (i in items.indices) {
+            if (i >= SLOTS) break
+            val stack = items[i]
+            val item = if (stack.isEmpty) null else stack.item
+            val count = if (stack.isEmpty) 0 else stack.count
+            if (item !== slotItems[i] || count != slotCounts[i]) {
+                changed = true
+                slotItems[i] = item
+                slotCounts[i] = count
+            }
+        }
+        return changed
     }
 
     /**

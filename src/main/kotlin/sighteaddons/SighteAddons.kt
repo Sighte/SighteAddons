@@ -214,6 +214,9 @@ class SighteAddons : ClientModInitializer {
         // pays for it can land on this very tick. In the clear phase only: the boss room has no
         // secrets in it, and the bats in there are somebody's fight, not somebody's find.
         SecretTracker.tickBats(client)
+        // Same reason, one layer over: Hypixel hands out some secret items rather than dropping them,
+        // and an item that never exists in the world is never seen being collected.
+        SecretTracker.tickInventory(client)
         // The party barely changes during a run; re-reading the tab list once a second is plenty.
         if (DungeonSession.runTicks % 20 == 0) PartyTracker.update(client)
         ContributionTracker.tick(client, map)
