@@ -1,9 +1,12 @@
 package sighteaddons
 
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientEntityEvents
 import net.fabricmc.fabric.api.event.player.AttackEntityCallback
 import net.fabricmc.fabric.api.event.player.UseBlockCallback
+import net.minecraft.client.Minecraft
 import net.minecraft.core.BlockPos
 import net.minecraft.world.InteractionResult
+import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.ambient.Bat
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.Blocks
@@ -53,6 +56,12 @@ object SecretTracker {
 
     /** A repeat of one click within this many ticks is the same interaction, not a second find. */
     private const val REPEAT_WINDOW = 5
+
+    /** Blocks. Melee reach and a little, which is what makes a vanished bat plausibly yours. */
+    private const val BAT_RADIUS = 6.0
+
+    /** Entity classes swung at this run, so [onAttack]'s diagnostic is one line per kind. */
+    private val attackedKinds = HashSet<String>()
 
     /** No own action seen yet this run. Compared, never subtracted from — see [isOwn]. */
     private const val NO_INTERACTION = Int.MIN_VALUE
@@ -181,8 +190,69 @@ object SecretTracker {
         // nothing else because a dungeon floor is killed through end to end; zombies and skeletons
         // are never secrets and must never arm this.
         AttackEntityCallback.EVENT.register { _, _, _, entity, _ ->
-            if (DungeonSession.calibrated && entity is Bat) onBatHit(entity.id)
+            if (DungeonSession.calibrated) onAttack(entity)
             InteractionResult.PASS
+        }
+        // **A bat that dies next to you, which is the signal the swing above has never produced.**
+        // Across every session log this install has ever written — 2133 `own_interaction`, 3
+        // `own_pickup` — `own_bat` has fired exactly zero times, so the melee path is not rare, it is
+        // dead. Two things could explain that and this covers both: a bat killed with a bow, a wand
+        // or anything with an area of effect never reaches `AttackEntityCallback` at all, and a
+        // secret bat that is not a [Bat] on the client would never pass the check above either.
+        //
+        // Weaker than a click and knowingly so. A right-click is unambiguously your action; a bat
+        // that stops existing near you is *probably* yours and might be a teammate's. It is held to
+        // exactly the same standard as every other signal here — it only arms the window, and
+        // Hypixel's counter still has to move within [OWN_WINDOW] for anything to be credited — but
+        // it is the one arming event this mod cannot prove belongs to the local player.
+        //
+        // That is acceptable now for a reason that did not exist last week: [SecretAudit] measures
+        // exactly this. If it starts crediting secrets that were somebody else's, `secret_audit` says
+        // `too many` and the number is in the debug log of every run. It is the first inference in
+        // this file that can be checked rather than argued about.
+        ClientEntityEvents.ENTITY_UNLOAD.register { entity, _ ->
+            if (DungeonSession.calibrated && entity is Bat) onBatGone(entity)
+        }
+    }
+
+    /**
+     * Any entity the local player swung at. [Bat] arms the window; everything else is a diagnostic.
+     *
+     * The diagnostic exists because `own_bat` never firing has two very different explanations and
+     * this repository cannot tell them apart: either `AttackEntityCallback` is not being delivered at
+     * all in 26.1.2, or it is and Hypixel's secret bats are not the class this checks for. One line
+     * per entity class per run separates them — `own_attack` with nothing but `zombie` in it says the
+     * callback works and the bats are something else; no `own_attack` at all says the callback is
+     * dead and the bat check was never the problem.
+     *
+     * The class's simple name rather than the registry id, because that is the thing being doubted:
+     * `entity is Bat` is a class check, so the answer has to be about the class.
+     */
+    private fun onAttack(entity: Entity) {
+        if (entity is Bat) onBatHit(entity.id)
+        // Once per class per run. A floor is thousands of swings and this is a question about kinds.
+        val kind = entity.javaClass.simpleName
+        if (attackedKinds.add(kind)) DebugLog.event("own_attack", "kind" to kind, "bat" to (entity is Bat))
+    }
+
+    /**
+     * A bat left the world close enough to the local player to plausibly be theirs.
+     *
+     * Distance is the whole of the guard, so it is deliberately tight. [BAT_RADIUS] is a melee range
+     * and a little: far enough that a bat dropping out of the air after a hit still counts, near
+     * enough that a chunk unloading across the room does not — an unload is what this event is for,
+     * and the ordinary case of it is a player walking away from entities, which happens at a
+     * distance by definition.
+     */
+    private fun onBatGone(bat: Bat) {
+        val player = Minecraft.getInstance().player ?: return
+        if (bat.distanceToSqr(player) > BAT_RADIUS * BAT_RADIUS) return
+        lastOwnInteraction = DungeonSession.runTicks
+        lastOwnSource = BAT
+        if (!isRepeatBat(bat.id)) {
+            lastBatId = bat.id
+            lastBatTick = DungeonSession.runTicks
+            DebugLog.event("own_bat", "id" to bat.id, "at" to lastOwnInteraction, "by" to "death")
         }
     }
 
@@ -219,6 +289,9 @@ object SecretTracker {
         chatSecretMine = false
         chatSecretAt = NO_INTERACTION
         UNMATCHED.clear()
+        // Per run, so the diagnostic answers "what did this floor swing at" rather than fading out
+        // after the first dungeon of a session.
+        attackedKinds.clear()
     }
 
     /**
