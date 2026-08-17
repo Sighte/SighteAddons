@@ -1,5 +1,6 @@
 package sighteaddons.ui.screens
 
+import sighteaddons.ui.components.Nav
 import sighteaddons.ui.components.TextField
 import sighteaddons.ui.theme.Tokens
 
@@ -146,6 +147,37 @@ internal object SettingsPage {
         }
         return -1
     }
+}
+
+/**
+ * Where the `/sa` screen's panel sits inside a window of a given GUI-scaled size.
+ *
+ * Extracted from the screen so a test can walk the sizes Minecraft's auto scale actually produces —
+ * 480×270 on a 1080p display, 456 on 1366×768, 427 on both 1280×720 and 2560×1440, and the vanilla
+ * minimum of 320×240. Every layout bug this screen has had came from being reasoned about at one of
+ * those and shipped for all of them, and a formula only the screen knows is a formula only the screen
+ * can be wrong about.
+ */
+internal object Frame {
+
+    const val MARGIN = 20
+    const val GAP = Tokens.SPACE_24
+
+    /** The widest the content column is allowed to be, however wide the window is. */
+    const val CONTENT_MAX = 460
+
+    fun width(guiWidth: Int): Int = minOf(Nav.WIDTH + GAP + CONTENT_MAX, guiWidth - MARGIN * 2)
+
+    fun left(guiWidth: Int): Int = (guiWidth - width(guiWidth)) / 2
+
+    fun contentLeft(guiWidth: Int): Int = left(guiWidth) + Nav.WIDTH + GAP
+
+    fun content(guiWidth: Int): Int = width(guiWidth) - Nav.WIDTH - GAP
+
+    /** The top of the page area, which is the same at every size — the header above it is fixed. */
+    val bodyTop: Int get() = MARGIN + Tokens.SPACE_12 + Tokens.SPACE_32
+
+    fun listBottom(guiHeight: Int): Int = guiHeight - MARGIN - Tokens.SPACE_16
 }
 
 /**

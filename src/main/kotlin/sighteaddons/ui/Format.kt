@@ -76,12 +76,14 @@ internal object Format {
      * been a second answer to "is a run from eleven hours ago yesterday".
      *
      * A zero [ts] is a record with no timestamp at all — a line written before the field existed — and
-     * gets [MISSING] rather than "56 years ago".
+     * gets the word rather than "56 years ago". **The word and not [MISSING]:** that constant is a
+     * clock with its digits knocked out, which is the right shape for a missing *time* and the wrong
+     * one for a missing *date*. A dash where a date belongs reads as a time that failed to format.
      *
      * [now] is a parameter rather than a `currentTimeMillis()` call so the answer is pinnable.
      */
     fun ago(ts: Long, now: Long): String {
-        if (ts == 0L) return MISSING
+        if (ts == 0L) return "never"
         val days = TimeUnit.MILLISECONDS.toDays(now - ts)
         return when {
             days <= 0L -> "today"
