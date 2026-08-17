@@ -25,15 +25,17 @@ CLAUDE.md-Regel 2, gilt nur hier und fällt danach zurück.
   Der alte Corner-Readout ist weg; `idle`/`nav` und die Standings sitzen jetzt in den ausklappbaren
   Run-Totals (Keybind, standardmäßig ungebunden).
   Die Karte blendet sich beim Betreten des Bossraums aus (`inBoss` auf dem Snapshot) — der Run-Clock
-  läuft darunter weiter. **Der User testet gerade `0.16.0-dev5`** (nur `build/libs`, `assemble check`
+  läuft darunter weiter. **Der User testet gerade `0.16.0-dev6`** (nur `build/libs`, `assemble check`
   mit `-Pmod_version=…`, `dist/` bleibt das released 0.15.0).
 - [x] **Chat-Tag** — `SA »`, monochrom, vor jeder Zeile die die Mod schreibt. Ein Funnel (`Chat.say`),
   die drei alten Selbstbezeichnungen sind weg. Der Rest von Phase 6 (Wortlaut, Farben der Zeilen
   selbst) steht noch aus.
 
-**`Cleared: X%` aus der Sidebar ist der vierte Boss-Kandidat**, falls `boss_start` im nächsten Log
-fehlt. Heute liest `observeSidebar` nur die Floor-Zeile; die Zeile mit dem Prozentsatz steht direkt
-darunter und ist im Boss 100 %.
+**Boss = Koordinaten pro Tick, wie in Odins `DungeonListener`** — dieselben Schwellen, kein Latch,
+kein Chat. `[BOSS] ` ist als Signal verbrannt: The Watcher steht im Blood-Room und trägt denselben
+Prefix. Zweites Standbein bleibt „Map 2 s weg" (nicht in Odin). Das Log sagt mit `boss_phase`,
+welches von beiden gefeuert hat — **wenn dort `by: "map"` steht, haben die Koordinaten wieder
+nicht gegriffen**, und dann ist die Sidebar-Zeile `Cleared: X%` der nächste Kandidat.
 - [ ] Phase 3b HUD-Editor (Anchor+Offset statt `hudX`/`hudY`), StormHud/ClearPopup umstellen
 - [ ] Phase 2 Komponenten · 4 Stats · 5 Config+Migration · 6 Chat · 7 Politur
 
