@@ -1,0 +1,230 @@
+package sighteaddons
+
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+
+/**
+ * The config migration and the placement arithmetic under it.
+ *
+ * These earn tests where almost nothing else in this repository does. A migration runs exactly once
+ * per installation, on a file written by a version that is no longer here, on a machine nobody
+ * testing this will ever touch — and when it is wrong the symptom is a HUD card a bit further left
+ * than it used to be, which looks like a HUD card. There is no run to lose and no error to read; it
+ * simply happens, once, and cannot be repeated.
+ *
+ * [Config] itself resolves its path through `FabricLoader` in a field initialiser and cannot be
+ * loaded outside a game, which is the reason [ConfigMigration] and [HudPlacement] are separate objects
+ * taking plain values rather than methods on it.
+ */
+class ConfigMigrationTest {
+
+    /** 1920×1080 at GUI scale 4, and the real card width. A plausible screen to migrate against. */
+    private val screenW = 480
+    private val screenH = 270
+    private val cardW = 196
+    private val cardH = 90
+
+    // --- Migration --------------------------------------------------------------------------
+
+    /**
+     * The whole promise: an old absolute position becomes an anchored one that resolves to the very
+     * same pixels on the screen it was migrated against.
+     *
+     * Not "close to" and not "the nearest corner". The player set that position by dragging a card
+     * until it looked right, and a migration that moves it — even by the few pixels that snapping to a
+     * corner would cost — is a migration they have to notice and undo.
+     */
+    @Test
+    fun `an old position migrates to the same pixels it was already at`() {
+        for (x in intArrayOf(0, 4, 137, 200, 283, 284)) {
+            for (y in intArrayOf(0, 4, 90, 179, 180)) {
+                val migrated = ConfigMigration.migrate(legacy(x, y), screenW, screenH, cardW, cardH)
+                val origin = originOf(migrated, screenW, screenH)
+                assertEquals(x, origin.x, "hudX $x moved")
+                assertEquals(y, origin.y, "hudY $y moved")
+            }
+        }
+    }
+
+    /** The old keys go, the version arrives, and nothing else in the file is touched. */
+    @Test
+    fun `migration replaces the position keys and leaves every other setting alone`() {
+        val old = legacy(276, 172)
+        old.addProperty("hud", false)
+        old.addProperty("installId", "abc-123")
+
+        val migrated = ConfigMigration.migrate(old, screenW, screenH, cardW, cardH)
+
+        assertEquals(1, ConfigMigration.versionOf(migrated))
+        assertFalse(migrated.has("hudX"), "the old keys are not carried along")
+        assertFalse(migrated.has("hudY"))
+        assertEquals("BOTTOM_RIGHT", migrated.get("hudAnchor").asString)
+        assertFalse(migrated.get("hud").asBoolean, "a switch the player turned off stays off")
+        assertEquals("abc-123", migrated.get("installId").asString, "the identity survives")
+        assertFalse(old.has("hudAnchor"), "the input is not mutated")
+    }
+
+    /**
+     * A file already at the current version comes back untouched — the same instance, not an equal
+     * copy, because the point is that nothing was rewritten.
+     */
+    @Test
+    fun `an already migrated file is left exactly as it is`() {
+        val current = JsonParser.parseString(
+            """{"version":1,"hudAnchor":"BOTTOM_RIGHT","hudOffsetX":8,"hudOffsetY":8,"hud":true}""",
+        ).asJsonObject
+
+        assertSame(current, ConfigMigration.migrate(current, screenW, screenH, cardW, cardH))
+    }
+
+    /**
+     * With no screen, nothing happens at all — and that is the design, not a failure.
+     *
+     * Two absolute pixels do not say what they were measured against, and nothing ever wrote it down.
+     * Converting them at mod-init time, before any window has a GUI-scaled size, would mean inventing
+     * the screen they meant; the card would land somewhere the player never put it, once, permanently.
+     * So the file stays at version 0 until a frame can supply real dimensions.
+     */
+    @Test
+    fun `without a screen the file is left at version 0 to be migrated later`() {
+        val old = legacy(276, 172)
+        val untouched = ConfigMigration.migrate(old, 0, 0, cardW, cardH)
+
+        assertSame(old, untouched)
+        assertEquals(0, ConfigMigration.versionOf(untouched))
+        assertTrue(untouched.has("hudX"), "the old position must survive to be converted later")
+
+        // And the deferred attempt, once there is a screen, is the same conversion as any other.
+        assertEquals(1, ConfigMigration.versionOf(ConfigMigration.migrate(old, screenW, screenH, cardW, cardH)))
+    }
+
+    /**
+     * A missing `hudX` falls back to the default position, never to zero.
+     *
+     * This is the rule the rest of [Config] is written around, inherited: a key that is absent because
+     * an older version never wrote it must read as the default, and a rename must not turn one into a
+     * different value. Zero here would be a card shoved into the very corner of a screen belonging to
+     * somebody who had never moved it.
+     */
+    @Test
+    fun `a file with no position at all migrates to the default one`() {
+        val bare = JsonObject()
+        bare.addProperty("hud", true)
+
+        val migrated = ConfigMigration.migrate(bare, screenW, screenH, cardW, cardH)
+
+        assertEquals(HudPlacement.DEFAULT_ANCHOR.name, migrated.get("hudAnchor").asString)
+        assertEquals(HudPlacement.DEFAULT_OFFSET, migrated.get("hudOffsetX").asInt)
+        assertEquals(HudPlacement.DEFAULT_OFFSET, migrated.get("hudOffsetY").asInt)
+    }
+
+    /**
+     * A position that no longer exists on this screen is pulled onto it, and stays on it afterwards.
+     *
+     * This is the failure the anchor exists to end, met on the way in: a config written on a large
+     * window, opened on a small one. The old pixels are off the edge, and an offset derived from them
+     * without clamping would be an offset that puts the card back off the edge on every screen it ever
+     * sees again — the bug preserved rather than fixed.
+     */
+    @Test
+    fun `a position off today's screen is brought back onto it`() {
+        val migrated = ConfigMigration.migrate(legacy(1000, 800), screenW, screenH, cardW, cardH)
+        val origin = originOf(migrated, screenW, screenH)
+
+        assertEquals(screenW - cardW, origin.x)
+        assertEquals(screenH - cardH, origin.y)
+        assertEquals("BOTTOM_RIGHT", migrated.get("hudAnchor").asString)
+        assertEquals(0, migrated.get("hudOffsetX").asInt, "an offset from the edge, not a distance past it")
+
+        // And on a screen twice the size it is still the same eight-pixel-free corner, not off it.
+        val wide = originOf(migrated, screenW * 2, screenH * 2)
+        assertEquals(screenW * 2 - cardW, wide.x)
+        assertEquals(screenH * 2 - cardH, wide.y)
+    }
+
+    // --- Placement --------------------------------------------------------------------------
+
+    /**
+     * Every anchor survives the trip out to a position and back, because that trip is what a drag is:
+     * the editor moves the card in pixels and the anchor is read off where it stopped. A pair that did
+     * not round-trip would move the card by the rounding error the moment it was let go.
+     */
+    @Test
+    fun `every anchor round-trips through a position`() {
+        for (anchor in HudPlacement.Anchor.entries) {
+            val origin = HudPlacement.origin(anchor, 12, 9, screenW, screenH, cardW, cardH)
+            val back = HudPlacement.nearest(origin.x, origin.y, screenW, screenH, cardW, cardH)
+
+            assertEquals(anchor, back.anchor, "${anchor.name} read back as ${back.anchor.name}")
+            assertEquals(12, back.offsetX, "${anchor.name} horizontal offset")
+            assertEquals(9, back.offsetY, "${anchor.name} vertical offset")
+        }
+    }
+
+    /**
+     * The point of the whole change, stated once: an anchored card keeps its distance from its own
+     * edge when the screen changes size, where an absolute one keeps its distance from the top left
+     * and ends up somewhere else — or nowhere.
+     */
+    @Test
+    fun `an anchored card holds its edge across a resolution change`() {
+        val corner = HudPlacement.Anchor.BOTTOM_RIGHT
+        for (screen in arrayOf(intArrayOf(480, 270), intArrayOf(320, 180), intArrayOf(960, 540))) {
+            val origin = HudPlacement.origin(corner, 8, 8, screen[0], screen[1], cardW, cardH)
+            assertEquals(screen[0] - cardW - 8, origin.x, "${screen[0]}px wide")
+            assertEquals(screen[1] - cardH - 8, origin.y, "${screen[1]}px tall")
+        }
+    }
+
+    /**
+     * A window with no room for the card at all still puts it somewhere readable.
+     *
+     * There is no correct answer — the card does not fit — so the one that is chosen has to be the one
+     * that recovers: flush to the top left, which is the corner the room name and the clock hang off,
+     * and an offset of zero, which means the same thing on the normal-sized window this player will be
+     * back on in a moment.
+     */
+    @Test
+    fun `a window smaller than the card anchors flush to the corner`() {
+        val tiny = HudPlacement.nearest(0, 0, 150, 60, cardW, cardH)
+
+        assertEquals(HudPlacement.Anchor.TOP_LEFT, tiny.anchor)
+        assertEquals(0, tiny.offsetX)
+        assertEquals(0, tiny.offsetY)
+
+        val origin = HudPlacement.origin(tiny.anchor, tiny.offsetX, tiny.offsetY, 150, 60, cardW, cardH)
+        assertEquals(0, origin.x, "never negative — the card's own corner stays on screen")
+        assertEquals(0, origin.y)
+    }
+
+    /** A hand-edited config is a supported way to set this file, so a typo costs the anchor only. */
+    @Test
+    fun `an unreadable anchor name falls back to the default`() {
+        assertEquals(HudPlacement.Anchor.BOTTOM_LEFT, HudPlacement.Anchor.of("BOTTOM_LEFT"))
+        assertEquals(HudPlacement.DEFAULT_ANCHOR, HudPlacement.Anchor.of("bottom-left"))
+        assertEquals(HudPlacement.DEFAULT_ANCHOR, HudPlacement.Anchor.of(""))
+    }
+
+    // --- Helpers ----------------------------------------------------------------------------
+
+    /** A config file as versions before this one wrote it: absolute pixels, no version. */
+    private fun legacy(x: Int, y: Int): JsonObject {
+        val obj = JsonObject()
+        obj.addProperty("hudX", x)
+        obj.addProperty("hudY", y)
+        return obj
+    }
+
+    /** Where a migrated object puts the card, which is the only thing the player can see. */
+    private fun originOf(obj: JsonObject, screenW: Int, screenH: Int) = HudPlacement.origin(
+        HudPlacement.Anchor.of(obj.get("hudAnchor").asString),
+        obj.get("hudOffsetX").asInt,
+        obj.get("hudOffsetY").asInt,
+        screenW, screenH, cardW, cardH,
+    )
+}

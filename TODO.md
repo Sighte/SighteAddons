@@ -59,8 +59,12 @@ nicht gegriffen**, und dann ist die Sidebar-Zeile `Cleared: X%` der nächste Kan
 - [x] **HUD-Editor** — die Karte steht an ihrer echten Position und wird gezogen (Grab-Offset,
   Clamp gegen die echte Kartengröße), Hintergrund ist ein 48/255-Scrim statt `surfaceBase`, das
   Live-Overlay steht währenddessen still (`HudRoot.editing`, in `removed()` gelöscht).
-  Anchor+Offset statt `hudX`/`hudY` steht weiter aus — heute sind es absolute Pixel, die bei
-  einem Auflösungswechsel wandern.
+- [x] **Anchor+Offset statt `hudX`/`hudY`** (`HudPlacement`) — neun Anker, Versatz von der Kante nach
+  innen, der Editor zieht weiter frei und leitet den Anker beim Loslassen ab. Dazu `version` in
+  `config.json` und ein geordneter, idempotenter Migrationspfad (`ConfigMigration`, rein, ohne
+  `FabricLoader`). **Ein v0-File wird erst umgerechnet, wenn eine echte `guiScaled`-Größe vorliegt** —
+  aus zwei absoluten Pixeln allein ist der Anker nicht ableitbar; bis dahin bleibt die Datei v0 und die
+  Karte steht auf demselben Pixel wie vorher.
 - [x] **Phase 3b Rest** — StormHud/ClearPopup auf dem Design-System. Beide sind jetzt Chips aus
   `Surface`/`Tokens` statt roher Literale; das Gold für einen PB ist weg und der PB reist auf drei
   Kanälen ohne Luminanz (Chevron, das Wort `PB`, stärkerer Rahmen). `StormTimer.readout` gibt eine
@@ -78,7 +82,7 @@ nicht gegriffen**, und dann ist die Sidebar-Zeile `Cleared: X%` der nächste Kan
   Nebenbefund: `SettingsScreen` reicht lange Raumnamen an `setTooltipForNextFrame` weiter, und
   Vanillas Box ist mit ihrem lila Rand das einzige Farbige auf dem ganzen Bildschirm. `Tooltip` ersetzt
   sie, sobald Phase 4 den Screen anfasst.
-- [ ] 4 Stats · 5 Config+Migration · 7 Politur
+- [ ] 4 Stats · 5 Config-**Bildschirm** (Unterbau steht) · 7 Politur
 
 Zwei Sachen aus Phase 1, die nicht in der Vorlage standen:
 

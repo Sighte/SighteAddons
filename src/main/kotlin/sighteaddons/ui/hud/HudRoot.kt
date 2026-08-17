@@ -11,6 +11,7 @@ import sighteaddons.ui.motion.Easing
 import sighteaddons.ui.motion.Motion
 import sighteaddons.ui.render.Effects
 import sighteaddons.ui.render.Surface
+import sighteaddons.ui.theme.Density
 import sighteaddons.ui.theme.Tokens
 import java.util.Locale
 
@@ -70,7 +71,13 @@ internal class HudRoot {
         // is two cards: this one at the position being edited away from, the editor's under the
         // cursor — and no way to tell which is the one being moved.
         if (editing) return
-        draw(graphics, font, HudSnapshot.current, Config.hudX, Config.hudY)
+        val snapshot = HudSnapshot.current
+        // Measured before it is placed, because a bottom- or middle-anchored card is positioned by an
+        // edge it does not own: it has to know its own height to know where its top goes. That also
+        // makes it grow upwards out of a bottom anchor as the totals open, instead of downwards off
+        // the screen.
+        val origin = Config.hudOrigin(Density.guiWidth, Density.guiHeight, WIDTH, measure(snapshot))
+        draw(graphics, font, snapshot, origin.x, origin.y)
     }
 
     /**

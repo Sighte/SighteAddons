@@ -12,13 +12,38 @@ import java.nio.file.Files
  * Gson instantiates objects through Unsafe without running the constructor, so a key missing from a
  * config file written by an older version would silently become `false`/`0` instead of the default
  * below — a HUD that switches itself off after an update.
+ *
+ * The file also carries a `version`, and [ConfigMigration] is what reads a file written under an older
+ * one. That is the same care applied to the case an explicit fallback cannot cover: a key that has
+ * been *renamed* is absent exactly like a key nobody ever set, and only the version can tell them
+ * apart.
  */
 object Config {
     private val FILE = FabricLoader.getInstance().configDir.resolve("sighteaddons/config.json")
 
     var hud = true
-    var hudX = 4
-    var hudY = 4
+
+    /**
+     * Where the HUD card hangs, and how far in from there — see [HudPlacement] for why it is not two
+     * absolute pixels any more, and [ConfigMigration] for what happens to the files that say it was.
+     *
+     * Read through [hudOrigin] rather than directly: an old config's position is only convertible once
+     * a real screen exists, and that call is where it happens.
+     */
+    var hudAnchor = HudPlacement.DEFAULT_ANCHOR
+    var hudOffsetX = HudPlacement.DEFAULT_OFFSET
+    var hudOffsetY = HudPlacement.DEFAULT_OFFSET
+
+    /**
+     * A parsed config file still at version 0, held until there is a screen to migrate it against.
+     *
+     * Null for every other case, including a fresh install: a config nobody has written yet is already
+     * current. While this is set, [save] writes the version-0 shape back — the file must not claim to
+     * have been migrated by a run that could not migrate it, and the old position must survive a
+     * player who opens `/sa` and flips an unrelated switch before ever entering a dungeon.
+     */
+    private var pendingHud: JsonObject? = null
+
     var showRoom = true
     var showStandings = true
 
@@ -150,12 +175,76 @@ object Config {
         }
     }
 
+    /**
+     * Where the HUD card's top-left corner belongs on a [screenW]×[screenH] screen, and the one place
+     * an old absolute position becomes an anchored one.
+     *
+     * Migrating here rather than in [load] is the whole design: at mod init there is no window whose
+     * GUI-scaled size means anything, and the conversion needs one. The first frame that has both a
+     * screen and the card's real height finishes the job, writes the file once, and from then on this
+     * is arithmetic. Until that frame, the card is drawn at exactly the pixels the previous version
+     * drew it at — so the migration is not something the player can see happen.
+     */
+    fun hudOrigin(screenW: Int, screenH: Int, cardW: Int, cardH: Int): HudPlacement.Origin {
+        val pending = pendingHud
+        if (pending != null) {
+            val migrated = ConfigMigration.migrate(pending, screenW, screenH, cardW, cardH)
+            if (ConfigMigration.versionOf(migrated) < ConfigMigration.CURRENT) {
+                // No usable screen — a minimised window on Windows reports a GUI size of zero. The old
+                // absolute position is still the best answer there is, and it is the answer the last
+                // version gave, so nothing is lost by waiting for a frame that can do better.
+                return HudPlacement.Origin(
+                    pending.int("hudX", HudPlacement.DEFAULT_OFFSET),
+                    pending.int("hudY", HudPlacement.DEFAULT_OFFSET),
+                )
+            }
+            readHud(migrated)
+            pendingHud = null
+            save()
+        }
+        return HudPlacement.origin(hudAnchor, hudOffsetX, hudOffsetY, screenW, screenH, cardW, cardH)
+    }
+
+    /**
+     * Puts the card's top-left corner at ([x], [y]) by deriving the anchor it reads as.
+     *
+     * The placement editor drags in absolute pixels because that is what a hand does; the anchor is
+     * inferred from where the hand stopped. An explicit placement also settles any pending migration —
+     * a position the player just chose outranks one an old file remembers.
+     */
+    fun placeHud(x: Int, y: Int, screenW: Int, screenH: Int, cardW: Int, cardH: Int) {
+        val placement = HudPlacement.nearest(x, y, screenW, screenH, cardW, cardH)
+        hudAnchor = placement.anchor
+        hudOffsetX = placement.offsetX
+        hudOffsetY = placement.offsetY
+        pendingHud = null
+    }
+
+    /**
+     * The three placement keys, from an object already at [ConfigMigration.CURRENT].
+     *
+     * Its own function because it is read from two places — [read] for a file that was already
+     * current, [hudOrigin] for one that has just this second become current — and two copies of it
+     * would be two chances for a key to be spelt differently in the one path nobody exercises.
+     */
+    private fun readHud(obj: JsonObject) {
+        hudAnchor = HudPlacement.Anchor.of(
+            if (obj.has("hudAnchor")) obj.get("hudAnchor").asString else hudAnchor.name,
+        )
+        hudOffsetX = obj.int("hudOffsetX", hudOffsetX)
+        hudOffsetY = obj.int("hudOffsetY", hudOffsetY)
+    }
+
     private fun read() {
         try {
-            val obj = JsonParser.parseString(Files.readString(FILE)).asJsonObject
+            val raw = JsonParser.parseString(Files.readString(FILE)).asJsonObject
+            // As far forward as this file can go without a screen — which for version 0 is nowhere.
+            // See ConfigMigration: the HUD position is the one key whose old form cannot be read
+            // without knowing what it was once measured against.
+            val obj = ConfigMigration.migrate(raw, 0, 0, 0, 0)
+            if (ConfigMigration.versionOf(obj) >= ConfigMigration.CURRENT) readHud(obj) else pendingHud = obj
+
             hud = obj.bool("hud", hud)
-            hudX = obj.int("hudX", hudX)
-            hudY = obj.int("hudY", hudY)
             showRoom = obj.bool("showRoom", showRoom)
             showStandings = obj.bool("showStandings", showStandings)
             showSecrets = obj.bool("showSecrets", showSecrets)
@@ -187,9 +276,20 @@ object Config {
 
     fun save() {
         val obj = JsonObject()
+        val pending = pendingHud
+        if (pending != null) {
+            // Still unmigrated, so still version 0 on disk, with the position untouched. A file that
+            // carried a version it has not been brought up to would be read next launch as one whose
+            // missing `hudAnchor` means "never set" — and the player's position would be gone.
+            obj.addProperty("hudX", pending.int("hudX", HudPlacement.DEFAULT_OFFSET))
+            obj.addProperty("hudY", pending.int("hudY", HudPlacement.DEFAULT_OFFSET))
+        } else {
+            obj.addProperty("version", ConfigMigration.CURRENT)
+            obj.addProperty("hudAnchor", hudAnchor.name)
+            obj.addProperty("hudOffsetX", hudOffsetX)
+            obj.addProperty("hudOffsetY", hudOffsetY)
+        }
         obj.addProperty("hud", hud)
-        obj.addProperty("hudX", hudX)
-        obj.addProperty("hudY", hudY)
         obj.addProperty("showRoom", showRoom)
         obj.addProperty("showStandings", showStandings)
         obj.addProperty("showSecrets", showSecrets)

@@ -40,10 +40,31 @@ internal object Density {
     var hairline = 1
         private set
 
+    /**
+     * The screen in GUI pixels — what anything anchored to an edge has to measure against.
+     *
+     * Kept here because this is already the one place per frame that is handed the window's real
+     * dimensions, and because the HUD element callback is not: it receives a `GuiGraphics` and a
+     * `DeltaTracker` and nothing that says how big the screen is. The alternative is a
+     * `Minecraft.getInstance()` inside the render path, which would put a client lookup into code that
+     * is deliberately reachable from a unit test.
+     *
+     * Zero until the first [beginFrame], and zero again for the frames around a window minimise on
+     * Windows. Callers treat that as "no screen", never as a screen of zero width.
+     */
+    var guiWidth = 0
+        private set
+
+    /** The screen in GUI pixels, vertically. See [guiWidth]. */
+    var guiHeight = 0
+        private set
+
     /** Call once per frame, before anything draws. */
     fun beginFrame(framebufferWidth: Int, framebufferHeight: Int, guiScaledWidth: Int, guiScaledHeight: Int) {
         scaleX = scaleFor(framebufferWidth, guiScaledWidth)
         scaleY = scaleFor(framebufferHeight, guiScaledHeight)
+        guiWidth = guiScaledWidth
+        guiHeight = guiScaledHeight
     }
 
     /**
