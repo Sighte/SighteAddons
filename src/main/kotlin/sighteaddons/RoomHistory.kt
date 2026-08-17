@@ -449,8 +449,23 @@ object RoomHistory {
         // answer lands — which, for a player who starts the next floor quickly, is a different run.
         // `announce` schedules onto the client thread itself, so the callback is safe where it is.
         val estimated = rooms.sumOf { it.ownSecrets }
-        SecretApi.settle(PartyTracker.rosterIds()) { counts ->
-            announce(secretLine(counts, estimated, self))
+        // Captured here for the same reason `estimated` is: by the time the answer lands the player
+        // may be on the next floor, and DungeonTab will have been reset by it.
+        val floorTracked = DungeonTab.secretsFound
+        val roster = PartyTracker.rosterIds()
+        SecretApi.settle(roster) { counts ->
+            announce(secretLine(counts))
+            // The live tracker, graded against the one source that knows. `ownsecrets-001` has never
+            // had a number for this; every run with a key now writes one.
+            val audit = SecretAudit.of(estimated, counts, self, floorTracked, roster.size)
+            DebugLog.event(
+                "secret_audit",
+                "verdict" to audit.verdict.name.lowercase(),
+                "tracked" to audit.tracked, "actual" to audit.actual, "delta" to audit.delta,
+                "floorTracked" to audit.floorTracked, "floorActual" to audit.floorActual,
+                "answered" to audit.answered, "asked" to audit.asked,
+            )
+            announce(auditLine(audit))
         }
 
         // Was `> 0.01` against an inline subtraction — the same guard against the same split residue
@@ -509,23 +524,63 @@ object RoomHistory {
      * says. A reader can tell them apart, and when they disagree the disagreement is visible instead
      * of resolved silently in favour of whichever arrived last.
      *
-     * [estimated] is the local player's own provable count, printed beside the true one when the two
-     * differ. That gap is the measured cost of [SecretTracker]'s attribution — the thing
-     * `ownsecrets-001` currently has to reconstruct by hand from old logs — and putting it on screen
-     * once per run is how it stops being a guess.
+     * This line carries the counts alone. The comparison against what this client tracked used to
+     * ride on it as a `(counted N)` after the local player's number; it is now [auditLine], because a
+     * verdict squeezed into a list of names is a number the reader has to do the subtraction for.
      */
-    internal fun secretLine(counts: Map<String, Int>, estimated: Int, self: String?): MutableComponent {
+    internal fun secretLine(counts: Map<String, Int>): MutableComponent {
         val line = Component.literal("  secrets ").withStyle(ChatFormatting.GOLD)
             .append(Component.literal("(Hypixel) ").withStyle(ChatFormatting.DARK_GRAY))
         counts.entries.sortedByDescending { it.value }.forEachIndexed { index, (name, found) ->
             if (index > 0) line.append(Component.literal(", ").withStyle(ChatFormatting.DARK_GRAY))
             line.append(Component.literal("$name ").withStyle(ChatFormatting.WHITE))
             line.append(Component.literal("$found").withStyle(ChatFormatting.AQUA))
-            // Only for the local player, and only when it disagrees: this client cannot estimate a
-            // teammate's count at all, so there is nothing to compare theirs against.
-            if (name == self && found != estimated) {
-                line.append(Component.literal(" (counted $estimated)").withStyle(ChatFormatting.DARK_GRAY))
+        }
+        return line
+    }
+
+    /**
+     * The live tracker, graded against Hypixel. See [SecretAudit] for what the two directions mean.
+     *
+     * Over-counting is the only outcome drawn in the colour the summary uses for records, because it
+     * is the only one that is a defect rather than a reading: it says a teammate's secret was written
+     * onto your screen and into your points. Missing some is the designed direction and is stated as
+     * plainly as any other number.
+     */
+    internal fun auditLine(audit: SecretAudit.Result): MutableComponent {
+        val line = Component.literal("  tracker ").withStyle(ChatFormatting.GOLD)
+        when (audit.verdict) {
+            SecretAudit.Verdict.UNKNOWN ->
+                line.append(Component.literal("no reading for you").withStyle(ChatFormatting.DARK_GRAY))
+
+            SecretAudit.Verdict.EXACT -> {
+                line.append(Component.literal("${audit.tracked} of ${audit.actual}").withStyle(ChatFormatting.AQUA))
+                line.append(Component.literal(" yours, exact").withStyle(ChatFormatting.GRAY))
             }
+
+            SecretAudit.Verdict.MISSED -> {
+                line.append(Component.literal("${audit.tracked} of ${audit.actual}").withStyle(ChatFormatting.AQUA))
+                line.append(Component.literal(" yours, ").withStyle(ChatFormatting.GRAY))
+                line.append(
+                    Component.literal("${-(audit.delta ?: 0)} missed").withStyle(ChatFormatting.DARK_GRAY),
+                )
+            }
+
+            SecretAudit.Verdict.OVER -> {
+                line.append(Component.literal("${audit.tracked} of ${audit.actual}").withStyle(ChatFormatting.AQUA))
+                line.append(Component.literal(" yours, ").withStyle(ChatFormatting.GRAY))
+                line.append(
+                    Component.literal("${audit.delta} too many").withStyle(ChatFormatting.GOLD),
+                )
+            }
+        }
+        // Only when it is short. A complete reading is the normal case and saying so every run is
+        // noise; an incomplete one is why the floor totals below it cannot be compared.
+        if (!audit.complete) {
+            line.append(
+                Component.literal("  (${audit.answered} of ${audit.asked} players read)")
+                    .withStyle(ChatFormatting.DARK_GRAY),
+            )
         }
         return line
     }
