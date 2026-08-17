@@ -181,8 +181,9 @@ class SighteAddons : ClientModInitializer {
         // the map — it is the only source that sees rooms this client has not loaded — but everything
         // else can, and stopping all of it was never the intent.
         val map = DungeonMapReader.mapState(client)
-        // Before anything reads `inBoss`, which is one of the three things this feeds.
-        DungeonSession.observeMap(map != null)
+        // Once per tick, before anything reads `DungeonSession.inBoss` — which is both branches below
+        // and the HUD snapshot. Odin recomputes it in the same place for the same reason.
+        DungeonSession.observe(client, map != null)
         val wasCalibrated = DungeonSession.calibrated
         if (map == null || !DungeonSession.update(client, map)) {
             // In the boss: stop sampling rooms but keep the run clock going, so the summary
@@ -247,9 +248,6 @@ class SighteAddons : ClientModInitializer {
         // returns early on every ordinary line, and putting the events after that return is how they
         // would silently stop arriving the moment somebody reorders this function.
         val text = ChatFormatting.stripFormatting(message).orEmpty()
-        // First, because it decides what the rest of the run counts as. Every boss speaks on entry,
-        // and that line is the one boss signal that does not depend on the inherited coordinates.
-        DungeonSession.observeChat(text)
         onDungeonEvent(text)
         onCrit(text)
         onStorm(text)

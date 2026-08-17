@@ -138,7 +138,7 @@ internal class HudSnapshot(
             val visited = ContributionTracker.visitedRooms()
             return HudSnapshot(
                 inDungeon = true,
-                inBoss = DungeonSession.inBoss(client),
+                inBoss = DungeonSession.inBoss,
                 floor = DungeonSession.floor.orEmpty(),
                 runTicks = DungeonSession.runTicks,
                 roomsCleared = ContributionTracker.roomsCleared,

@@ -145,33 +145,43 @@ class DungeonSessionTest {
     }
 
     /**
-     * The boss line that ends the clear phase, and the anchor that keeps it the server's to send.
+     * The boss thresholds, against the floor that produced them being wrong twice.
      *
-     * The M1 of 2026-08-17 is why this signal exists at all: the tick loop stopped at the missing
-     * dungeon map before it ever evaluated the inherited coordinate thresholds, so a run's clear
-     * phase never ended. Chat arrives whatever the map is doing.
+     * The numbers are Odin's `DungeonListener.getBoss`, ported unchanged, and the property that
+     * matters is not where the boss room is — it is that **no part of the clear phase falls inside
+     * these regions**. Everything below is a position this repository has actually seen: the
+     * `player_room` rows of the M1 played on 2026-08-17, which reach x −102 at their eastmost and
+     * z −60 at their northmost, both comfortably outside the F1 region.
      *
-     * The negative cases are the ones that matter. `[BOSS] ` is a prefix only Hypixel writes — a
-     * player saying the same words has their own name in front of them — and this latch stops room
-     * sampling and takes the HUD off the screen for the rest of the run, so a party member being able
-     * to set it by typing would be a real defect rather than a cosmetic one.
+     * The two chat-shaped cases that used to be here are gone, and deliberately so. 0.16.0-dev5 also
+     * latched the boss on any `[BOSS] ` line; The Watcher is `[BOSS] `-prefixed and stands in the
+     * blood room, so the HUD vanished at `blood_door` + 2 ticks. Boss dialogue does not identify the
+     * boss room, and the test that claimed it did asserted the defect.
      */
     @Test
-    fun `only the server can announce the boss`() {
-        assertTrue(DungeonSession.isBossLine("[BOSS] Bonzo: Gratz for making it this far, but I'm basically unbeatable."))
-        assertTrue(DungeonSession.isBossLine("[BOSS] Storm: ENERGY HEED MY CALL!"))
-        assertTrue(DungeonSession.isBossLine("[BOSS] The Watcher: Well done. Time to face your fears."))
+    fun `no part of the clear phase reads as the boss`() {
+        // Real M1 positions, clear phase, from session-1786984202089.
+        for ((x, z) in listOf(
+            -154.9 to -90.9, -175.3 to -122.9, -184.0 to -138.9,
+            -168.0 to -153.5, -137.5 to -153.5, -102.5 to -154.9,
+        )) {
+            assertFalse(DungeonSession.atBoss(1, x, z), "($x, $z) is a room on the M1 that was played")
+        }
 
-        assertFalse(
-            DungeonSession.isBossLine("Sighte: [BOSS] Bonzo: hide the hud"),
-            "a party member typing it is not the boss speaking",
-        )
-        assertFalse(
-            DungeonSession.isBossLine("Party > [MVP+] Nordwand: [BOSS] gg"),
-            "nor in party chat",
-        )
-        assertFalse(DungeonSession.isBossLine("[NPC] Mort: Here, I found this map."), "the entrance NPC is not a boss")
-        assertFalse(DungeonSession.isBossLine("[BOSS]"), "the prefix alone says nothing")
+        // The boundary itself, which is the whole of the F1 rule.
+        assertTrue(DungeonSession.atBoss(1, -70.0, -38.0))
+        assertFalse(DungeonSession.atBoss(1, -72.0, -38.0), "west of the line is not the boss")
+        assertFalse(DungeonSession.atBoss(1, -70.0, -40.0), "north of the line is not the boss")
+
+        // Odin groups 2..4 and 5..6 together and gives 7 its own corner. Ported unchanged.
+        assertTrue(DungeonSession.atBoss(4, -38.0, -38.0))
+        assertFalse(DungeonSession.atBoss(4, -70.0, -38.0), "the F1 corner is clear-phase floor on F4")
+        assertTrue(DungeonSession.atBoss(6, -38.0, -6.0))
+        assertFalse(DungeonSession.atBoss(6, -38.0, -8.0))
+        assertTrue(DungeonSession.atBoss(7, -6.0, -6.0))
+        assertFalse(DungeonSession.atBoss(7, -38.0, -6.0), "the F6 corner is clear-phase floor on F7")
+
+        assertFalse(DungeonSession.atBoss(null, 0.0, 0.0), "no floor, no boss room")
     }
 
     /**
