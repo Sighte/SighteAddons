@@ -499,8 +499,12 @@ object ContributionTracker {
      * The potential term was **removed** rather than kept alongside this one, and it had to be:
      * with both, a room the player fully cleared would pay its secrets twice — once for holding
      * them and once for their finding them.
+     *
+     * Not private, because [ClearScore] spends the same quarter twice more: on a teammate's *estimated*
+     * share of the secrets somebody else was seen to find, and on every player's *true* count once
+     * [SecretApi] answers. Three places paying different amounts per secret would be three scores.
      */
-    private const val SECRET_POINTS = 0.25
+    internal const val SECRET_POINTS = 0.25
 
     /**
      * The dungeon grid sits at fixed world coordinates, so the chunks holding the sample columns
@@ -510,7 +514,22 @@ object ContributionTracker {
 
     /** Keyed by every physical segment of the room, so any segment resolves to the same room. */
     private val rooms = HashMap<Pos, TrackedRoom>()
-    private val credited = HashMap<String, Double>()
+
+    /**
+     * The two halves of a score, accumulated apart: rooms' clear weight, and the local player's proven
+     * secrets at [SECRET_POINTS] each.
+     *
+     * One map summed as it went, until [ClearScore] needed the halves separately — the final standings
+     * rebuild the secret half from Hypixel's real per-player counts, and rebuilding it means being able
+     * to leave the clear half alone. Two accumulators rather than one total minus one part: recovering
+     * a term by subtracting another from a sum is precisely the shape [unattributed] documents as having
+     * been wrong once already, and floating point does not promise `(a + b) - b == a`.
+     *
+     * [pointsByPlayer] still answers with the sum, because "what is this player's live score" is a real
+     * question and every existing reader asks exactly it.
+     */
+    private val clearCredit = HashMap<String, Double>()
+    private val secretCredit = HashMap<String, Double>()
 
     /** Grid cell -> room identity, filled as chunks stream in. Independent of calibration. */
     private val identified = HashMap<Pos, RoomInfo>()
@@ -547,7 +566,8 @@ object ContributionTracker {
 
     fun reset() {
         rooms.clear()
-        credited.clear()
+        clearCredit.clear()
+        secretCredit.clear()
         unattributedRooms = 0
         identified.clear()
         unidentifiable.clear()
@@ -666,12 +686,39 @@ object ContributionTracker {
      * player is additionally paid [SECRET_POINTS] for every secret attributed to them, so this
      * total normally runs above the room count. See [unattributed].
      *
-     * **Two halves with two different clocks, in one accumulator.** [award] pays a room's clear
-     * when its checkmark lands; [onOwnSecret] pays a quarter the moment a secret is attributed to
-     * the local player. The second is what makes the HUD figure move while somebody is collecting,
-     * which it did not do before `secretpoints-001`.
+     * **Two halves with two different clocks.** [award] pays a room's clear when its checkmark lands;
+     * [onOwnSecret] pays a quarter the moment a secret is attributed to the local player. The second is
+     * what makes the HUD figure move while somebody is collecting, which it did not do before
+     * `secretpoints-001`.
+     *
+     * They are two accumulators now — [clearPointsByPlayer] and [ownSecretPointsByPlayer] — because
+     * [ClearScore] rebuilds the second half from Hypixel's real counts at the end of a run. This is their
+     * sum, which is the live score and the question every older reader was asking; the map is a copy once
+     * a secret has been credited, so nothing here may be mutated by a caller either way.
      */
-    fun pointsByPlayer(): Map<String, Double> = credited
+    fun pointsByPlayer(): Map<String, Double> {
+        if (secretCredit.isEmpty()) return clearCredit
+        val out = HashMap<String, Double>(clearCredit)
+        secretCredit.forEach { (name, points) -> out.merge(name, points, Double::plus) }
+        return out
+    }
+
+    /**
+     * The clear half alone — rooms' weights, split by time, and nothing about secrets.
+     *
+     * What [ClearScore] builds both of its passes on: the live one adds an estimate of everybody else's
+     * secrets to this, and the final one adds Hypixel's real counts to this same figure. Handing out the
+     * live internal map, like every other reader in this file gets.
+     */
+    fun clearPointsByPlayer(): Map<String, Double> = clearCredit
+
+    /**
+     * The local player's proven secret credit, [SECRET_POINTS] per attributed find.
+     *
+     * Separate from the clear half so the final standings can replace it with a measurement rather than
+     * add to it: [SecretAudit] exists because this number is known to be a floor, not a total.
+     */
+    fun ownSecretPointsByPlayer(): Map<String, Double> = secretCredit
 
     /**
      * One secret was just credited to [player] — always the local player, because attribution is
@@ -695,7 +742,7 @@ object ContributionTracker {
      * its tick: a function that reaches for the client is a function no test here can drive.
      */
     fun onOwnSecret(player: String) {
-        credited.merge(player, SECRET_POINTS, Double::plus)
+        secretCredit.merge(player, SECRET_POINTS, Double::plus)
     }
 
     /**
@@ -981,7 +1028,7 @@ object ContributionTracker {
         val points = weightOf(room)
         val split = DungeonGrid.splitPoints(room.ticks, points, MIN_TICKS)
         if (split.isNotEmpty()) {
-            split.forEach { (name, earned) -> credited.merge(name, earned, Double::plus) }
+            split.forEach { (name, earned) -> clearCredit.merge(name, earned, Double::plus) }
             DebugLog.event(
                 "award",
                 "room" to room.label(), "points" to points,
@@ -1000,7 +1047,7 @@ object ContributionTracker {
         // raw presence and logs it as such, so a fallback stays visible in the data instead of
         // hiding inside a normal award.
         val fallback = DungeonGrid.splitPoints(room.ticks, points, minTicks = 1)
-        fallback.forEach { (name, earned) -> credited.merge(name, earned, Double::plus) }
+        fallback.forEach { (name, earned) -> clearCredit.merge(name, earned, Double::plus) }
         // The one place a room is decided to be unattributed, and therefore the one place it is
         // counted. Empty means nobody was ever seen in this room at all — not that they were only
         // seen briefly, which the fallback above has just paid for. Counted in rooms, not in

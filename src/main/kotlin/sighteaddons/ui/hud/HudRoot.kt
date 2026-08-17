@@ -62,7 +62,7 @@ internal class HudRoot {
     // One cache for the whole line rather than one per clock in it: two cached halves still have to be
     // concatenated, and the concatenation is the allocation.
     private val idleLine = Format.Cached2 { idle, nav -> "idle ${Format.ticks(idle)}   nav ${Format.ticks(nav)}" }
-    private val standingPoints = Array(STANDINGS_CAP) { Format.Cached(Format::points) }
+    private val standingPoints = Array(STANDINGS_CAP) { Format.Cached2(::pointsLabel) }
     private val roomNameFit = Labels.Fitter()
     private val historyNames = Array(HudSnapshot.HISTORY_DEPTH) { Trimmed() }
 
@@ -444,18 +444,27 @@ internal class HudRoot {
             for (i in snapshot.standings.indices) {
                 val standing = snapshot.standings[i]
                 // Hundredths, so the cache is keyed on the number the reader can actually see. Keying
-                // on the raw Double would rebuild the string on every point of a fractional split.
+                // on the raw Double would rebuild the string on every point of a fractional split. The
+                // estimate mark is part of the cached string and therefore part of the key: it changes
+                // at most once per player per run, and a second draw call to place one character beside
+                // a number would have to know that character's width to keep the column.
+                val estimated = if (standing.estimated) 1 else 0
                 val points = if (i < STANDINGS_CAP) {
-                    standingPoints[i].of(Format.hundredths(standing.points))
+                    standingPoints[i].of(Format.hundredths(standing.points), estimated)
                 } else {
-                    Format.points(Format.hundredths(standing.points))
+                    pointsLabel(Format.hundredths(standing.points), estimated)
                 }
+                // **Right-aligned on the column, so the digits line up and the mark hangs off the
+                // left.** Left-aligned, `~1.25` put its digits one character further right than the
+                // row above it, which reads as a different quantity rather than as the same one with a
+                // caveat — and a column of figures that does not line up is the one thing a column of
+                // figures is for.
                 graphics.text(
-                    font, points, left, cursor - slide,
+                    font, points, left + POINTS_COLUMN - font.width(points), cursor - slide,
                     Tokens.fade(Tokens.textSecondary, alpha), false,
                 )
                 graphics.text(
-                    font, standing.name, left + Tokens.SPACE_32, cursor - slide,
+                    font, standing.name, left + POINTS_COLUMN + Tokens.SPACE_6, cursor - slide,
                     Tokens.fade(Tokens.textTertiary, alpha), false,
                 )
                 cursor += ROW
@@ -536,6 +545,30 @@ internal class HudRoot {
 
         /** Card width in GUI pixels. Fixed so the layout does not reflow as room names change. */
         const val WIDTH = 196
+
+        /**
+         * One standings figure, with the mark that says part of it is a guess.
+         *
+         * `~` and not a colour, a shade or a bracket: this design has no hue, the neutral ramp's two
+         * lower tones sit 1.27:1 apart and cannot carry a distinction anybody has to notice, and a
+         * bracketed figure reads as a footnote rather than as an approximation. A tilde in front of a
+         * number is the one notation that means "about this much" without a legend.
+         *
+         * [estimated] is an Int because this is [Format.Cached2]'s formatter and the cache keys on two
+         * Ints — see the call site for why the mark belongs inside the cached string.
+         */
+        fun pointsLabel(hundredths: Int, estimated: Int): String =
+            if (estimated == 1) "~" + Format.points(hundredths) else Format.points(hundredths)
+
+        /**
+         * Where the standings' figures end and their names begin.
+         *
+         * The figures are right-aligned on this and the names start [Tokens.SPACE_6] past it, which is
+         * six pixels more than the names used to have. `~12.50` measures 32 px in vanilla's font — the
+         * whole of the old column — so without the gap a five-player floor with a two-figure leader
+         * would run its mark straight into the name beside it.
+         */
+        private const val POINTS_COLUMN = Tokens.SPACE_32
 
         private const val PADDING = Tokens.SPACE_12
         private const val ROW = 12

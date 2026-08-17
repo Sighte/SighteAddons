@@ -490,7 +490,6 @@ object RoomHistory {
     /** Chat breakdown at the end of a run. */
     fun printSummary() {
         if (!Config.runSummary) return
-        val points = ContributionTracker.pointsByPlayer()
         // No self-identification of its own any more: the tag [Chat.say] puts on the front says who
         // is speaking, and a gold "Sighte" in front of that said it twice.
         announce(headline(DungeonSession.floor ?: "?", DungeonSession.runTicks, ContributionTracker.roomsCleared))
@@ -510,11 +509,20 @@ object RoomHistory {
         // Every value the rows need is read here rather than in the callback: by the time an answer
         // lands the player may already be in the next floor, and ContributionTracker, DungeonTab and
         // PartyTracker will all have been reset by it.
-        val standings = PartyTracker.roster()
-            .map { it.name to (points[it.name] ?: 0.0) }
-            .sortedByDescending { it.second }
-        val contributed = standings.associate { (name, _) ->
-            name to rooms.count { (it.ticks[name] ?: 0) >= ContributionTracker.MIN_TICKS }
+        // **The score's two halves, copied rather than referenced.** Both accessors hand out the
+        // tracker's live maps and `reset()` clears them, so a callback that arrives after the next floor
+        // has started would read empty ones. The guessed half is a value already: a map this run's rooms
+        // produced once, which nothing later can change.
+        val rosterNames = PartyTracker.roster().map { it.name }
+        val clear = HashMap(ContributionTracker.clearPointsByPlayer())
+        val own = HashMap(ContributionTracker.ownSecretPointsByPlayer())
+        val guessed = ClearScore.guessedSecretPoints(
+            rooms.map { ClearScore.Room(it.ticks, (it.secretsFound - it.ownSecrets).coerceAtLeast(0)) },
+            self,
+            ContributionTracker.MIN_TICKS,
+        )
+        val contributed = rosterNames.associateWith { name ->
+            rooms.count { (it.ticks[name] ?: 0) >= ContributionTracker.MIN_TICKS }
         }
         val estimated = rooms.sumOf { it.ownSecrets }
         // The floor's true party-wide total, read out of the tab list rather than summed out of the
@@ -525,9 +533,37 @@ object RoomHistory {
         val roster = PartyTracker.rosterIds()
 
         val finish = { counts: Map<String, Int> ->
-            body(standings, contributed, counts, self, estimated, floorTracked, unattributed, records)
+            // The standings are computed *here* and not above, because this is the first moment the true
+            // per-player secret counts exist — which is the whole point of the summary waiting. Every
+            // player Hypixel answered for has their estimated secret share replaced by their real one,
+            // including the local player, whose attributed count is a floor rather than a total (see
+            // SecretAudit). The order is recomputed with them: a correction that reorders the rows and
+            // prints them in the old order would be a table that disagrees with its own numbers.
+            val rows = ClearScore.settled(rosterNames, clear, own, guessed, counts)
+            body(rows, contributed, counts, self, estimated, floorTracked, unattributed, records)
             if (counts.isNotEmpty()) {
                 announce(secretLine(counts))
+                // How far the live guess was off, in points, with no names in it — the live half of this
+                // feature cannot be checked any other way, because it is an inference about teammates and
+                // the only thing that ever knows better arrives here. `guessed` and `actual` are the two
+                // totals for the *answered teammates only*, so they are comparable; `worst` is the
+                // largest single-player gap, which is what a reader of a session log actually wants.
+                val answered = rosterNames.filter { counts[it] != null && it != self }
+                DebugLog.event(
+                    "standings_settled",
+                    "answered" to counts.size, "asked" to rosterNames.size,
+                    "guessed" to ContributionTracker.settle(answered.sumOf { guessed[it] ?: 0.0 }),
+                    "actual" to ContributionTracker.settle(
+                        answered.sumOf { (counts[it] ?: 0) * ContributionTracker.SECRET_POINTS },
+                    ),
+                    "worst" to ContributionTracker.settle(
+                        answered.maxOfOrNull { name ->
+                            Math.abs(
+                                (counts[name] ?: 0) * ContributionTracker.SECRET_POINTS - (guessed[name] ?: 0.0),
+                            )
+                        } ?: 0.0,
+                    ),
+                )
                 // The live tracker, graded against the one source that knows. `ownsecrets-001` has
                 // never had a number for this; every run with a key now writes one.
                 val audit = SecretAudit.of(estimated, counts, self, floorTracked, roster.size)
@@ -573,7 +609,7 @@ object RoomHistory {
      * estimate, a dash for everybody else.
      */
     private fun body(
-        standings: List<Pair<String, Double>>,
+        standings: List<ClearScore.Row>,
         contributed: Map<String, Int>,
         counts: Map<String, Int>,
         self: String?,
@@ -582,7 +618,8 @@ object RoomHistory {
         unattributed: Double,
         records: Int,
     ) {
-        for ((name, earned) in standings) {
+        for (row in standings) {
+            val name = row.name
             // Hypixel's own number first, for everybody. It is the only per-player count that is a
             // fact; the estimate below it is this client's inference and exists for the local player
             // alone. A teammate with no answer keeps the dash, which still means what it always
@@ -592,7 +629,7 @@ object RoomHistory {
             // it is a fact about the floor and `7 of 29` next to a teammate invites reading the
             // remainder as somebody's.
             val ofTotal = if (name == self) floorTracked else null
-            announce(playerRow(name, earned, contributed[name] ?: 0, secrets, ofTotal))
+            announce(playerRow(name, row.points, contributed[name] ?: 0, secrets, ofTotal, row.estimated))
         }
 
         // Was `> 0.01` against an inline subtraction — the same guard against the same split residue
@@ -621,6 +658,12 @@ object RoomHistory {
      * The breakdown lost its brackets along with every other pair in this mod's chat: it is the last
      * field of the line, so there is nothing after it for a bracket to fence it off from, and
      * [Chat.FIELD] already says where it starts.
+     *
+     * **[estimated] spends one of those two leading spaces on a `~`.** It is the same notation the HUD
+     * card uses for the same fact — part of this figure is a guess at whose secrets were whose, because
+     * Hypixel did not answer for this player — and it is inside the two-space indent rather than in front
+     * of it, so the column of figures stays a column. A row with a real count never carries it, which is
+     * what makes it worth reading when it is there.
      */
     internal fun playerRow(
         name: String,
@@ -628,7 +671,8 @@ object RoomHistory {
         rooms: Int,
         secrets: Int?,
         ofTotal: Int?,
-    ): MutableComponent = Chat.value("  %5.2f".format(Locale.ROOT, points))
+        estimated: Boolean = false,
+    ): MutableComponent = Chat.value("%s%5.2f".format(Locale.ROOT, if (estimated) " ~" else "  ", points))
         .append(Chat.meta(Chat.FIELD))
         .append(Chat.value(name))
         .append(Chat.meta(Chat.FIELD + breakdown(rooms, secrets, ofTotal)))

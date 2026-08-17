@@ -1,6 +1,7 @@
 package sighteaddons.ui.hud
 
 import net.minecraft.client.Minecraft
+import sighteaddons.ClearScore
 import sighteaddons.ContributionTracker
 import sighteaddons.DungeonGrid
 import sighteaddons.DungeonSession
@@ -70,7 +71,15 @@ internal class HudSnapshot(
     /** A room already finished this run, for the receding history list. */
     class Row(val name: String, val ticks: Int, val clearedAt: Int, val personalBest: Boolean)
 
-    class Standing(val name: String, val points: Double, val secrets: Int)
+    /**
+     * One row of the live standings.
+     *
+     * [estimated] is true when any part of [points] is a guess — a teammate's share of secrets somebody
+     * else was seen to find. Never true for the local player: their secrets are counted, not inferred.
+     * The card marks the difference, because a number that is partly a guess and a number that is not
+     * must not look identical.
+     */
+    class Standing(val name: String, val points: Double, val secrets: Int, val estimated: Boolean = false)
 
     val inRoom: Boolean get() = roomName.isNotEmpty()
 
@@ -173,7 +182,7 @@ internal class HudSnapshot(
                 navTicks = IdleTime.navTicks,
 
                 history = historyOf(visited, room, self, records),
-                standings = standingsOf(),
+                standings = standingsOf(visited, self),
             )
         }
 
@@ -242,15 +251,31 @@ internal class HudSnapshot(
             }
         }
 
-        private fun standingsOf(): Array<HudSnapshot.Standing> {
-            val points = ContributionTracker.pointsByPlayer()
-            val roster = PartyTracker.roster()
-            val out = ArrayList<HudSnapshot.Standing>(roster.size)
-            for (player in roster) {
-                out.add(HudSnapshot.Standing(player.name, points[player.name] ?: 0.0, Format.NONE))
-            }
-            out.sortByDescending { it.points }
-            return out.toTypedArray()
+        /**
+         * The live standings: clear points, plus each teammate's estimated share of the secrets this
+         * client saw somebody else find. See [ClearScore] for why the estimate exists and what replaces
+         * it at the end of a run.
+         *
+         * The estimate is rebuilt from the rooms every tick rather than accumulated as secrets arrive.
+         * That is deliberate and it is the cheaper of the two in the way that matters: a room's tick
+         * shares keep changing after its secrets are found, so an increment banked at the moment of a
+         * find would be split by a roster snapshot that is already out of date and could never be
+         * corrected. Recomputing is a few dozen small maps twenty times a second, on the path that
+         * already builds every string this card draws.
+         */
+        private fun standingsOf(visited: List<TrackedRoom>, self: String?): Array<HudSnapshot.Standing> {
+            val guessed = ClearScore.guessedSecretPoints(
+                visited.map { ClearScore.Room(it.ticks, (it.secretsFound - it.ownSecrets).coerceAtLeast(0)) },
+                self,
+                ContributionTracker.MIN_TICKS,
+            )
+            val rows = ClearScore.live(
+                PartyTracker.roster().map { it.name },
+                ContributionTracker.clearPointsByPlayer(),
+                ContributionTracker.ownSecretPointsByPlayer(),
+                guessed,
+            )
+            return Array(rows.size) { HudSnapshot.Standing(rows[it].name, rows[it].points, Format.NONE, rows[it].estimated) }
         }
 
         private fun currentRoom(client: Minecraft): TrackedRoom? {

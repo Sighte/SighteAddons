@@ -2,7 +2,7 @@
 
 ## Stand — 2026-08-17
 
-`main` = 388 Tests / 33 Klassen / grün. `mod_version` 0.15.0, released, Modrinth-Version `YNlbBvlI`
+`main` = 391 Tests / 34 Klassen / grün. `mod_version` 0.15.0, released, Modrinth-Version `YNlbBvlI`
 mit identischem Jar. `RunReport.SCHEMA` 6, Receiver (`master` `1a7f435`) akzeptiert `idleTicks`/
 `navTicks` als optional und ist deployt — **dem Receiver ist nichts geschuldet.**
 
@@ -65,6 +65,22 @@ nicht gegriffen**, und dann ist die Sidebar-Zeile `Cleared: X%` der nächste Kan
   `FabricLoader`). **Ein v0-File wird erst umgerechnet, wenn eine echte `guiScaled`-Größe vorliegt** —
   aus zwei absoluten Pixeln allein ist der Anker nicht ableitbar; bis dahin bleibt die Datei v0 und die
   Karte steht auf demselben Pixel wie vorher.
+- [x] **Standings in zwei Pässen** (`ClearScore.kt`, rein, `ClearScoreTest`) — vom User verlangt, nachdem
+  er die Asymmetrie gefunden hat: dein Score war Clear + Secrets, der der Teammates nur Clear, und nichts
+  sagte das. **Live** bekommt jeder Teammate eine *Schätzung*: `room.secretsFound − room.ownSecrets` sind
+  Secrets, die sicher gefunden und sicher nicht deine waren — der Count ist also richtig, nur der Name
+  darauf geraten. Verteilt wird nach denselben Tick-Anteilen wie das Clear-Gewicht, `self` vorher
+  ausgeschlossen (sonst doppelt bezahlt), mit `award`s eigenem `MIN_TICKS`-Fallback. **Am Runende** wirft
+  `ClearScore.settled` die Schätzung weg und zahlt `SECRET_POINTS` pro *echtem* Secret aus
+  `SecretApi.delta` — auch für dich, weil der Live-Tracker eine Untergrenze ist (`SecretAudit`), also darf
+  die Inferenz die Messung nicht überstimmen. Wen Hypixel nicht beantwortet, behält die Schätzung und ist
+  **markiert**: `~2.75` auf der Karte und in der Chat-Zeile, dieselbe Notation an beiden Stellen.
+  Dafür trennt `ContributionTracker` seine Akkumulatoren (`clearPointsByPlayer` / `ownSecretPointsByPlayer`,
+  `pointsByPlayer` bleibt die Summe) — **nicht** Clear = Summe − Secrets, das ist genau die Subtraktion,
+  die `unattributed` schon einmal falsch gemacht hat. Die Standings-Spalte ist jetzt rechtsbündig, damit
+  die Tilde links heraushängt und die Ziffern eine Spalte bleiben. `standings_settled` im Debug-Log sagt
+  ohne Namen, wie grob das Guess war (`guessed`/`actual`/`worst` über die beantworteten Teammates).
+  **Nichts davon geht an den Receiver** — Punkte sind kein Report-Feld und `RunReport.SCHEMA` bleibt 6.
 - [x] **Das Run-Totals-Panel ist eine Einstellung** (`Config.totalsOpen`, Default zu) — auf Wunsch des
   Users, nachdem der Keybind-Fix nur die halbe Antwort war. Der Zustand war ein Feld auf `HudRoot`, das
   bei jedem Spielstart auf „zu" zurückfiel; jetzt ein Config-Wert, den **Keybind und `/sa`-Schalter
