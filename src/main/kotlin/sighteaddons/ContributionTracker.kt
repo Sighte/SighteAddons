@@ -229,7 +229,7 @@ class TrackedRoom(val type: RoomType, val mapSegments: Set<Pos>, val cells: Set<
      * [ContributionTracker.MIN_TICKS], because each individual gap is inside tolerance while the
      * count crawls to the threshold over a much longer wall clock. So this bounds how much of the
      * stay we *saw*, never how long it was. Measured on the one real floor there is
-     * (`docs/evidence/session-1786719912927/`): nine of ten rooms anchored exactly 19 ticks after
+     * (`git show afb3233:docs/evidence/session-1786719912927/`): nine of ten rooms anchored exactly 19 ticks after
      * their stay began — the 20th sighting at `MIN_TICKS` 20 — and the tenth at 24, five sightings
      * having gone missing without splitting the stay. Both halves of this paragraph, in one run.
      *
@@ -271,7 +271,7 @@ class TrackedRoom(val type: RoomType, val mapSegments: Set<Pos>, val cells: Set<
      * the data would say why.
      *
      * **How often it actually fires: once in ten rooms**, measured on the one real floor there is
-     * (`docs/evidence/session-1786719912927/`, `readout.sh`). `Duncan` — a 1x1 entered at tick 2990
+     * (`git show afb3233:docs/evidence/session-1786719912927/`, `readout.sh`). `Duncan` — a 1x1 entered at tick 2990
      * and cleared at 2996 — is the only `anchoredOnClear` of that M7's ten clears; the other nine had
      * a genuine qualifying stay. This paragraph used to estimate "three of them in one M7"; the
      * measured rate is lower, which is the benign direction — the anchor is mostly real and this is
@@ -795,7 +795,7 @@ object ContributionTracker {
      * **Old scores are not comparable with new ones and nothing converts between them.** On the one
      * real M7 there is, the old formula scored rooms from 1.00 (`Hall`) to 4.50 (`Cathedral`), and
      * `Pipes` — a 1x4 holding seven secrets — was `1.0 + 7x0.25 + 3x0.5 = 4.25`. Those are not
-     * remembered numbers: the run is committed at `docs/evidence/session-1786719912927/`, the nine
+     * remembered numbers: the run is committed at `afb3233:docs/evidence/session-1786719912927/`, the nine
      * `award` events are in `session-excerpt.jsonl` and sum to 26.25, and `readout.sh` asserts each
      * one so a hand-copy that drifts from them fails rather than merely disagrees. Under
      * `clearpoints-002` `Pipes` seeded at `0.75 + 7x0.25 = 2.50`, and under `secretpoints-001` it

@@ -27,7 +27,7 @@ import java.util.Locale
  *
  * ## The strings are hypotheses, exactly as [CritMeter]'s are
  *
- * They were read out of a decompiled jar. `grep -ril storm` over `docs/evidence/` and the twenty
+ * They were read out of a decompiled jar. `grep -ril storm` over the twenty
  * real session logs on disk finds nothing, because no build has ever looked for them — the same
  * answer `critcalc-001` got and for the same reason, so their absence is not evidence against them.
  * [nearMiss] is what turns that into a measurement: any `[BOSS] Storm:` line that is not one of the

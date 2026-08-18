@@ -32,7 +32,7 @@ import java.util.Locale
  * ## What is a hypothesis here, and how it gets settled
  *
  * **Every string below.** They were read out of a decompiled jar, not out of a log this repository
- * has: `grep -ril "explosive shot|blessing of power"` over `docs/evidence/` and the fifteen real
+ * has: `grep -ril "explosive shot|blessing of power"` over the fifteen real
  * session logs on disk finds nothing, because no build has ever looked for these lines. So this is
  * exactly as correct as that mod is, and the failure is the quiet one — a shape that is subtly wrong
  * matches nothing and the readout simply never appears. [nearMiss] is the instrumentation that turns

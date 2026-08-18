@@ -393,7 +393,7 @@ object RoomHistory {
      * carries exactly the two numbers this compares), **12 survive this gate — 13.8%**. Split by
      * roster it is **2 of 23** on single-member sessions and **10 of 64** on party sessions, so a
      * solo floor is hit as hard as a party one. On the committed floor
-     * (`docs/evidence/session-1786719912927/`) four of five runs go: `Atlas 4/6`, `New Trap 2/3`,
+     * (`git show afb3233:docs/evidence/session-1786719912927/`) four of five runs go: `Atlas 4/6`, `New Trap 2/3`,
      * `Slime 2/5`, `Pipes 5/7`, and only `Chains 2/2` stays.
      *
      * **So the cause is not shared work, it is attribution.** On a solo floor every secret *was* the

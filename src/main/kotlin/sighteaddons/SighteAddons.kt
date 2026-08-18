@@ -78,7 +78,7 @@ class SighteAddons : ClientModInitializer {
         // The other way out of a floor, and the one that cost a real M7 on 2026-08-14: quitting the
         // game, or dropping to the title screen, from inside the dungeon. There is no headline and no
         // subsequent JOIN, so before this the run was simply gone — ten cleared rooms that never
-        // reached the box (`docs/evidence/session-1786719912927/`).
+        // reached the box (`git show afb3233:docs/evidence/session-1786719912927/`).
         //
         // `complete = false` unconditionally. A run left this way did not reach its end by
         // definition, and the headline remains the only thing allowed to claim that it did; if the
