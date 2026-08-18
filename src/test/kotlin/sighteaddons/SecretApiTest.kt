@@ -126,6 +126,12 @@ class SecretApiTest {
         assertTrue(SecretApi.delta(emptyMap(), emptyMap()).isEmpty())
     }
 
+    @Test
+    fun `a failed closing snapshot keeps the last valid answer instead of erasing it`() {
+        assertEquals(mapOf("Ann" to 5), SecretApi.fallbackResult(emptyMap(), mapOf("Ann" to 5)))
+        assertEquals(mapOf("Ann" to 7), SecretApi.fallbackResult(mapOf("Ann" to 7), mapOf("Ann" to 5)))
+    }
+
     // ─── fetch, over a real socket ────────────────────────────────────────────────────────────────
 
     /** What the server actually received, so a case can check what the mod asked for. */

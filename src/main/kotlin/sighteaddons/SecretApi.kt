@@ -93,6 +93,11 @@ object SecretApi {
     @Volatile
     private var state: State = State.IDLE
 
+    /** Last successful per-player delta from this run. When the closing snapshot fails, keep the last
+     * valid answer instead of erasing teammates back to the empty/default path. */
+    @Volatile
+    private var lastCounts: Map<String, Int> = emptyMap()
+
     private enum class State { IDLE, BASELINE, SETTLED }
 
     /** True when a key is configured. Everything here is a no-op otherwise. */
@@ -100,6 +105,7 @@ object SecretApi {
 
     fun reset() {
         baseline = emptyMap()
+        lastCounts = emptyMap()
         state = State.IDLE
     }
 
@@ -137,24 +143,30 @@ object SecretApi {
         val key = Config.hypixelKey
         val before = baseline
         thread("sighteaddons-secrets-end") {
-            // Every failure lands on an empty map rather than on no call at all. The summary now
-            // waits for this answer, so a callback that silently never comes is a summary the player
-            // never sees — the one outcome worse than a summary with dashes in it.
+            // A failed closing snapshot is not a reason to erase the last real count this run had.
+            // The summary waits for this callback, and a silent empty map is exactly how a run's
+            // teammate totals disappear back to the default/zero path. Keep the last successful answer
+            // unless the current snapshot produced a real replacement.
             val counts = try {
                 val after = snapshot(newClient(), HOST, key, players)
+                val next = delta(before, after)
+                if (next.isNotEmpty() || after.isNotEmpty()) lastCounts = next
                 DebugLog.event(
                     "secret_api_settle",
-                    "before" to before.size, "after" to after.size, "got" to delta(before, after).size,
+                    "before" to before.size, "after" to after.size, "got" to next.size,
                 )
-                delta(before, after)
+                fallbackResult(next, lastCounts)
             } catch (e: Exception) {
                 SighteAddons.LOGGER.error("Closing secret snapshot failed", e)
-                emptyMap()
+                fallbackResult(emptyMap(), lastCounts)
             }
             then(counts)
         }
         return true
     }
+
+    internal fun fallbackResult(next: Map<String, Int>, previous: Map<String, Int>): Map<String, Int> =
+        if (next.isEmpty()) previous else next
 
     /**
      * Per-player secrets for the run: the rise in each lifetime count.
