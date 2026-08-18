@@ -2,10 +2,17 @@
 
 ## Stand — 2026-08-18
 
-`main` = **391 Tests / 34 Klassen / grün**, `mod_version` 0.16.0 released (`v0.16.0`, Modrinth
+`main` = **394 Tests / 35 Klassen / grün**, `mod_version` 0.16.0 released (`v0.16.0`, Modrinth
 `kIbj76Z4`, SHA1 `931b1152…` auf beiden Seiten). `dist/sighteaddons-0.16.0.jar` ist die committete
 Datei. `RunReport.SCHEMA` 6, der Receiver akzeptiert `idleTicks`/`navTicks` als optional und ist
 deployt — **dem Receiver ist nichts geschuldet.**
+
+Seit 18.08. dazu, alles ohne Versionsänderung: `DungeonScore` (die Formel der Upstream-Mod als reine
+Funktionen, **ruft noch niemand auf**), `SecretApi.lastCounts` — ein gescheiterter Abschluss-Snapshot
+löscht die Teammate-Zahlen nicht mehr — und `docs/features/`, acht annotierte Screenshots.
+
+**Der `SecretApi`-Fix liegt auf `main` und bei keinem Spieler.** Er kostet ein Release, und ein
+Release ist die Entscheidung des Users; bis dahin läuft draußen 0.16.0 mit dem alten Verhalten.
 
 **Das UI-Redesign ist durch, alle sieben Phasen** (Tokens/Motion, Komponenten, HUD, Overlays, Stats,
 Config, Chat) plus zwei Review-Durchgänge, 18 Befunde. Kein Farbliteral mehr außerhalb `ui/theme/`,
