@@ -50,7 +50,10 @@ Nie eine Version rausgeben, ohne vorher `mod_version` zu erhöhen; sonst weiß n
 - Mid-Feature `./gradlew assemble check`, nie `build` — `build` überschreibt das released Jar.
   `--rerun-tasks` nur, wenn der Punkt ist, dass nichts gecacht war.
 - Windows-Python kann `./gradlew` nicht starten (`WinError 193`) — Gradle aus bash.
-- **Ein Python-Replace über eine Kotlin-Datei braucht `\r\n` im Anker** (Working Tree ist CRLF).
+- **Der Working Tree ist gemischt, nicht CRLF.** `core.autocrlf` ist `true`, aber einzelne Dateien
+  liegen als LF da (`Config.kt`, `SighteAddons.kt`, `DungeonSession.kt` LF — `Format.kt`,
+  `OverlayPlacementTest.kt`, `GalleryScreen.kt` CRLF). Ein Anker mit dem falschen Zeilenende trifft
+  still nichts, also das Zeilenende **pro Datei** aus dem Inhalt bestimmen und den Anker umschreiben.
   `assert source.count(old) == 1` vor jedem Apply — ein Probe, der nicht greift, sieht aus wie einer,
   der bestanden hat.
 - `PYTHONIOENCODING=utf-8` vor dem Printen dieser Quellen, sonst stirbt `print` am Gedankenstrich.
