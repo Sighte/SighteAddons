@@ -80,6 +80,7 @@ object DungeonSession {
         // Per run for the same reason: a `solo` latch carried into the next floor would announce a
         // party run as a solo clear, and the flags only mean anything about one run.
         SoloClear.reset()
+        ScoreProbe.reset()
         ContributionTracker.reset()
         // Counted against `runTicks`, so it is forgotten where `runTicks` is: a run that inherited
         // the previous floor's idle time would report a number describing two runs.
@@ -252,7 +253,12 @@ object DungeonSession {
         return true
     }
 
-    private fun sidebarLines(client: Minecraft): List<String> {
+    /**
+     * Internal rather than private since [ScoreProbe]: the probe needs the sidebar's `Cleared: X%`,
+     * which is where a live scorer derives the floor's room count from. Built fresh on each call and
+     * called three times a run, so nothing here is on a per-tick path that was not already.
+     */
+    internal fun sidebarLines(client: Minecraft): List<String> {
         val scoreboard = client.level?.scoreboard ?: return emptyList()
         val objective = scoreboard.getDisplayObjective(DisplaySlot.BY_ID.apply(1)) ?: return emptyList()
         return scoreboard.trackedPlayers.mapNotNull { holder ->

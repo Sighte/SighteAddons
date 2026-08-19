@@ -71,6 +71,13 @@ object PartyTracker {
     internal var localName: String? = null
         private set
 
+    /**
+     * The sorted tab rows of the last reading, for [ScoreProbe] and for anything else that wants the
+     * whole list rather than the five party slots. Empty before the first [update].
+     */
+    internal var lastRows: List<String?> = emptyList()
+        private set
+
     /** Last logged decoration→player assignment, so only changes are written to the debug log. */
     private val lastAssignment = HashMap<String, Pos>()
 
@@ -115,6 +122,10 @@ object PartyTracker {
         // reader that wants the whole list is handed the list this one already built rather than
         // sorting it a second time each second. See DungeonTab for what it takes out of it.
         DungeonTab.observe(rows)
+        // Kept rather than re-fetched: sorting eighty rows is the expensive half of this method, and a
+        // second reader that sorted them again could disagree with this one about what the list said.
+        lastRows = rows
+
         for (i in players.indices) {
             val previous = players[i]
             val match = rows.getOrNull(1 + i * 4)?.let { TAB.matchEntire(it) }

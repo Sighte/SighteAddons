@@ -231,7 +231,15 @@ class SighteAddons : ClientModInitializer {
         // and an item that never exists in the world is never seen being collected.
         SecretTracker.tickInventory(client)
         // The party barely changes during a run; re-reading the tab list once a second is plenty.
-        if (DungeonSession.runTicks % 20 == 0) PartyTracker.update(client)
+        if (DungeonSession.runTicks % 20 == 0) {
+            PartyTracker.update(client)
+            // Rides along on the same slot and fires three times a run — see [ScoreProbe] for what it
+            // is measuring and why the live scorer is not being built before it has answered.
+            ScoreProbe.observe(
+                DungeonSession.runTicks, PartyTracker.lastRows, tabFooter(),
+                DungeonSession.sidebarLines(client),
+            )
+        }
         ContributionTracker.tick(client, map)
         // After the tracker, because the room the player is standing in may only have been
         // discovered by the call above — on the tick you cross a threshold, asking first would count

@@ -32,10 +32,28 @@ Schwelle, die nicht ausgewertet werden kann, ist nicht erreicht; andersherum mac
 Regex einen Kanal, der alles ankuendigt. War die Score-Zeile nie da, steht ein
 `solo_clear_unreleased` im Log.
 
-**Zum Testen: `build/libs/sighteaddons-0.17.0-dev2.jar`** (19.08., 413 Tests grün). Gebaut mit
-`./gradlew assemble check -Pmod_version=0.17.0-dev2` — `mod_version` in `gradle.properties` steht
+**Das Gate soll im Clear feuern, nicht am Run-Ende** (User, 19.08.): sobald 300 erreicht ist, wird die
+Zeit gepostet, der Boss ist irrelevant. Damit ist Hypixels `Team Score:` wertlos — es kommt nach dem
+Boss. Es braucht einen **Live**-Score, und dafuer gibt es zwei Wege: den Tab-Footer lesen
+(`Score: 287`, wie die Upstream-Mod es zuerst versucht) oder `DungeonScore` rechnen. **Gerechnet wird
+nicht blind**, weil die Vorlage zwei bekannte Offsets hat: `isQuizCompleted()` gibt dort `+5`, sobald
+das Wort "Quiz" in der Tab-Liste *vorkommt* (Puzzle existiert, nicht geloest), und Mayor Pauls `+10`
+fehlt ganz. Beide verschieben den 300-Moment, in entgegengesetzte Richtungen.
+
+**`ScoreProbe` ist die Messung dazu** (dev3): dreimal pro Run (Tick 1200/3600/7200) ein
+`score_probe`-Event mit dem Footer-Score, den Stat-Zeilen der Tab-Liste und der Sidebar-Zeile
+`Cleared: X%`. Puzzle-Zeilen werden **nach der Klammer abgeschnitten** — dahinter steht der Name des
+Loesers. Sagt `published` eine Zahl, ist der Rechner ueberfluessig; sagt es `-1`, muss gerechnet werden
+und die zwei Offsets sind die naechste Arbeit. **Die Datei danach loeschen.**
+
+Fuer den Live-Score fehlen dann noch die Parser: `Completed Rooms: N/M`, `Crypts: N`, `Puzzles: (N)`
+plus die `[✔]/[✖]`-Zeilen, `Mimic: ✔`, `Prince: ✔` — und die Raumzahl des Floors ist *abgeleitet*
+(`completed / (Cleared% / 100)`), nicht gelesen.
+
+**Zum Testen: `build/libs/sighteaddons-0.17.0-dev3.jar`** (19.08., 417 Tests grün). Gebaut mit
+`./gradlew assemble check -Pmod_version=0.17.0-dev3` — `mod_version` in `gradle.properties` steht
 weiter auf `0.16.0` und `dist/` hält unverändert das released 0.16.0. Der Dev-Jar ist als
-`0.17.0-dev2` gestempelt, damit `X-Mod-Version` und `modVersion` in den Reports ihn nicht mit dem
+`0.17.0-dev3` gestempelt, damit `X-Mod-Version` und `modVersion` in den Reports ihn nicht mit dem
 Release verwechseln.
 
 **Der `SecretApi`-Fix liegt auf `main` und bei keinem Spieler.** Er kostet ein Release, und ein
