@@ -226,10 +226,16 @@ Uhren pro Zeile — Wanduhr und Hypixels Server-Ticks (`ServerTicks.kt` + `Conne
 Mixin, zählt `ClientboundPingPacket` mit `id != 0` wie Odins gleichnamiger).
 
 Bewusst *nicht* 1:1: monochrom und `m:ss.t` durch `Format` statt `§`-Farben und `59m 59s (59.9)`; die
-Tick-Zeit ist eine zweite rechtsausgerichtete Spalte statt einer Klammer; die Zusammenfassung hängt am
-`RUN_END`-Headline-Hook statt an Odins 10-Tick-Defer (`onTick` kehrt früh zurück — `StormTimer`); das
-`boss entry`-Kriterium ist `size > 4` statt Odins `> 3`, das dem Entrance eine Boss-Zeile gibt; und
-`Config.splits` **aus** schaltet auch die Records ab, wo Odin sie weiterschreibt.
+Tick-Zeit ist eine zweite rechtsausgerichtete Spalte statt einer Klammer; das `boss entry`-Kriterium ist
+`size > 4` statt Odins `> 3`, das dem Entrance eine Boss-Zeile gibt; und `Config.splits` **aus** schaltet
+auch die Records ab, wo Odin sie weiterschreibt.
+
+**Die Zusammenfassung armiert an der Headline und wird von `☠ Defeated` ausgelöst** — gemessen am M7 vom
+19.08. 23:22, und die erste Fassung war falsch. Beide Zeilen kommen auf **demselben** Tick, die Headline
+zuerst (`run_end` → `split_missing` → `split total` im Session-Log). An der Headline gedruckt war
+`cleared` eine noch laufende Spanne und `total` gab es überhaupt nicht — die Zeile fehlte still. Das ist
+`SoloClear`s Arm/Release, aus demselben Grund. Odins 10-Tick-Defer bleibt trotzdem draußen: er müsste an
+`onTick` hängen, das an mehreren Stellen früh zurückkehrt.
 
 **Records: `SplitPbs.kt`, in `config.json`, auf Odins eigenen Keys** (`DungeonM7` → `blood open` →
 Sekunden). Nicht in `history.jsonl` — andere Einheit, anderes Subjekt, keine `kind` umdefiniert.

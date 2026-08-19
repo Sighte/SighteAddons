@@ -86,6 +86,28 @@ object Splits {
     private var closed = false
 
     /**
+     * Whether the run-end headline has been seen and the summary is waiting for the chain to close.
+     *
+     * **Measured, and it is the opposite of what this code first assumed.** On the M7 of 2026-08-19
+     * 23:22, `run_end` and the `☠ Defeated` line arrived on the same tick with the *headline first* —
+     * so a summary printed at the headline reported `cleared` as a span still running and never printed
+     * the total at all. Arming at the headline and releasing when the chain closes is `SoloClear`'s
+     * pattern for the same discovery (`TODO.md`: the headline arms, the score line releases), and it is
+     * right in both orders: a chain already closed prints at the headline instead.
+     */
+    private var pendingSummary = false
+
+    /**
+     * Set once the summary has gone out, so nothing prints a run twice.
+     *
+     * `internal` because it is the one observable of the arm-and-release decision that a test can hold:
+     * [Chat.say] needs a `Minecraft` and [takeSummary] hands its answer to the printer, so "did the
+     * summary go out, and had the chain closed when it did" is checkable here and nowhere else.
+     */
+    internal var summarised = false
+        private set
+
+    /**
      * Bumped every time [marks] changes, so a cached readout can tell it is stale.
      *
      * A counter and not a timestamp: [display] holds its answer at the resolution the panel prints,
@@ -184,6 +206,9 @@ object Splits {
                     wrote = wrote || it !is SplitPbs.Result.Missed
                 }
             }
+            // The chain is complete. If the headline has already been seen, this is the moment the
+            // summary is both due and correct — the total exists now and did not a tick ago.
+            flush(current[index].atMs, current[index].atTicks)
         }
 
         // Once per landing rather than once per record, which is at most two rewrites saved but is also
@@ -193,11 +218,18 @@ object Splits {
 
     /** Called from [DungeonSession.reset], so no floor inherits the previous one's chain. */
     fun reset() {
+        // A run that was timed and never summarised is a run whose last line never arrived — the player
+        // left, or one of the strings in DungeonSplits is wrong. It is the same fault `split_missing`
+        // reports at the end of a complete run, and reporting it here as well is what stops an
+        // abandoned run from looking like a chain that held.
+        if (marks.isNotEmpty() && !summarised) logMissing(readout(System.currentTimeMillis(), ServerTicks.count))
         marks = emptyList()
         generation++
         floorTag = "?"
         results.clear()
         closed = false
+        pendingSummary = false
+        summarised = false
     }
 
     // --- Output -----------------------------------------------------------------------------
@@ -407,39 +439,26 @@ object Splits {
     // --- Chat -------------------------------------------------------------------------------
 
     /**
-     * The run's splits, printed once, at the run-end headline.
+     * Hypixel printed the run-end headline: the summary is now due, but not necessarily ready.
      *
-     * **No deferral, where Odin waits ten client ticks.** Odin defers so that its dump lands after
-     * Hypixel's own end-of-run block; this mod already has that moment as a call site — the headline
-     * [SighteAddons.RUN_END] matches, where [RoomHistory.printSummary] is printed from — so the
-     * ordering is had by being called from the right place instead of by a countdown. A countdown of
-     * this mod's own would have to be ticked from `onTick`, which returns early on several paths, and
-     * [StormTimer] is where the cost of that mistake is written down.
+     * **The headline arms, the chain releases** — `SoloClear`'s pattern, adopted here for the same
+     * reason it was adopted there. Odin defers its dump ten client ticks so it lands after Hypixel's
+     * end-of-run block, and this first tried to get the same ordering for free by printing at the
+     * headline. A real M7 said otherwise: the headline and the `☠ Defeated` line arrive on the same
+     * tick, headline first, so at that moment `cleared` is still a running span and there is no total to
+     * print at all. A countdown of this mod's own is not the fix either — it would have to be ticked
+     * from `onTick`, which returns early on several paths ([StormTimer] is where that costs).
      *
-     * The missing-split log runs whether or not the lines are printed. It is the feature's own
-     * instrumentation and the only thing that will ever say which of [DungeonSplits]' twenty-odd Hypixel
-     * strings is wrong: a name in `split_missing` for a floor that certainly reached that boss is a
-     * pattern to correct, and an empty list is a chain that held.
+     * So the release is the event that actually makes the summary correct: the last mark landing.
      */
-    fun printSummary(nowMs: Long, serverTicks: Long) {
-        val readout = readout(nowMs, serverTicks)
-        if (readout == null) {
-            if (marks.isNotEmpty()) DebugLog.event("splits_never_started", "floor" to floorTag)
-            return
-        }
+    fun onRunEnd(nowMs: Long, serverTicks: Long) {
+        pendingSummary = true
+        flush(nowMs, serverTicks)
+    }
 
-        // Two different faults, kept apart. `unclosed` is the span that was still running when the run
-        // ended: it started, so its own line is right and the *next* split's line never arrived.
-        // `unstarted` are the spans behind it, which never began at all. One name in either field, on a
-        // floor that certainly reached that boss, is one pattern in DungeonSplits to correct.
-        val unclosed = if (readout.finished) null else readout.rows.getOrNull(readout.runningRow)?.name
-        DebugLog.event(
-            "split_missing",
-            "floor" to floorTag,
-            "unclosed" to unclosed,
-            "unstarted" to readout.rows.filter { !it.known }.joinToString(",") { it.name },
-        )
-
+    /** Prints the summary if it is due and the chain is complete. Both call sites go through here. */
+    private fun flush(nowMs: Long, serverTicks: Long) {
+        val readout = takeSummary(nowMs, serverTicks) ?: return
         if (!Config.splitsSendToChat) return
 
         readout.rows.forEachIndexed { index, row ->
@@ -451,9 +470,54 @@ object Splits {
             // number claiming to be a best would be beatable by a run that was slower at every split.
             Chat.say(line(DungeonSplits.BOSS_ENTRY, readout.bossEntryText, readout.bossEntryMs, null))
         }
-        if (readout.finished) {
-            Chat.say(line(DungeonSplits.TOTAL, Format.millis(readout.totalMs), readout.totalMs, results.lastOrNull()))
+        Chat.say(line(DungeonSplits.TOTAL, Format.millis(readout.totalMs), readout.totalMs, results.lastOrNull()))
+    }
+
+    /**
+     * The readout to summarise, once, or null — the whole of the arm-and-release decision.
+     *
+     * Separated from the printing because [Chat.say] needs a `Minecraft` and this does not: the decision
+     * is what `SplitsTest` can drive, and the decision is the part that was wrong. Null covers a run
+     * that has not been armed, one whose chain is still open, one already summarised, and one that never
+     * started.
+     *
+     * The missing-split log fires here rather than in [flush], so it is written whether or not the chat
+     * lines are switched on. It is the feature's own instrumentation and the only thing that will ever
+     * say which of [DungeonSplits]' twenty-odd Hypixel strings is wrong.
+     */
+    internal fun takeSummary(nowMs: Long, serverTicks: Long): Readout? {
+        if (!pendingSummary || summarised) return null
+        val readout = readout(nowMs, serverTicks)
+        if (readout == null) {
+            if (marks.isNotEmpty()) DebugLog.event("splits_never_started", "floor" to floorTag)
+            return null
         }
+        // Armed but the last mark has not landed. Held rather than printed — `reset` is what reports it
+        // if it never does.
+        if (!readout.finished) return null
+
+        summarised = true
+        pendingSummary = false
+        logMissing(readout)
+        return readout
+    }
+
+    /**
+     * Two different faults, kept apart.
+     *
+     * `unclosed` is the span that was still running when the run ended: it started, so its own line is
+     * right and the *next* split's line never arrived. `unstarted` are the spans behind it, which never
+     * began at all. One name in either field, on a floor that certainly reached that boss, is one
+     * pattern in [DungeonSplits] to correct; both empty is a chain that held.
+     */
+    private fun logMissing(readout: Readout?) {
+        if (readout == null) return
+        DebugLog.event(
+            "split_missing",
+            "floor" to floorTag,
+            "unclosed" to if (readout.finished) null else readout.rows.getOrNull(readout.runningRow)?.name,
+            "unstarted" to readout.rows.filter { !it.known }.joinToString(",") { it.name },
+        )
     }
 
     /**

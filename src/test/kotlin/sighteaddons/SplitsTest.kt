@@ -1,6 +1,7 @@
 package sighteaddons
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -198,6 +199,78 @@ class SplitsTest {
             assertNull(SplitPbs.get("F7", "blood open"))
         } finally {
             Config.splits = true
+        }
+    }
+
+    /**
+     * Plays an F7 up to and including Necron's last line, leaving only Hypixel's kill line outstanding.
+     */
+    private fun playToCleared() {
+        startRun("F7")
+        Splits.onChat(mort, 10_000L, 200L)
+        Splits.onChat(bloodDoor, 30_000L, 590L)
+        Splits.onChat(watcherPass, 90_000L, 1_790L)
+        Splits.onChat(maxor, 94_000L, 1_870L)
+        Splits.onChat(storm, 120_000L, 2_390L)
+        Splits.onChat(goldorDomain, 168_000L, 3_350L)
+        Splits.onChat(coreOpening, 248_000L, 4_940L)
+        Splits.onChat(necronHello, 256_000L, 5_100L)
+        Splits.onChat(necronDone, 286_000L, 5_700L)
+    }
+
+    @Test
+    fun `the headline arms the summary and the kill line releases it`() {
+        // Measured on the M7 of 2026-08-19 23:22: `run_end` and the `Defeated` line land on the same
+        // tick, headline first. Printing at the headline reported `cleared` as a span still running and
+        // never printed the total at all, because there was none yet.
+        //
+        // The chat half needs a Minecraft; the decision does not, and the decision is what was wrong.
+        Config.splitsSendToChat = false
+        try {
+            playToCleared()
+            Splits.onRunEnd(288_000L, 5_750L)
+            assertFalse(Splits.summarised, "armed, but cleared has not closed and there is no total")
+
+            Splits.onChat(defeated, 290_000L, 5_780L)
+            assertTrue(Splits.summarised, "the kill line is what makes the summary correct")
+
+            val done = readout(999_999L, 99_999L)!!
+            assertTrue(done.finished)
+            assertEquals(280_000L, done.totalMs, "and the total it would print is the whole run")
+        } finally {
+            Config.splitsSendToChat = true
+        }
+    }
+
+    @Test
+    fun `a kill line before the headline summarises at the headline`() {
+        // The other order, which nothing here can rule out: Hypixel is not obliged to keep the one it
+        // used. Whichever arrives second has to be the release.
+        Config.splitsSendToChat = false
+        try {
+            playToCleared()
+            Splits.onChat(defeated, 290_000L, 5_780L)
+            assertFalse(Splits.summarised, "the chain is complete, but no run has ended yet")
+
+            Splits.onRunEnd(290_000L, 5_780L)
+            assertTrue(Splits.summarised)
+        } finally {
+            Config.splitsSendToChat = true
+        }
+    }
+
+    @Test
+    fun `an abandoned run summarises nothing`() {
+        Config.splitsSendToChat = false
+        try {
+            playToCleared()
+            // No headline and no kill line: the player left. Nothing is printed, and `reset` is what
+            // reports the unclosed span to the debug log.
+            DungeonSession.reset()
+            assertFalse(Splits.summarised)
+            assertNull(readout(300_000L, 6_000L), "and the chain is gone with the run")
+        } finally {
+            Config.splitsSendToChat = true
         }
     }
 

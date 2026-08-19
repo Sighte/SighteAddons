@@ -312,10 +312,10 @@ class SighteAddons : ClientModInitializer {
             "newRecords" to RoomHistory.newBestsThisRun().size,
         )
         RoomHistory.printSummary()
-        // At the headline rather than on a timer of its own, which is where Odin's ten-tick deferral
-        // was aiming: this is the moment after Hypixel's end-of-run block. A countdown would have to be
-        // ticked from `onTick`, and that function returns early on several paths — see StormTimer.
-        Splits.printSummary(System.currentTimeMillis(), ServerTicks.count)
+        // Arms the splits summary; the `☠ Defeated` line releases it. Measured on a real M7: that line
+        // arrives on *this* tick but after this one, so printing here reported a running `cleared` and no
+        // total at all. See Splits.onRunEnd.
+        Splits.onRunEnd(System.currentTimeMillis(), ServerTicks.count)
         // Permanent record of the whole run, unlike the chat summary and unlike the debug log. The
         // headline is the only evidence that the run reached its end, which is why this is the one
         // call site that may claim it.
