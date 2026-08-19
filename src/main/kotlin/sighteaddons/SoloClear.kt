@@ -24,16 +24,23 @@ import java.time.Duration
  *    decision about the same message: an announcement whose moment has passed is not worth resending,
  *    and the run itself is already recorded — here and in [RunReport].
  *
- * **Two triggers, and which one is live depends on [Config.soloClearMinScore].**
+ * **With a score gate, [tryAnnounce] is the whole trigger, and it is tried on every tick of the run** —
+ * clear phase, boss and the moments after the run alike, for as long as the sidebar still says Catacombs.
+ * That is how the upstream mod does it (`SoloClearsTracker.tick()` runs unconditionally and checks
+ * `inDungeons()`), and copying it closely is deliberate: the two numbers that can satisfy the gate arrive
+ * at opposite ends of the run.
  *
- *  - **With a score gate** — [onScore], every tick of the clear phase. The moment the run reaches the
- *    score, its time is announced; the boss plays no part, because the question is when the *clear*
- *    got there. That rules the end-of-run `Team Score:` line out as the gate: it arrives after the boss
- *    and can no longer say when. [LiveScore] is where the number comes from and what it is worth.
- *  - **Without one** — [onRunEnd] plus [release], at the run-end headline, announcing every solo clear.
- *    The headline is the *first* line of Hypixel's summary block and `Team Score:` is further down it,
- *    so that path arms and the score line releases; a gate cannot be evaluated on a number that has not
- *    arrived.
+ *  - **[LiveScore]** is read every tick and can cross the threshold mid-clear.
+ *  - **Hypixel's own `Team Score:`** arrives with the summary block, after the boss, and is the number
+ *    that actually confirms an S+ on most runs. Upstream feeds it into the same comparison and takes
+ *    whichever is higher; so does [tryAnnounce].
+ *
+ * **A gate that only looked at the live score would refuse runs that qualified**, which is what an earlier
+ * version of this file did — and it cost a real solo M7 to notice, because the announcement's absence
+ * looks the same either way.
+ *
+ * **Without a gate** ([Config.soloClearMinScore] `0`) the run-end headline announces every solo clear
+ * instead: [onRunEnd] arms and [release] sends.
  *
  * **Times are Hypixel's wherever it states one** — the sidebar's while the run is live, the summary
  * block's at the end. [DungeonSession.runTicks] is the last resort and starts at calibration rather than
@@ -91,8 +98,17 @@ object SoloClear {
     private var seenAlone = false
     private var withCompany = false
 
-    /** Only a run that showed a roster, and never showed a second person in it. */
-    val solo get() = seenAlone && !withCompany
+    /**
+     * Was this a solo run.
+     *
+     * **Two independent signals, as upstream has it, plus the veto this side already had.** Hypixel states
+     * it outright — `Solo` / `Party (1)` on the sidebar *and* in the tab list, which is exactly what
+     * `SoloClearsTracker` gates on — and the roster derived from the tab rows agrees or refuses.
+     *
+     * Positive on either statement, negative on a roster that ever showed company. A run the game called
+     * solo but whose tab list held five people is a contradiction, and refusing is the safe side of it.
+     */
+    val solo get() = !withCompany && (seenAlone || (DungeonSession.sidebarSolo && DungeonTab.solo))
 
     /**
      * What the headline captured, held until the gate can be decided. Everything in it is read at the
@@ -202,6 +218,9 @@ object SoloClear {
                 "run_score", "score" to (score ?: -1),
                 "live" to (LiveScore.score ?: -1), "source" to LiveScore.source.name.lowercase(),
             )
+            // The same decision the tick makes, with the number that just arrived. Upstream lets its
+            // `chatScore` into the very same comparison; nothing here is a second code path.
+            tryAnnounce()
             release()
         }
     }
@@ -346,17 +365,22 @@ object SoloClear {
      * The time comes from the same instant as the score: the sidebar carries both, which is what keeps
      * them from describing two different moments.
      */
-    fun onScore(score: Int?, inBoss: Boolean) {
+    fun tryAnnounce() {
         if (announced) return
         if (!Config.soloClears) return refuse("switched off")
         if (!solo) return refuse("not solo")
-        if (inBoss) return refuse("in the boss")
         val gate = Config.soloClearMinScore
         if (gate <= 0) return refuse("no gate, the run end owns it")
         val floor = floorTag(DungeonSession.floor)
         if (floor !in GATED_FLOORS) return refuse("floor $floor is not gated")
-        if (score == null) return refuse("no score could be read")
-        if (!passes(score, gate)) return refuse("score below the gate")
+
+        // **Whichever of the two is higher, exactly as upstream decides it.** `DungeonScore.getScore()`
+        // versus its `chatScore`, and the reason it matters is not tidiness: on most runs the live score
+        // only crosses the threshold in the last rooms or not at all, and Hypixel's own `Team Score:` is
+        // what confirms an S+. A gate that ignored it would refuse runs that qualified.
+        val best = best(LiveScore.score, score)
+        if (best == null) return refuse("no score could be read")
+        if (!passes(best, gate)) return refuse("score $best below the gate")
         val player = PartyTracker.localName ?: return refuse("no name captured")
 
         send(
@@ -365,13 +389,25 @@ object SoloClear {
             ticks = DungeonSession.runTicks,
             secrets = DungeonTab.secretsFound,
             deaths = ContributionTracker.deaths,
-            score = score,
+            score = best,
             metric = metricFor(gate),
-            // Sidebar first: it is the screen the score was just read from, so the pair describes one
-            // instant. The tab list is a second later at worst, our own clock is the last resort.
-            official = DungeonSession.sidebarTime ?: DungeonTab.elapsed,
+            // The sidebar's clock first: it is live and it is the screen the score came off, so the pair
+            // describes one instant. Then the tab list's, then the summary block's `Clear Time:`, which is
+            // the one that exists after the run has ended.
+            official = DungeonSession.sidebarTime ?: DungeonTab.elapsed ?: clearTime,
         )
     }
+
+    /**
+     * The score the gate is judged on: the higher of the live reading and Hypixel's own end-of-run number,
+     * or null when neither exists.
+     *
+     * **Named rather than inlined because it is the rule that was wrong.** Judging on the live score alone
+     * refuses runs that qualified — the live number usually crosses the threshold late or not at all, while
+     * `Team Score:` states the S+ outright once the run is over. Upstream feeds both into one comparison,
+     * and this is that comparison.
+     */
+    internal fun best(live: Int?, chat: Int?): Int? = listOfNotNull(live, chat).maxOrNull()
 
     /** Records why this tick did not announce. Returns Unit so a refusal is one line at the call site. */
     private fun refuse(why: String) {

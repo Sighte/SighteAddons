@@ -132,6 +132,26 @@ class SoloClearTest {
     }
 
     /**
+     * **The rule an earlier version of this file got wrong, at the cost of a real solo M7.**
+     *
+     * The live score usually crosses the threshold in the last rooms or never; Hypixel's `Team Score:`
+     * states the S+ outright once the run is over. Judging on the live number alone refuses runs that
+     * qualified, and the refusal looks exactly like a feature that is switched off. Upstream feeds both
+     * into one comparison and takes the higher.
+     */
+    @Test
+    fun `the gate is judged on whichever score is higher`() {
+        assertEquals(304, SoloClear.best(268, 304), "the run qualified; the live reading never said so")
+        assertEquals(304, SoloClear.best(304, 268))
+        assertEquals(268, SoloClear.best(268, null), "mid-run there is no chat score yet")
+        assertEquals(304, SoloClear.best(null, 304), "and a score that was never readable live still counts")
+        assertNull(SoloClear.best(null, null))
+        // Which is what the gate then sees.
+        assertTrue(SoloClear.passes(SoloClear.best(268, 304), 300))
+        assertFalse(SoloClear.passes(SoloClear.best(268, 291), 300))
+    }
+
+    /**
      * Hypixel states the score outright a few lines under the run-end headline. That is where the 300
      * comes from — [DungeonScore] computes a live estimate for a screen, and a channel is not gated on
      * an estimate.

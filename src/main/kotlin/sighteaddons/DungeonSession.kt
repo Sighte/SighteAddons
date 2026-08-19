@@ -25,6 +25,13 @@ object DungeonSession {
      */
     internal val TIME_VALUE = Regex("""(?:\d{1,2}h ?)?(?:\d{1,2}m ?)?\d{1,2}s|\d{1,3}:\d{2}""")
 
+    /**
+     * `Solo` or `Party (1)` — Hypixel stating the party size outright, on the sidebar and again in the tab
+     * list. The upstream mod gates its solo announcement on exactly this text and requires both screens to
+     * carry it; [SoloClear] uses it as the positive signal and keeps the roster as a veto.
+     */
+    internal val SOLO = Regex("""(?i)\bSolo\b|Party \(1\)""")
+
     /** See [readCleared]. The bracketed score is optional; the percentage is not. */
     private val CLEARED = Regex("""(?i)Cleared: (\d{1,3})%(?: \((\d+)\))?""")
 
@@ -86,6 +93,11 @@ object DungeonSession {
     var clearedFraction: Double? = null
         private set
 
+    /** Whether the sidebar has said `Solo`/`Party (1)` this run. Latched; `reset()` owns it. */
+    @Volatile
+    var sidebarSolo = false
+        private set
+
     /** Hypixel's elapsed time off the sidebar, kept for the announcement. */
     @Volatile
     var sidebarTime: String? = null
@@ -127,6 +139,7 @@ object DungeonSession {
         sidebarScore = null
         clearedFraction = null
         sidebarTime = null
+        sidebarSolo = false
         ContributionTracker.reset()
         // Counted against `runTicks`, so it is forgotten where `runTicks` is: a run that inherited
         // the previous floor's idle time would report a number describing two runs.
@@ -178,6 +191,7 @@ object DungeonSession {
         val seen = lines.firstNotNullOfOrNull { FLOOR.find(it)?.groupValues?.get(1) }
         if (seen != null) floor = seen
         readCleared(lines)
+        if (lines.any { SOLO.containsMatchIn(it) }) sidebarSolo = true
         sidebarTime = lines.firstNotNullOfOrNull { ELAPSED.find(it)?.groupValues?.get(1) } ?: sidebarTime
         return seen != null
     }

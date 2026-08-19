@@ -197,6 +197,26 @@ class SighteAddons : ClientModInitializer {
         // Once per tick, before anything reads `DungeonSession.inBoss` — which is both branches below
         // and the HUD snapshot. Odin recomputes it in the same place for the same reason.
         DungeonSession.observe(client, map != null)
+
+        // **Above the boss return below, and that placement is the feature.** Hypixel takes the map out of
+        // the hotbar for the boss, so everything past that return is clear-phase only — and the number that
+        // confirms an S+ on most runs is `Team Score:`, which arrives *after* the boss. The upstream mod
+        // has no such gap: its tracker runs on every tick and only asks whether it is in a dungeon.
+        //
+        // The sidebar is read every tick by `inDungeon` above, so the score and the clock behind this are
+        // live here. The tab rows are a second stale at worst and only feed the computed fallback.
+        LiveScore.observe(
+            floor = DungeonSession.floor,
+            sidebarScore = DungeonSession.sidebarScore,
+            footer = ::tabFooter,
+            rows = PartyTracker.lastRows,
+            clearedFraction = DungeonSession.clearedFraction,
+            secretsPercent = DungeonTab.secretsPercent,
+            inBoss = DungeonSession.inBoss,
+            nowMs = System.currentTimeMillis(),
+        )
+        SoloClear.tryAnnounce()
+
         val wasCalibrated = DungeonSession.calibrated
         if (map == null || !DungeonSession.update(client, map)) {
             // In the boss: stop sampling rooms but keep the run clock going, so the summary
@@ -223,22 +243,6 @@ class SighteAddons : ClientModInitializer {
         }
 
         DungeonSession.tickClock()
-        // Every tick, because the sidebar carries both the score and the elapsed time and is rewritten
-        // that often — and because the announced time is only as precise as the reading that triggered
-        // it. The tab rows are the once-a-second ones and only feed the computed fallback.
-        LiveScore.observe(
-            floor = DungeonSession.floor,
-            sidebarScore = DungeonSession.sidebarScore,
-            footer = ::tabFooter,
-            rows = PartyTracker.lastRows,
-            clearedFraction = DungeonSession.clearedFraction,
-            secretsPercent = DungeonTab.secretsPercent,
-            inBoss = DungeonSession.inBoss,
-            nowMs = System.currentTimeMillis(),
-        )
-        // The announcement the gate is for: the moment the clear phase reaches the score. Refuses on its
-        // own for a party run, the wrong floor, the boss, or a score nothing could read.
-        SoloClear.onScore(LiveScore.score, DungeonSession.inBoss)
         // Before the trackers, because a bat dying is an arming event and the action bar update that
         // pays for it can land on this very tick. In the clear phase only: the boss room has no
         // secrets in it, and the bats in there are somebody's fight, not somebody's find.

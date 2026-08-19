@@ -99,14 +99,33 @@ dessen Score nie lesbar war. Dagegen jetzt zwei Zeilen (dev6):
 `LiveScore.high` ist ein Hoechststand und faellt nicht mit dem Score zurueck — der Time-Score sinkt im
 Laufe des Runs, und die Frage ist, wie nah der Run *je* war.
 
-**Offen bleibt die Produktfrage:** 300 im Clear auf M7 verlangt praktisch alles (100 % Secrets fuer den
-vollen Explore-Teil). Ob das die Schwelle ist, die der User im Kanal haben will, sagt erst die Kurve aus
-ein paar Runs — `270 · S` steht als zweiter Stop schon in `/sa`.
+**Der Nachbau war an einer Stelle nicht der Nachbau, und die hat den Run gekostet** (dev7, 19.08.):
 
-**Zum Testen: `build/libs/sighteaddons-0.17.0-dev6.jar`** (19.08., 428 Tests grün). Gebaut mit
-`./gradlew assemble check -Pmod_version=0.17.0-dev6` — `mod_version` in `gradle.properties` steht
+- **Upstreams `SoloClearsTracker.tick()` laeuft auf *jedem* Client-Tick** und fragt nur `inDungeons()` —
+  Tab-Liste enthaelt "Dungeon: Catacombs". Kein Map-Check, keine Clear-Phase-Bedingung, kein `complete`.
+  Unsere Pruefung sass **hinter** dem Boss-Return in `SighteAddons.tick` (Hypixel nimmt die Map im Boss aus
+  dem Hotbar), lief also im Boss und danach nie. Jetzt sitzt sie **vor** dem Return.
+- **Upstream vergleicht `max(live, chatScore)` gegen 300**, nicht nur den Live-Score
+  (`if (chatScore >= 300 && chatScore > finalScore) finalScore = chatScore`). Auf den meisten Runs kreuzt
+  der Live-Score die Schwelle spaet oder nie, und **`Team Score:` ist die Zahl, die den S+ bestaetigt** —
+  sie kommt nach dem Boss. Ein Gate nur auf dem Live-Score verweigert Runs, die qualifiziert waren.
+  `SoloClear.best(live, chat)` ist diese Regel, benannt statt inline.
+- **Solo-Erkennung wie Upstream:** `Solo` / `Party (1)` auf Sidebar **und** Tab-Liste
+  (`DungeonSession.SOLO`), gelatcht. Das Roster bleibt als Veto — Text sagt solo, Roster zeigt fuenf
+  Leute, dann wird nicht angekuendigt.
+- Zeitquellen in der Reihenfolge, die zu jedem Trigger-Zeitpunkt eine Antwort hat: Sidebar
+  `Time Elapsed:` → Tab `Time:` → Chat `Clear Time:` (die einzige, die nach dem Run noch existiert).
+
+Damit ist der `inBoss`-Refusal weg. Ein Run, der 300 erst im Boss oder erst laut `Team Score:` erreicht,
+wird jetzt angekuendigt — genau wie in der Vorlage.
+
+**Produktfrage bleibt offen:** `300` ist S+. Steht in `solo_clear_missed` dauerhaft `high: 265–285`, ist
+`270 · S` der Stop, der zu den Runs passt; er ist der zweite Klick in `/sa`.
+
+**Zum Testen: `build/libs/sighteaddons-0.17.0-dev7.jar`** (19.08., 429 Tests grün). Gebaut mit
+`./gradlew assemble check -Pmod_version=0.17.0-dev7` — `mod_version` in `gradle.properties` steht
 weiter auf `0.16.0` und `dist/` hält unverändert das released 0.16.0. Der Dev-Jar ist als
-`0.17.0-dev6` gestempelt, damit `X-Mod-Version` und `modVersion` in den Reports ihn nicht mit dem
+`0.17.0-dev7` gestempelt, damit `X-Mod-Version` und `modVersion` in den Reports ihn nicht mit dem
 Release verwechseln.
 
 **Der `SecretApi`-Fix liegt auf `main` und bei keinem Spieler.** Er kostet ein Release, und ein

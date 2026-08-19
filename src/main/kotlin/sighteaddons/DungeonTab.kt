@@ -133,11 +133,16 @@ object DungeonTab {
     /** Only suppresses repeat logging; `observe` runs once a second all run long. */
     private var loggedUnparsed = false
 
+    /** Whether the tab list has said `Solo`/`Party (1)` this run. Latched, like the sidebar's half. */
+    var solo = false
+        private set
+
     fun reset() {
         secretsFound = null
         secretsPercent = null
         elapsed = null
         elapsedSeconds = -1
+        solo = false
         loggedUnparsed = false
     }
 
@@ -223,6 +228,7 @@ object DungeonTab {
         }
 
         readElapsed(rows)
+        if (rows.any { it != null && DungeonSession.SOLO.containsMatchIn(it) }) solo = true
 
         val seen = read(rows) ?: return
         val found = seen.found ?: return
