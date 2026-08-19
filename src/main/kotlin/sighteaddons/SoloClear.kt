@@ -24,16 +24,20 @@ import java.time.Duration
  *    decision about the same message: an announcement whose moment has passed is not worth resending,
  *    and the run itself is already recorded — here and in [RunReport].
  *
- * **Everything this announces about a run, Hypixel states outright.** The score, the clear time and the
- * Prince are read off the end-of-run chat block, not derived: [DungeonScore] can compute a score, but
- * it is a live estimate for a screen, and an estimate must not be what a channel is gated on.
- * [DungeonSession.runTicks] is the same story for the time — it starts at calibration, not at the door.
- * So both are fallbacks, and both are visible as such in the debug log.
+ * **Two triggers, and which one is live depends on [Config.soloClearMinScore].**
  *
- * **The block arrives over several lines, which is why this is armed rather than fired.** The headline
- * `Catacombs - Floor VII` is the *first* line of it; `Team Score:` comes several lines later. So the
- * headline captures the run ([onRunEnd]) and the score line releases it ([onChatLine]) — a gate cannot
- * be evaluated on a number that has not arrived yet.
+ *  - **With a score gate** — [onScore], every tick of the clear phase. The moment the run reaches the
+ *    score, its time is announced; the boss plays no part, because the question is when the *clear*
+ *    got there. That rules the end-of-run `Team Score:` line out as the gate: it arrives after the boss
+ *    and can no longer say when. [LiveScore] is where the number comes from and what it is worth.
+ *  - **Without one** — [onRunEnd] plus [release], at the run-end headline, announcing every solo clear.
+ *    The headline is the *first* line of Hypixel's summary block and `Team Score:` is further down it,
+ *    so that path arms and the score line releases; a gate cannot be evaluated on a number that has not
+ *    arrived.
+ *
+ * **Times are Hypixel's wherever it states one** — the sidebar's while the run is live, the summary
+ * block's at the end. [DungeonSession.runTicks] is the last resort and starts at calibration rather than
+ * at the door, which is exactly why it is last. Which clock was used reaches the debug log.
  *
  * **`pb` is this side's claim and the receiver takes it as one.** Nothing is stored on the box, so it
  * has no history to check a record against; a floor's best time exists only on the machine that played
