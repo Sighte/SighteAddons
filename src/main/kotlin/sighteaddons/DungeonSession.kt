@@ -18,11 +18,24 @@ object DungeonSession {
     /** Sidebar shows e.g. "⏣ The Catacombs (F7)" — also matches "(M7)" and "(Entrance)". */
     private val FLOOR = Regex("""The Catacombs \((\w+)\)""")
 
+    /**
+     * The shapes Hypixel writes a dungeon duration in, all of them seen on a real floor: `59s`,
+     * `01m 00s`, and the colon form. Shared with [DungeonTab] so the sidebar and the tab list cannot
+     * disagree about what a time looks like.
+     */
+    internal val TIME_VALUE = Regex("""(?:\d{1,2}h ?)?(?:\d{1,2}m ?)?\d{1,2}s|\d{1,3}:\d{2}""")
+
     /** See [readCleared]. The bracketed score is optional; the percentage is not. */
     private val CLEARED = Regex("""(?i)Cleared: (\d{1,3})%(?: \((\d+)\))?""")
 
-    /** `Time Elapsed: 06m 32s` on the sidebar — Hypixel's own clock, live. */
-    private val ELAPSED = Regex("""(?i)Time Elapsed: (\d{1,2}m ?\d{1,2}s|\d{1,3}:\d{2})""")
+    /**
+     * `Time Elapsed: 01m 00s` on the sidebar — Hypixel's own clock, live.
+     *
+     * **Under a minute it is `59s`, with no minute part at all.** Measured on the M7s of 2026-08-19:
+     * requiring the minutes made the first sixty seconds of every run unreadable, which is exactly the
+     * window a fast clear-phase score is reached in.
+     */
+    private val ELAPSED = Regex(TIME_VALUE.pattern.let { """(?i)Time Elapsed: ($it)""" })
 
     /**
      * The floor this run is on: "F7", "M7", "Entrance", or null before one has been seen.
@@ -107,7 +120,6 @@ object DungeonSession {
         // Per run for the same reason: a `solo` latch carried into the next floor would announce a
         // party run as a solo clear, and the flags only mean anything about one run.
         SoloClear.reset()
-        ScoreProbe.reset()
         LiveScore.reset()
         sidebarScore = null
         clearedFraction = null
@@ -306,12 +318,7 @@ object DungeonSession {
         return true
     }
 
-    /**
-     * Internal rather than private since [ScoreProbe]: the probe needs the sidebar's `Cleared: X%`,
-     * which is where a live scorer derives the floor's room count from. Built fresh on each call and
-     * called three times a run, so nothing here is on a per-tick path that was not already.
-     */
-    internal fun sidebarLines(client: Minecraft): List<String> {
+    private fun sidebarLines(client: Minecraft): List<String> {
         val scoreboard = client.level?.scoreboard ?: return emptyList()
         val objective = scoreboard.getDisplayObjective(DisplaySlot.BY_ID.apply(1)) ?: return emptyList()
         return scoreboard.trackedPlayers.mapNotNull { holder ->

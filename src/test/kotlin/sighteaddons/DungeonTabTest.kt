@@ -170,13 +170,28 @@ class DungeonTabTest {
         assertNull(DungeonTab.elapsed)
     }
 
+    /**
+     * **`59s` is the shape the first minute of every run has**, measured on the M7s of 2026-08-19 —
+     * `Time Elapsed: 59s`, no minute part. Requiring the minutes made exactly the window a fast
+     * clear-phase score is reached in unreadable, and the fallback clock took over silently.
+     */
     @Test
-    fun `seconds only understands the two forms Hypixel writes`() {
+    fun `every shape Hypixel writes a duration in`() {
         assertEquals(392, DungeonTab.seconds("06m 32s"))
         assertEquals(392, DungeonTab.seconds("6:32"))
         assertEquals(664, DungeonTab.seconds("11:04"))
-        assertNull(DungeonTab.seconds("32s"))
+        assertEquals(59, DungeonTab.seconds("59s"), "under a minute there is no minute part")
+        assertEquals(60, DungeonTab.seconds("01m 00s"))
+        assertEquals(3723, DungeonTab.seconds("1h 02m 03s"))
         assertNull(DungeonTab.seconds("soon"))
+        // The tab list carries a second `Time:` row that reads N/A. It is not a duration.
+        assertNull(DungeonTab.seconds("N/A"))
+    }
+
+    @Test
+    fun `the tab's other Time row reads N over A and is never taken for a time`() {
+        DungeonTab.readElapsed(tab("Time: N/A", "Time: 59s"))
+        assertEquals("59s", DungeonTab.elapsed)
     }
 
     /**

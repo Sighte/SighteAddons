@@ -88,10 +88,16 @@ object DungeonTab {
      *
      * Narrow on both ends. `matchEntire` plus a value that has to look like a duration is what keeps
      * `Time:` — a prefix far more ordinary than `Secrets Found:` — from taking something else off the
-     * list. Nothing here is verified against a real floor yet: a `tab_time` event in a session log is
-     * what turns it into a measurement, and until one appears [SoloClear] falls back to our own clock.
+     * list.
+     *
+     * **The dungeon tab carries two `Time:` rows and one of them reads `Time: N/A`** (measured on the
+     * M7s of 2026-08-19). Neither half of this is an accident that needs handling: `N/A` is not a
+     * duration and never matches, and [readElapsed] keeps the furthest reading, so the row that is
+     * filled in wins over the row that is not.
      */
-    internal val ELAPSED = Regex("""Time(?: Elapsed)?: (\d{1,2}m ?\d{1,2}s|\d{1,3}:\d{2})""")
+    internal val ELAPSED = Regex(
+        DungeonSession.TIME_VALUE.pattern.let { """(?i)Time(?: Elapsed)?: ($it)""" },
+    )
 
     /** One reading of the tab list. Either half can be missing; the pair rarely is. */
     internal data class Secrets(val found: Int?, val percent: Double?)
@@ -142,8 +148,9 @@ object DungeonTab {
      * costs nothing — the reading is simply not preferred over the one already held.
      */
     internal fun seconds(text: String): Int? {
-        MINUTES_SECONDS.matchEntire(text)?.let {
-            return it.groupValues[1].toInt() * 60 + it.groupValues[2].toInt()
+        HOURS_MINUTES_SECONDS.matchEntire(text)?.let { match ->
+            val (h, m, sec) = match.destructured
+            return h.toIntOrNull().orZero() * 3600 + m.toIntOrNull().orZero() * 60 + sec.toInt()
         }
         COLON.matchEntire(text)?.let {
             return it.groupValues[1].toInt() * 60 + it.groupValues[2].toInt()
@@ -151,7 +158,13 @@ object DungeonTab {
         return null
     }
 
-    private val MINUTES_SECONDS = Regex("""(\d{1,2})m ?(\d{1,2})s""")
+    private fun Int?.orZero() = this ?: 0
+
+    /**
+     * `59s`, `01m 00s`, `1h 02m 03s` — the hour and minute parts are optional because Hypixel omits
+     * them, and the first sixty seconds of a run are the ones that were being lost.
+     */
+    private val HOURS_MINUTES_SECONDS = Regex("""(?:(\d{1,2})h ?)?(?:(\d{1,2})m ?)?(\d{1,2})s""")
     private val COLON = Regex("""(\d{1,3}):(\d{2})""")
 
     /**

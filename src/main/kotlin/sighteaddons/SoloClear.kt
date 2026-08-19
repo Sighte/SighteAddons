@@ -172,7 +172,13 @@ object SoloClear {
         CLEAR_TIME.matchEntire(text)?.let { clearTime = it.groupValues[1] }
         SCORE.matchEntire(text)?.let {
             score = it.groupValues[1].toIntOrNull()
-            DebugLog.event("run_score", "score" to (score ?: -1))
+            // **The calibration line.** Hypixel's own final score next to the last one [LiveScore] read,
+            // and where that one came from. It is the only place the two can be compared, and on the
+            // computed path it is the only thing that would ever reveal the Paul offset.
+            DebugLog.event(
+                "run_score", "score" to (score ?: -1),
+                "live" to (LiveScore.score ?: -1), "source" to LiveScore.source.name.lowercase(),
+            )
             release()
         }
     }
