@@ -2,7 +2,7 @@
 
 ## Stand — 2026-08-19
 
-`main` = **447 Tests / 40 Klassen / grün**, `mod_version` 0.16.0 released (`v0.16.0`, Modrinth
+`main` = **458 Tests / 40 Klassen / grün**, `mod_version` 0.16.0 released (`v0.16.0`, Modrinth
 `kIbj76Z4`, SHA1 `931b1152…` auf beiden Seiten). `dist/sighteaddons-0.16.0.jar` ist die committete
 Datei. `RunReport.SCHEMA` 6, der Receiver akzeptiert `idleTicks`/`navTicks` als optional und ist
 deployt — **dem Receiver ist nichts geschuldet.**
@@ -215,6 +215,34 @@ in einem *released* Build entstehen.
   über alle Floors; der Receiver faltet absichtlich genauso.
 - **`party-001`** — der Mechanismus existiert nicht: kein Dekorations-Key überlebt die Leitung in
   26.1.2, Party-Sync verbietet das eigene Design. Wartet auf `deconame-001`.
+
+## secrets-001 — Team-Secrets brauchen keinen Key mehr (20.08., ohne Versionsänderung)
+
+`SecretApi` fragt jetzt **die Box** statt Hypixel: `GET /v1/secrets/<uuid>` mit dem Upload-Token, das
+jede Installation schon hat. `Config.hypixelKey` bleibt als Override für jemanden, dessen Party-UUIDs
+nicht über die Box laufen sollen — `SecretApi.Source` ist die Entscheidung, `Box` gewinnt.
+
+**Genau so machen es die anderen Dungeon-Mods, nachgesehen statt vermutet.** Odins `SecretsCounter`
+rechnet dieselbe Baseline-minus-Delta und holt den Wert von `api.odtheking.com/hypixel/secrets/<uuid>`
+— dem Proxy des Autors, mit dessen Key. Odin cached den Secret-Wert dabei **nicht** (nur UUID und
+Profil, 5 min): ein Fenster in Runlänge würde die zweite Lesung aus der ersten beantworten und jedes
+Delta still auf null setzen. Dieselbe Grenze steht auf der Box als `SECRET_TTL = 30`.
+
+Anlass war der 19.08.: der Key im Client war ein Development Key und lief nach etwa einem Tag ab. Von
+innen ist das ein `403`, das identisch aussieht wie „kein Key", „privates Profil" und „Timeout" — drei
+Runden Suche, und die Mod konnte nichts davon sagen. Deshalb trägt `secret_api_baseline` jetzt `via`
+(`box`/`key`), und die Box schreibt die Absage im Klartext ins Journal.
+
+Ein `404` von der Box latcht `boxRouteMissing` für die Sitzung (ein Receiver ohne die Route würde sonst
+fünf Requests pro Run damit verbringen, fünfmal dasselbe zu lernen); `502`/`503` latchen **nicht** —
+die Route ist da und die Antwort ist heute nein.
+
+Dabei mitgefixt: beide Parser nahmen `"812"` als `812`, weil Gson einen String zu Int macht. Der
+Receiver lehnt das ab, die Mod tat es nicht — eine Feature-Hälfte war strenger als die andere.
+
+**Die Receiver-Hälfte ist nicht deployt** (`skyblock-server`, Branch `secrets-001`). Ohne
+`SIGHTE_HYPIXEL_KEY` antwortet die Route `503`, die Mod fällt auf den Override zurück und ohne den auf
+das alte Verhalten — Strich für Mitspieler. Regel 1 bleibt: Receiver zuerst.
 
 ## Splits (19.08., ohne Versionsänderung)
 

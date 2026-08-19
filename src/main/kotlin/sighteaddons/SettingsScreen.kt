@@ -1161,16 +1161,20 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         note(soloClears())
         note("kept in soloclears.jsonl, the boss never counts")
 
-        section("hypixel key", if (Config.hypixelKey.isBlank()) "not set" else "set")
+        // **Blank is the normal state now, not a missing prerequisite.** The heading used to read
+        // "not set" over a note saying the feature stayed inert, which was true when every player
+        // needed their own key and is a lie now that the receiver holds one — see SecretApi.Source.
+        // Somebody reading this row has to be able to tell "nothing to do" from "switched off".
+        section("hypixel key", if (Config.hypixelKey.isBlank()) "the box looks these up" else "your own")
         field("your key")
-        note("your own key · never logged, never uploaded")
         note(
             if (Config.hypixelKey.isBlank()) {
-                "blank: SecretApi and the audit stay inert"
+                "blank is fine · teammate secrets come from the receiver"
             } else {
-                "the run summary waits for the true counts"
+                "used instead of the receiver · never logged, never uploaded"
             },
         )
+        note("a key here only sends your party's uuids to hypixel rather than to the box")
 
         section("data")
         info("rooms in the database", RoomDatabase.roomCount.toString())

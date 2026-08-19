@@ -21,6 +21,7 @@ Minecraft **26.1.2**, Fabric, client only.
 | Party | `PartyTracker.kt` | tab-list roster, map decoration → player → room |
 | Attribution | `ContributionTracker.kt` | per-room presence, clear/secret timeline, point split |
 | Secrets | `SecretTracker.kt` | per-room secret count, which of them were provably yours, secret-run timer |
+| Teammate secrets | `SecretApi.kt` | each player's count for the run, as the rise in their lifetime total — looked up through the receiver, so no key is needed |
 | History | `RoomHistory.kt` | append-only permanent room times, chat announcements, run summary |
 | Splits | `Splits.kt`, `DungeonSplits.kt` | the run in spans: blood, portal, every boss phase, and the total |
 | Split records | `SplitPbs.kt` | best seconds per split per floor, on Odin's own keys |

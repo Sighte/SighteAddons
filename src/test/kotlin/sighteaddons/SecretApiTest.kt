@@ -59,6 +59,16 @@ class SecretApiTest {
     }
 
     @Test
+    fun `a quoted count is a body that is not what it claims, not a count`() {
+        // Gson coerces the string "812" to 812, which both parsers used to accept. Hypixel writes the
+        // field as a number and so does the receiver, so a quoted one means the document is wrong —
+        // and the receiver's `secret_from_body` refuses it, so accepting it here had the two halves of
+        // one feature disagreeing about one field.
+        assertNull(SecretApi.parse("""{"success":true,"player":{"achievements":{"${SecretApi.ACHIEVEMENT}":"812"}}}"""))
+        assertNull(SecretApi.parse("""{"success":true,"player":{"achievements":{"${SecretApi.ACHIEVEMENT}":true}}}"""))
+    }
+
+    @Test
     fun `an account that never found a secret has no such field and reads as absent`() {
         assertNull(SecretApi.parse(player("skyblock_angler" to 3)))
     }
@@ -134,8 +144,19 @@ class SecretApiTest {
 
     // ─── fetch, over a real socket ────────────────────────────────────────────────────────────────
 
-    /** What the server actually received, so a case can check what the mod asked for. */
-    private class Asked(val path: String, val query: String?, val key: String?)
+    /**
+     * What the server actually received, so a case can check what the mod asked for.
+     *
+     * Both credential headers are recorded, because since `secrets-001` the interesting assertion is
+     * often a *negative* one: the box request must carry no `API-Key`, and the Hypixel request must
+     * carry no upload token.
+     */
+    private class Asked(
+        val path: String,
+        val query: String?,
+        val key: String?,
+        val authorization: String?,
+    )
 
     private class Api(private val answer: (HttpExchange) -> Unit) : AutoCloseable {
         private val server: HttpServer = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
@@ -148,6 +169,7 @@ class SecretApiTest {
                     exchange.requestURI.path,
                     exchange.requestURI.query,
                     exchange.requestHeaders.getFirst("API-Key"),
+                    exchange.requestHeaders.getFirst("Authorization"),
                 )
                 try {
                     answer(exchange)
@@ -172,7 +194,7 @@ class SecretApiTest {
     @Test
     fun `a good answer yields the count, and the key travels as a header`() {
         Api(reply(200, player(SecretApi.ACHIEVEMENT to 812))).use { api ->
-            assertEquals(812, SecretApi.fetch(client(), api.base, "the-key", id))
+            assertEquals(812, SecretApi.fetch(client(), SecretApi.Source.Own("the-key", api.base), id))
             val asked = api.asked.single()
             assertEquals("/v2/player", asked.path)
             assertEquals("uuid=$id", asked.query)
@@ -185,7 +207,7 @@ class SecretApiTest {
     @Test
     fun `a refused key is null rather than an exception`() {
         Api(reply(403, """{"success":false,"cause":"Invalid API key"}""")).use { api ->
-            assertNull(SecretApi.fetch(client(), api.base, "wrong", id))
+            assertNull(SecretApi.fetch(client(), SecretApi.Source.Own("wrong", api.base), id))
         }
     }
 
@@ -195,21 +217,21 @@ class SecretApiTest {
         // shape of the problem suggests. fetch branches on != 200 so the number does not matter —
         // this pins that it does not matter.
         Api(reply(400, """{"success":false,"cause":"Missing API key"}""")).use { api ->
-            assertNull(SecretApi.fetch(client(), api.base, "", id))
+            assertNull(SecretApi.fetch(client(), SecretApi.Source.Own("", api.base), id))
         }
     }
 
     @Test
     fun `a rate limit is null`() {
         Api(reply(429, """{"success":false,"cause":"Key throttle"}""")).use { api ->
-            assertNull(SecretApi.fetch(client(), api.base, "the-key", id))
+            assertNull(SecretApi.fetch(client(), SecretApi.Source.Own("the-key", api.base), id))
         }
     }
 
     @Test
     fun `a proxy's HTML error page under a 200 is null`() {
         Api(reply(200, "<html>502</html>")).use { api ->
-            assertNull(SecretApi.fetch(client(), api.base, "the-key", id))
+            assertNull(SecretApi.fetch(client(), SecretApi.Source.Own("the-key", api.base), id))
         }
     }
 
@@ -217,7 +239,7 @@ class SecretApiTest {
     fun `a dead port is null`() {
         // Bound and immediately closed, so the port is real and refuses.
         val base = Api(reply(200, "")).use { it.base }
-        assertNull(SecretApi.fetch(client(), base, "the-key", id))
+        assertNull(SecretApi.fetch(client(), SecretApi.Source.Own("the-key", base), id))
     }
 
     @Test
@@ -227,8 +249,106 @@ class SecretApiTest {
             exchange.sendResponseHeaders(200, whole.size.toLong())
             exchange.responseBody.write(whole, 0, whole.size / 2)
         }).use { api ->
-            assertNull(SecretApi.fetch(client(), api.base, "the-key", id))
+            assertNull(SecretApi.fetch(client(), SecretApi.Source.Own("the-key", api.base), id))
         }
+    }
+
+    // ─── the box, and which half gets asked ───────────────────────────────────────────────────────
+
+    private fun proxy(secrets: String) = """{"uuid":"$id","secrets":$secrets}"""
+
+    @Test
+    fun `the box is asked on its own route, with the upload token and no hypixel key`() {
+        Api(reply(200, proxy("812"))).use { api ->
+            assertEquals(812, SecretApi.fetch(client(), SecretApi.Source.Box(api.base, "upload-token"), id))
+            val asked = api.asked.single()
+            assertEquals("/v1/secrets/$id", asked.path)
+            assertNull(asked.query, "the uuid is the path, not a parameter")
+            // The one property worth pinning about this transport: **no Hypixel key is anywhere near
+            // it.** The client holds an upload token that reaches this box and nothing else.
+            assertNull(asked.key, "the mod must not send an API-Key to its own receiver")
+            assertEquals("Bearer upload-token", asked.authorization)
+        }
+    }
+
+    @Test
+    fun `a null secrets field is absence and not zero`() {
+        // The box says Hypixel has no figure for that player — the same fact `parse` reports by finding
+        // no achievement. It has to stay apart from zero, which would claim they found nothing.
+        assertNull(SecretApi.parseProxy(proxy("null")))
+        assertEquals(0, SecretApi.parseProxy(proxy("0")))
+    }
+
+    @Test
+    fun `a body the box did not write is null`() {
+        for (body in listOf("", "not json", "[]", """{"uuid":"x"}""", """{"secrets":"812"}""",
+                            """{"secrets":{}}""")) {
+            assertNull(SecretApi.parseProxy(body), body)
+        }
+    }
+
+    @Test
+    fun `every refusal from the box is null`() {
+        // 503 unconfigured, 502 a refused lookup, 429 the address bucket, 401 a token this box does not
+        // take. All of them mean "no figure for this player", which is the dash the summary had before.
+        for (code in listOf(401, 429, 502, 503)) {
+            Api(reply(code, "no\n")).use { api ->
+                assertNull(SecretApi.fetch(client(), SecretApi.Source.Box(api.base, "t"), id), "status $code")
+            }
+        }
+    }
+
+    @Test
+    fun `the box is preferred, and a key is what is left when it cannot serve the route`() {
+        val endpoint = "https://box.invalid" to "upload-token"
+        assertEquals(
+            SecretApi.Source.Box("https://box.invalid", "upload-token"),
+            SecretApi.source(key = "own-key", endpoint = endpoint, boxMissing = false),
+        )
+        // The order matters for exactly one install: the author's, which still carries a key from before
+        // the box could do this. Backwards, that install would stay on the expiring-key path.
+        assertEquals(
+            SecretApi.Source.Own("own-key"),
+            SecretApi.source(key = "own-key", endpoint = endpoint, boxMissing = true),
+        )
+        assertEquals(
+            SecretApi.Source.Own("own-key"),
+            SecretApi.source(key = "own-key", endpoint = null, boxMissing = false),
+        )
+        assertNull(SecretApi.source(key = "", endpoint = null, boxMissing = false))
+        assertNull(SecretApi.source(key = "  ", endpoint = null, boxMissing = true))
+    }
+
+    @Test
+    fun `one 404 from the box is enough to stop asking it`() {
+        // A receiver older than `secrets-001` answers 404 for every uuid, so without the latch a
+        // snapshot spends one request per player learning that five times a run.
+        //
+        // This case reads the latched field through `source`'s default, which is the only test here
+        // that does — the ones above pass `boxMissing` explicitly so they cannot be reordered into
+        // depending on it.
+        Api(reply(404, "no such route\n")).use { api ->
+            assertNull(SecretApi.fetch(client(), SecretApi.Source.Box(api.base, "t"), id))
+        }
+        assertEquals(
+            SecretApi.Source.Own("own-key"),
+            SecretApi.source(key = "own-key", endpoint = "https://box.invalid" to "t"),
+            "a 404 latches, so the next snapshot falls to the key",
+        )
+    }
+
+    @Test
+    fun `a 503 does not take the box out of service`() {
+        // The route is there and today's answer is no — an unconfigured key on the box, or its outbound
+        // budget spent. Latching on that would move every client onto its own key until relaunch for
+        // something that fixes itself in five minutes.
+        Api(reply(503, "no hypixel key configured\n")).use { api ->
+            assertNull(SecretApi.fetch(client(), SecretApi.Source.Box(api.base, "t"), id))
+        }
+        assertEquals(
+            SecretApi.Source.Box("https://box.invalid", "t"),
+            SecretApi.source(key = "own-key", endpoint = "https://box.invalid" to "t", boxMissing = false),
+        )
     }
 
     // ─── snapshot ─────────────────────────────────────────────────────────────────────────────────
@@ -244,7 +364,7 @@ class SecretApiTest {
                 reply(500, "nope")(exchange)
             }
         }).use { api ->
-            val taken = SecretApi.snapshot(client(), api.base, "the-key", mapOf("Ann" to known, "Bo" to broken))
+            val taken = SecretApi.snapshot(client(), SecretApi.Source.Own("the-key", api.base), mapOf("Ann" to known, "Bo" to broken))
             assertEquals(mapOf("Ann" to 300), taken)
             assertEquals(2, api.asked.size, "every player is asked, even the one that fails")
         }
@@ -253,7 +373,7 @@ class SecretApiTest {
     @Test
     fun `an empty roster asks nothing`() {
         Api(reply(200, player(SecretApi.ACHIEVEMENT to 1))).use { api ->
-            assertTrue(SecretApi.snapshot(client(), api.base, "the-key", emptyMap()).isEmpty())
+            assertTrue(SecretApi.snapshot(client(), SecretApi.Source.Own("the-key", api.base), emptyMap()).isEmpty())
             assertTrue(api.asked.isEmpty())
         }
     }
