@@ -191,10 +191,32 @@ class SoloClearTest {
                 """{"floor":"F7","ticks":7000,"seconds":352,"pb":true,"ts":4}""",
             ),
         )
-        assertEquals(410, bests.bySeconds["M7"])
-        assertEquals(8200, bests.byTicks["M7"])
-        assertEquals(352, bests.bySeconds["F7"])
+        assertEquals(410, bests.bySeconds["M7|clear"])
+        assertEquals(8200, bests.byTicks["M7|clear"])
+        assertEquals(352, bests.bySeconds["F7|clear"])
         assertEquals(4, bests.read)
+    }
+
+    /**
+     * **The record split that matters most, now that the gate fires mid-run.** `score300` is how long it
+     * took to reach 300; `clear` is the whole floor. The first is always the smaller number, so filing both
+     * under one key would make every gated run a record and every clear look beaten.
+     */
+    @Test
+    fun `a time to 300 never competes with a clear time`() {
+        val bests = SoloClear.fold(
+            sequenceOf(
+                """{"floor":"M7","metric":"clear","ticks":9000,"seconds":455,"ts":1}""",
+                """{"floor":"M7","metric":"score300","ticks":5200,"seconds":263,"ts":2}""",
+                """{"floor":"M7","metric":"score270","ticks":4400,"seconds":222,"ts":3}""",
+            ),
+        )
+        assertEquals(455, bests.bySeconds["M7|clear"], "the clear keeps its own record")
+        assertEquals(263, bests.bySeconds["M7|score300"])
+        // Two thresholds are two metrics as well: a time to 270 is not a time to 300.
+        assertEquals(222, bests.bySeconds["M7|score270"])
+        assertEquals("score300", SoloClear.metricFor(300))
+        assertEquals("clear", SoloClear.metricFor(0))
     }
 
     /**
@@ -212,9 +234,9 @@ class SoloClearTest {
                 """{"floor":"M7","ticks":9000,"seconds":455,"pb":true,"ts":2}""",
             ),
         )
-        assertEquals(8000, bests.byTicks["M7"], "both lines carry ticks")
-        assertEquals(455, bests.bySeconds["M7"], "only the second one carries seconds")
-        assertNull(bests.bySeconds["F7"])
+        assertEquals(8000, bests.byTicks["M7|clear"], "both lines carry ticks")
+        assertEquals(455, bests.bySeconds["M7|clear"], "only the second one carries seconds")
+        assertNull(bests.bySeconds["F7|clear"])
     }
 
     /**
@@ -233,8 +255,8 @@ class SoloClearTest {
                 """{"floor":"M7","ticks":7900,"seconds":399,"pb":true,"ts":2}""",
             ),
         )
-        assertEquals(399, bests.bySeconds["M7"])
-        assertEquals(7900, bests.byTicks["M7"])
+        assertEquals(399, bests.bySeconds["M7|clear"])
+        assertEquals(7900, bests.byTicks["M7|clear"])
         assertEquals(2, bests.read, "the blank, the torn line and the one without a floor are not entries")
     }
 }

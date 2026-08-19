@@ -18,6 +18,12 @@ object DungeonSession {
     /** Sidebar shows e.g. "⏣ The Catacombs (F7)" — also matches "(M7)" and "(Entrance)". */
     private val FLOOR = Regex("""The Catacombs \((\w+)\)""")
 
+    /** See [readCleared]. The bracketed score is optional; the percentage is not. */
+    private val CLEARED = Regex("""(?i)Cleared: (\d{1,3})%(?: \((\d+)\))?""")
+
+    /** `Time Elapsed: 06m 32s` on the sidebar — Hypixel's own clock, live. */
+    private val ELAPSED = Regex("""(?i)Time Elapsed: (\d{1,2}m ?\d{1,2}s|\d{1,3}:\d{2})""")
+
     /**
      * The floor this run is on: "F7", "M7", "Entrance", or null before one has been seen.
      *
@@ -51,6 +57,27 @@ object DungeonSession {
     var runTicks = 0
         private set
 
+    /**
+     * The live score Hypixel publishes on the sidebar, or null if that line has never carried one.
+     *
+     * Never cleared by a reading that lacks it: the sidebar is rebuilt by the server and a single tick
+     * without the bracket would otherwise drop the gate's input to nothing. `reset()` owns its lifetime,
+     * like [floor].
+     */
+    @Volatile
+    var sidebarScore: Int? = null
+        private set
+
+    /** The sidebar's clear percentage as a fraction, for [LiveScore.totalRooms]. */
+    @Volatile
+    var clearedFraction: Double? = null
+        private set
+
+    /** Hypixel's elapsed time off the sidebar, kept for the announcement. */
+    @Volatile
+    var sidebarTime: String? = null
+        private set
+
     val floorNumber: Int? get() = floor?.lastOrNull()?.digitToIntOrNull()
     val calibrated get() = physicalEntrance != null && mapEntrance != null && mapRoomSize > 0
 
@@ -81,6 +108,10 @@ object DungeonSession {
         // party run as a solo clear, and the flags only mean anything about one run.
         SoloClear.reset()
         ScoreProbe.reset()
+        LiveScore.reset()
+        sidebarScore = null
+        clearedFraction = null
+        sidebarTime = null
         ContributionTracker.reset()
         // Counted against `runTicks`, so it is forgotten where `runTicks` is: a run that inherited
         // the previous floor's idle time would report a number describing two runs.
@@ -131,7 +162,29 @@ object DungeonSession {
     internal fun observeSidebar(lines: List<String>): Boolean {
         val seen = lines.firstNotNullOfOrNull { FLOOR.find(it)?.groupValues?.get(1) }
         if (seen != null) floor = seen
+        readCleared(lines)
+        sidebarTime = lines.firstNotNullOfOrNull { ELAPSED.find(it)?.groupValues?.get(1) } ?: sidebarTime
         return seen != null
+    }
+
+    /**
+     * `Cleared: 68% (152)` — the clear percentage and, in brackets, **the run's live score**.
+     *
+     * Both halves are read here so a reader gets them from one line rather than from two passes that
+     * could disagree: [LiveScore] wants the score when it is there and the percentage to derive the
+     * floor's room count from when it is not, and those two answers describe the same instant.
+     *
+     * The bracket is optional in the pattern on purpose. Nothing in this repository has seen this line on
+     * a real floor; if Hypixel prints only the percentage, the score stays null and [LiveScore] falls
+     * through to its next source rather than reading a wrong number out of a partial match.
+     */
+    private fun readCleared(lines: List<String>) {
+        for (line in lines) {
+            val match = CLEARED.find(line) ?: continue
+            clearedFraction = match.groupValues[1].toDoubleOrNull()?.div(100.0) ?: clearedFraction
+            match.groupValues[2].toIntOrNull()?.let { sidebarScore = it }
+            return
+        }
     }
 
     /**

@@ -223,6 +223,22 @@ class SighteAddons : ClientModInitializer {
         }
 
         DungeonSession.tickClock()
+        // Every tick, because the sidebar carries both the score and the elapsed time and is rewritten
+        // that often — and because the announced time is only as precise as the reading that triggered
+        // it. The tab rows are the once-a-second ones and only feed the computed fallback.
+        LiveScore.observe(
+            floor = DungeonSession.floor,
+            sidebarScore = DungeonSession.sidebarScore,
+            footer = ::tabFooter,
+            rows = PartyTracker.lastRows,
+            clearedFraction = DungeonSession.clearedFraction,
+            secretsPercent = DungeonTab.secretsPercent,
+            inBoss = DungeonSession.inBoss,
+            nowMs = System.currentTimeMillis(),
+        )
+        // The announcement the gate is for: the moment the clear phase reaches the score. Refuses on its
+        // own for a party run, the wrong floor, the boss, or a score nothing could read.
+        SoloClear.onScore(LiveScore.score, DungeonSession.inBoss)
         // Before the trackers, because a bat dying is an arming event and the action bar update that
         // pays for it can land on this very tick. In the clear phase only: the boss room has no
         // secrets in it, and the bats in there are somebody's fight, not somebody's find.
@@ -353,7 +369,12 @@ class SighteAddons : ClientModInitializer {
                 BloodClear.onOpen(at)
             }
             ChatEvents.Event.BloodOpen -> BloodClear.onOpen(at)
-            ChatEvents.Event.BloodDone -> BloodClear.onDone(at)
+            ChatEvents.Event.BloodDone -> {
+                BloodClear.onDone(at)
+                // The same line, for a second reader: it is one of the inputs to the computed score's
+                // room count. Routed here rather than parsed again — one pattern, one meaning.
+                LiveScore.onBloodDone()
+            }
             is ChatEvents.Event.PuzzleSolved -> attributed("puzzle_solved", resolve(event.player))
             is ChatEvents.Event.PuzzleFailed -> attributed("puzzle_failed", resolve(event.player))
         }

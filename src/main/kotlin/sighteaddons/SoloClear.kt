@@ -108,6 +108,22 @@ object SoloClear {
     private var clearTime: String? = null
     private var princeSeen = false
 
+    /**
+     * Already announced this run, whichever path did it. One run is one message: the score gate is
+     * crossed once but read every tick after that, so without this the channel would get a line per tick
+     * for the rest of the floor.
+     */
+    private var announced = false
+
+    /**
+     * The floors a score gate applies to, as the upstream mod restricts them.
+     *
+     * **Not a taste call.** 300 is S+ everywhere, and on F1 a solo run reaches it as a matter of course —
+     * a gate that fires there is a gate that fires on every run. The two floors where an S+ solo is worth
+     * announcing are these. Widen the set here if that stops being true; nothing else has to change.
+     */
+    internal val GATED_FLOORS = setOf("F7", "M7")
+
     /** Called from [DungeonSession.reset]: everything here is per run. */
     fun reset() {
         // Evidence, and the only place it can be collected: a run that was still armed at reset never
@@ -122,6 +138,7 @@ object SoloClear {
         score = null
         clearTime = null
         princeSeen = false
+        announced = false
     }
 
     /**
@@ -266,48 +283,131 @@ object SoloClear {
      * which is why [pending] is cleared before anything leaves: it is the guard against announcing one
      * run twice, the same shape [RunReport.reported] has.
      */
+    /**
+     * The metric a record is kept under. Two of them, and they must never meet.
+     *
+     * `score300` is *how long it took to reach 300*, which is a shorter number than the clear it belongs
+     * to and a different question entirely. Filing both under one key would let every gated run beat
+     * every full clear and be announced as a record - the exact failure the [RoomHistory.SECRETS] rename
+     * exists to prevent. The threshold is in the name because 270 and 300 are not comparable either.
+     */
+    internal fun metricFor(gate: Int): String = if (gate > 0) "score$gate" else "clear"
+
+    /**
+     * The gate crossed **during the clear phase** - one reading of the live score, every tick.
+     *
+     * This is the announcement the user asked for: the time at the moment the run reached its score, with
+     * the boss playing no part. It cannot come from the end-of-run `Team Score:` line, which arrives after
+     * the boss and can no longer say *when*.
+     *
+     * Four refusals before anything is sent, and each is a case where firing would be a claim rather than
+     * a measurement:
+     *
+     *  - **in the boss** - the question is about the clear phase. A run that only reaches the score during
+     *    the fight has not answered it.
+     *  - **a floor outside [GATED_FLOORS]** - 300 on F1 is every run.
+     *  - **no score** - [LiveScore] could not read or compute one, so the threshold is not evaluable, and
+     *    an unevaluable threshold is not met ([passes]).
+     *  - **already announced** - the score is crossed once and read for the rest of the floor.
+     *
+     * The time comes from the same instant as the score: the sidebar carries both, which is what keeps
+     * them from describing two different moments.
+     */
+    fun onScore(score: Int?, inBoss: Boolean) {
+        if (announced || !Config.soloClears || !solo || inBoss) return
+        val gate = Config.soloClearMinScore
+        if (gate <= 0) return
+        val floor = floorTag(DungeonSession.floor)
+        if (floor !in GATED_FLOORS) return
+        if (!passes(score, gate)) return
+        val player = PartyTracker.localName ?: return
+
+        send(
+            player = player,
+            floor = floor,
+            ticks = DungeonSession.runTicks,
+            secrets = DungeonTab.secretsFound,
+            deaths = ContributionTracker.deaths,
+            score = score,
+            metric = metricFor(gate),
+            // Sidebar first: it is the screen the score was just read from, so the pair describes one
+            // instant. The tab list is a second later at worst, our own clock is the last resort.
+            official = DungeonSession.sidebarTime ?: DungeonTab.elapsed,
+        )
+    }
+
+    /**
+     * The run-end path, and it now only owns the ungated case.
+     *
+     * With a score gate set, reaching it is the event and [onScore] has already fired or the run did not
+     * qualify - so the headline says nothing. Without one, every solo clear is announced and the run end
+     * is the only moment that can know the clear is a clear.
+     */
     private fun release() {
         val run = pending ?: return
-        val gate = Config.soloClearMinScore
-        val seen = score
-        // Still waiting rather than refused: the score line is a few lines further down the same block.
-        if (gate > 0 && seen == null) return
-        if (!passes(seen, gate)) {
+        if (announced) {
             pending = null
-            DebugLog.event("solo_clear_below_gate", "score" to (seen ?: -1), "gate" to gate)
             return
         }
+        // Not a refusal worth logging as one: with a gate set, the live path is simply the one in charge.
+        if (Config.soloClearMinScore > 0) return
         pending = null
+        send(
+            player = run.player,
+            floor = run.floor,
+            ticks = run.ticks,
+            secrets = run.secrets,
+            deaths = run.deaths,
+            score = score,
+            metric = metricFor(0),
+            // Hypixel's own, then the tab list's, then ours - see [CLEAR_TIME].
+            official = clearTime ?: DungeonTab.elapsed,
+        )
+    }
 
-        // Hypixel's own, then the tab list's, then ours — see [CLEAR_TIME].
-        val official = clearTime ?: DungeonTab.elapsed
+    /**
+     * Records one announcement and puts it on the wire. The only place either happens.
+     *
+     * Records **per floor and per metric**: a time to 300 and a clear time are not the same measurement,
+     * and neither are seconds and ticks - see [metricFor] and [bestSeconds].
+     */
+    private fun send(
+        player: String,
+        floor: String,
+        ticks: Int,
+        secrets: Int?,
+        deaths: Int,
+        score: Int?,
+        metric: String,
+        official: String?,
+    ) {
+        announced = true
         val seconds = official?.let(DungeonTab::seconds)
         ensureLoaded()
 
-        // Compared in the unit it was measured in — see [bestSeconds].
-        val previous = if (seconds != null) bestSeconds[run.floor] else bestTicks[run.floor]
-        val current = seconds ?: run.ticks
+        val key = "$floor|$metric"
+        val previous = if (seconds != null) bestSeconds[key] else bestTicks[key]
+        val current = seconds ?: ticks
         val pb = previous == null || current < previous
 
         // Before the announcement, and whatever the announcement does: the file is the record and the
         // message is a notification about it. A Discord outage must not cost the history.
-        append(run, seconds, seen, pb, System.currentTimeMillis())
-        bestTicks[run.floor] = minOf(bestTicks[run.floor] ?: run.ticks, run.ticks)
-        if (seconds != null) bestSeconds[run.floor] = minOf(bestSeconds[run.floor] ?: seconds, seconds)
+        append(floor, metric, ticks, seconds, secrets, deaths, score, pb, System.currentTimeMillis())
+        bestTicks[key] = minOf(bestTicks[key] ?: ticks, ticks)
+        if (seconds != null) bestSeconds[key] = minOf(bestSeconds[key] ?: seconds, seconds)
 
         DebugLog.event(
             "solo_clear",
-            "floor" to run.floor, "pb" to pb, "score" to (seen ?: -1), "gate" to gate,
-            "ticks" to run.ticks,
-            // Which clock the announced time came from, which is the one thing a real session has to
-            // settle here: ours is the fallback, not the intent.
-            "time" to (official ?: "own clock"), "fromChat" to (clearTime != null),
-            "secrets" to (run.secrets ?: -1), "deaths" to run.deaths, "prince" to princeSeen,
+            "floor" to floor, "metric" to metric, "pb" to pb, "score" to (score ?: -1),
+            "scoreSource" to LiveScore.source.name.lowercase(), "ticks" to ticks,
+            // Which clock the announced time came from. Ours is the fallback, never the intent.
+            "time" to (official ?: "own clock"),
+            "secrets" to (secrets ?: -1), "deaths" to deaths, "prince" to princeSeen,
         )
         post(
             payload(
-                run.player, run.floor, official ?: DungeonGrid.formatTicks(run.ticks),
-                run.secrets, run.deaths, seen, princeSeen, pb,
+                player, floor, official ?: DungeonGrid.formatTicks(ticks),
+                secrets, deaths, score, princeSeen, pb,
             ).toString(),
         )
     }
@@ -374,14 +474,28 @@ object SoloClear {
      * Appends one line. `seconds` is absent when no official time was read, which is what keeps the two
      * units apart in [fold] rather than defaulting one into the other.
      */
-    private fun append(run: Pending, seconds: Int?, score: Int?, pb: Boolean, ts: Long) {
+    private fun append(
+        floor: String,
+        metric: String,
+        ticks: Int,
+        seconds: Int?,
+        secrets: Int?,
+        deaths: Int,
+        score: Int?,
+        pb: Boolean,
+        ts: Long,
+    ) {
         val obj = JsonObject()
-        obj.addProperty("floor", run.floor)
-        obj.addProperty("ticks", run.ticks)
+        obj.addProperty("floor", floor)
+        // What the number in this line measures. Read back by [fold] and the reason old lines can never
+        // be compared against new ones by accident.
+        obj.addProperty("metric", metric)
+        obj.addProperty("ticks", ticks)
         seconds?.let { obj.addProperty("seconds", it) }
         score?.let { obj.addProperty("score", it) }
-        run.secrets?.let { obj.addProperty("secrets", it) }
-        obj.addProperty("deaths", run.deaths)
+        secrets?.let { obj.addProperty("secrets", it) }
+        obj.addProperty("deaths", deaths)
+        obj.addProperty("scoreSource", LiveScore.source.name.lowercase())
         obj.addProperty("prince", princeSeen)
         obj.addProperty("pb", pb)
         obj.addProperty("ts", ts)
@@ -422,10 +536,12 @@ object SoloClear {
             if (line.isBlank()) continue
             try {
                 val obj = JsonParser.parseString(line).asJsonObject
-                val floor = obj["floor"].asString
+                // A line written before metrics existed is a clear time; that is what the code that wrote
+                // it measured, and an append-only file does not get to reinterpret its own past.
+                val key = "${obj["floor"].asString}|${obj["metric"]?.asString ?: "clear"}"
                 val tick = obj["ticks"].asInt
-                ticks[floor] = minOf(ticks[floor] ?: tick, tick)
-                obj["seconds"]?.asInt?.let { seconds[floor] = minOf(seconds[floor] ?: it, it) }
+                ticks[key] = minOf(ticks[key] ?: tick, tick)
+                obj["seconds"]?.asInt?.let { seconds[key] = minOf(seconds[key] ?: it, it) }
                 read++
             } catch (_: Exception) {
                 // Skipped rather than fatal, and not counted: `read` only feeds a log line.

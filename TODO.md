@@ -50,10 +50,36 @@ Fuer den Live-Score fehlen dann noch die Parser: `Completed Rooms: N/M`, `Crypts
 plus die `[✔]/[✖]`-Zeilen, `Mimic: ✔`, `Prince: ✔` — und die Raumzahl des Floors ist *abgeleitet*
 (`completed / (Cleared% / 100)`), nicht gelesen.
 
-**Zum Testen: `build/libs/sighteaddons-0.17.0-dev3.jar`** (19.08., 417 Tests grün). Gebaut mit
-`./gradlew assemble check -Pmod_version=0.17.0-dev3` — `mod_version` in `gradle.properties` steht
+**Der Live-Score ist gebaut** (`LiveScore`, dev4), wie die Vorlage es tut, aber mit den Quellen in der
+Reihenfolge, die der Fund vorgibt:
+
+1. **Sidebar** `Cleared: 68% (152)` — die Klammer ist der Score, den Hypixel selbst publiziert.
+   Die Upstream-Mod hat das Regex dafuer (`SCOREBOARD_CLEARED_PATTERN`) und **benutzt es nie**, waehrend
+   ihr Sampler diese Zahl neben der gerechneten an ihr Backend schickt.
+2. **Tab-Footer** `Score: 287` — was Upstream zuerst liest.
+3. **`DungeonScore`** — die portierte Formel, letzte Wahl. `LiveScore.source` reist mit jedem Score mit
+   und steht im Log: `computed` heisst Ergebnis mit Fehlerbalken, `sidebar` heisst Messung.
+
+**Der Trigger ist jetzt der, den der User wollte:** jeder Tick in der Clear-Phase, `score >= gate`,
+`solo`, Floor in `GATED_FLOORS` (`F7`/`M7`, wie Upstream) → posten, einmal pro Run. Der Boss redet nicht
+mit (`inBoss` refused). Zeit und Score kommen aus **derselben** Sidebar-Lesung, koennen also nicht zwei
+Momente beschreiben. Die Run-Ende-Haelfte besitzt nur noch den Fall `gate == 0`.
+
+**Records sind pro Floor *und* Metrik** (`M7|score300` vs. `M7|clear`): die Zeit bis 300 ist immer
+kleiner als die Clear-Zeit, unter einem Schluessel wuerde jeder gegatete Run jeden Clear "schlagen" —
+dieselbe Falle wie bei `secrets` → `secretrun`. Die Schwelle steht im Namen, weil 270 und 300 auch nicht
+vergleichbar sind.
+
+**Zwei Offsets bleiben, und nur der gerechnete Pfad hat sie:** Mayor Pauls `+10` ist von innen nicht
+sichtbar, und `totalRooms` haengt an einer auf ganze Prozent gerundeten Sidebar-Zahl (±1 Raum). Upstreams
+dritter Fehler ist hier **nicht** uebernommen: `isQuizCompleted()` gibt dort `+5`, sobald das Wort "Quiz"
+in der Liste vorkommt; `DungeonStats.PUZZLE_ROW` verlangt das `✔`. Damit untertreibt der Score bei
+ungeloestem Oruo um 5 — die Richtung, die keinen Run ankuendigt, der es nicht war.
+
+**Zum Testen: `build/libs/sighteaddons-0.17.0-dev4.jar`** (19.08., 430 Tests grün). Gebaut mit
+`./gradlew assemble check -Pmod_version=0.17.0-dev4` — `mod_version` in `gradle.properties` steht
 weiter auf `0.16.0` und `dist/` hält unverändert das released 0.16.0. Der Dev-Jar ist als
-`0.17.0-dev3` gestempelt, damit `X-Mod-Version` und `modVersion` in den Reports ihn nicht mit dem
+`0.17.0-dev4` gestempelt, damit `X-Mod-Version` und `modVersion` in den Reports ihn nicht mit dem
 Release verwechseln.
 
 **Der `SecretApi`-Fix liegt auf `main` und bei keinem Spieler.** Er kostet ein Release, und ein
@@ -120,6 +146,12 @@ in einem *released* Build entstehen.
 **Keine Wiring-Zeile von `ownsecrets-001`, `secretpoints-001`, `idletime-001` und `recordowner-001`
 ist je im Spiel gelaufen** — die reine Logik deckt die Suite ab, die Verdrahtung nicht. Ein Floor
 klärt alles davon mit dem Auge.
+
+**Nichts von der Score-Kette ist je auf einem echten Floor gelaufen.** Ein Solo-M7 mit dev4 klaert alles
+davon mit einer Sitzung: `score_source` sagt, welche Quelle geantwortet hat (steht dort `sidebar`, kann
+`DungeonScore` geloescht werden und beide Offsets sind gegenstandslos); `score_probe` zeigt die rohen
+Zeilen; `solo_clear` traegt `scoreSource`, `metric` und die angekuendigte Zeit; und `run_score` am
+Run-Ende ist Hypixels eigene Zahl — der Abgleich gegen das, was wir live gesagt haben.
 
 `DungeonTab.ELAPSED` ist **nie auf einem echten Floor gelaufen**, und daran hängt die angekündigte
 Zeit: Hypixels eigene Uhr (`Time: 06m 32s`) ist die, die zwei Spieler vergleichen können, `runTicks`

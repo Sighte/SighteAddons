@@ -1127,7 +1127,7 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             }
         }
         note(soloClears())
-        note("every announced run is kept in soloclears.jsonl")
+        note("kept in soloclears.jsonl, the boss never counts")
 
         section("hypixel key", if (Config.hypixelKey.isBlank()) "not set" else "set")
         field("your key")
@@ -1743,8 +1743,11 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
      */
     private fun soloClears(): String = when {
         !Config.soloClears -> "off: nothing is sent and nothing is recorded"
-        Config.soloClearMinScore <= 0 -> "${minecraft.user.name} and your time, every solo clear"
-        else -> "${minecraft.user.name} and your time, from ${Config.soloClearMinScore} score up"
+        Config.soloClearMinScore <= 0 -> "${minecraft.user.name} and your clear time, every solo floor"
+        // The gated case is a different measurement, not a filtered one: the time at which the clear
+        // phase reached the score, on the two floors where that is a result. Saying "from 300 up" would
+        // read as the same message with a threshold on it.
+        else -> "${minecraft.user.name}, F7 and M7, the moment the clear hits ${Config.soloClearMinScore}"
     }
 
     private fun uploadName(): String = when {
