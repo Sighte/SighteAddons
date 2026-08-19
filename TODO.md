@@ -21,10 +21,21 @@ stehen als `false` statt `?` da. Schalter ist `Config.soloClears`, **aus by defa
 Zwei Flags statt einem für die Solo-Erkennung: gelatcht wird *Gesellschaft*, nicht *solo* — die
 Tab-Liste füllt sich beim Laden, eine Fünfergruppe liest sich in den ersten Ticks als eine Person.
 
-**Zum Testen: `build/libs/sighteaddons-0.17.0-dev1.jar`** (19.08., 408 Tests grün). Gebaut mit
-`./gradlew assemble check -Pmod_version=0.17.0-dev1` — `mod_version` in `gradle.properties` steht
+**Der Score fuer das Gate kommt von Hypixel, nicht von `DungeonScore`** (19.08.). `Team Score: 305 (S+)`
+steht ein paar Zeilen unter der Run-Ende-Headline, ebenso `Clear Time:`; `A Prince falls.` kommt
+mitten im Run. `DungeonScore` bleibt damit ungenutzt — es ist eine Live-Schaetzung fuer einen
+Bildschirm, und auf eine Schaetzung wird kein Kanal gegatet. Folge fuer die Mechanik: die Headline
+**armiert** nur, die Score-Zeile **loest aus** (`SoloClear.onChatLine`), weil ein Gate auf einer Zahl,
+die noch nicht da ist, nicht entscheidbar ist. `Config.soloClearMinScore` = 300 (S+), 270 (S) oder 0
+(alles), Zeile in `/sa` → debug. **Ueber 0 faellt ein unbekannter Score durchs Gate** — eine
+Schwelle, die nicht ausgewertet werden kann, ist nicht erreicht; andersherum macht ein falsches
+Regex einen Kanal, der alles ankuendigt. War die Score-Zeile nie da, steht ein
+`solo_clear_unreleased` im Log.
+
+**Zum Testen: `build/libs/sighteaddons-0.17.0-dev2.jar`** (19.08., 413 Tests grün). Gebaut mit
+`./gradlew assemble check -Pmod_version=0.17.0-dev2` — `mod_version` in `gradle.properties` steht
 weiter auf `0.16.0` und `dist/` hält unverändert das released 0.16.0. Der Dev-Jar ist als
-`0.17.0-dev1` gestempelt, damit `X-Mod-Version` und `modVersion` in den Reports ihn nicht mit dem
+`0.17.0-dev2` gestempelt, damit `X-Mod-Version` und `modVersion` in den Reports ihn nicht mit dem
 Release verwechseln.
 
 **Der `SecretApi`-Fix liegt auf `main` und bei keinem Spieler.** Er kostet ein Release, und ein

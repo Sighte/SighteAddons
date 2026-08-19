@@ -218,6 +218,20 @@ object Config {
     var soloClears = false
 
     /**
+     * The lowest score a solo run must reach to be announced. `0` announces every solo clear.
+     *
+     * **Hypixel's own number, off the end-of-run chat block, and never [DungeonScore]'s.** That one is a
+     * live estimate for a screen; a channel must not be gated on an estimate, and the official score is
+     * stated outright a few lines after the run-end headline — see [SoloClear.SCORE].
+     *
+     * 300 is S+ and 270 is S. The consequence of the number being unreadable is spelled out in
+     * [SoloClear.passes]: above 0, an unknown score **fails** the gate. A threshold that cannot be
+     * evaluated has not been met, and the other direction would turn one wrong pattern into a channel
+     * that announces everything.
+     */
+    var soloClearMinScore = 300
+
+    /**
      * A Hypixel API key, the player's own, for the true per-player secret counts in the run summary.
      *
      * **Blank by default and there is no bundled fallback.** A key in the jar would be public on the
@@ -373,6 +387,7 @@ object Config {
             uploadName = obj.bool("uploadName", uploadName)
             uploadNoticeShown = obj.bool("uploadNoticeShown", uploadNoticeShown)
             soloClears = obj.bool("soloClears", soloClears)
+            soloClearMinScore = obj.int("soloClearMinScore", soloClearMinScore)
             hypixelKey = obj.str("hypixelKey", hypixelKey)
         } catch (e: Exception) {
             // A broken config must never cost the run — the defaults above are already in place.
@@ -418,6 +433,7 @@ object Config {
         obj.addProperty("uploadName", uploadName)
         obj.addProperty("uploadNoticeShown", uploadNoticeShown)
         obj.addProperty("soloClears", soloClears)
+        obj.addProperty("soloClearMinScore", soloClearMinScore)
         obj.addProperty("hypixelKey", hypixelKey)
         obj.addProperty("installId", installId)
         try {

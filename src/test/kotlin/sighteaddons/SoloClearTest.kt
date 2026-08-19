@@ -18,8 +18,9 @@ import org.junit.jupiter.api.Test
  *  - **what leaves the machine.** The payload is the whole of it, and a field this mod cannot answer
  *    for must be absent rather than invented — the receiver spells an absent field `?`.
  *
- * [SoloClear.onRunEnd] itself is not reachable here: it reads the live session, appends to the game
- * directory and opens a socket. What it *decides* is in these four functions, which is the same seam
+ * [SoloClear.onRunEnd] and the release it arms are not reachable here: they read the live session,
+ * append to the game directory and open a socket. What they *decide* is in the pure functions below —
+ * the gate, the payload, the floor tag, the fold and the three chat patterns — which is the same seam
  * [RunReport.reportedFloor] and [DungeonTab.read] are split along.
  */
 class SoloClearTest {
@@ -81,7 +82,9 @@ class SoloClearTest {
 
     @Test
     fun `the payload carries what this mod knows and nothing it does not`() {
-        val body = SoloClear.payload("Sighte", "M7", "06m 32s", secrets = 42, deaths = 0, pb = true)
+        val body = SoloClear.payload(
+            "Sighte", "M7", "06m 32s", secrets = 42, deaths = 0, score = 305, prince = true, pb = true,
+        )
 
         assertEquals("Sighte", body["player"].asString)
         assertEquals("M7", body["floor"].asString)
@@ -89,11 +92,75 @@ class SoloClearTest {
         assertEquals(42, body["secrets"].asInt)
         assertEquals(0, body["deaths"].asInt)
         assertTrue(body["pb"].asBoolean)
+        assertTrue(body["prince"].asBoolean, "his line was seen, so this is measured")
+        // Hypixel's own score, handed over as a component so the receiver shows it by name without
+        // having to learn the field.
+        assertEquals(305, body["score_components"].asJsonObject["score"].asInt)
         // Not tracked anywhere in this mod. The receiver prints `?` for a field it was not given, which
         // is true; a `false` invented here would say the mimic survived.
-        for (key in listOf("crypts", "prince", "mimic")) {
+        for (key in listOf("crypts", "mimic")) {
             assertFalse(body.has(key), "$key is not something this mod can answer for")
         }
+    }
+
+    /**
+     * The Prince is absent, not `false`, when his line never came — and so is the score when the gate is
+     * off and nothing released on it. Same rule as the counts: silence is not a claim.
+     */
+    @Test
+    fun `an unseen prince and an unknown score are absent, not denied`() {
+        val body = SoloClear.payload(
+            "Sighte", "M7", "6:32", secrets = 3, deaths = 0, score = null, prince = false, pb = false,
+        )
+        assertFalse(body.has("prince"))
+        assertFalse(body.has("score_components"))
+    }
+
+    /**
+     * **The gate, and the one asymmetry in it that is deliberate.** Above 0 an unknown score *fails*:
+     * a threshold that cannot be evaluated has not been met. Passing on unknown would turn one wrong
+     * regex into a channel that announces every run — the failure that looks like the feature working.
+     */
+    @Test
+    fun `an unknown score fails a gate and passes no gate`() {
+        assertTrue(SoloClear.passes(null, 0), "no gate needs no score")
+        assertFalse(SoloClear.passes(null, 300), "a gate that cannot be evaluated is not met")
+        assertTrue(SoloClear.passes(300, 300))
+        assertTrue(SoloClear.passes(312, 300))
+        assertFalse(SoloClear.passes(299, 300))
+        assertTrue(SoloClear.passes(270, 270))
+    }
+
+    /**
+     * Hypixel states the score outright a few lines under the run-end headline. That is where the 300
+     * comes from — [DungeonScore] computes a live estimate for a screen, and a channel is not gated on
+     * an estimate.
+     */
+    @Test
+    fun `the official score is read off the summary line, grade and all`() {
+        assertEquals("305", SoloClear.SCORE.matchEntire(" Team Score: 305 (S+)")!!.groupValues[1])
+        assertEquals("270", SoloClear.SCORE.matchEntire("Team Score: 270 (S)")!!.groupValues[1])
+        // The grade is decoration; anchoring against it would break the day Hypixel rewords it.
+        assertEquals("94", SoloClear.SCORE.matchEntire(" Team Score: 94")!!.groupValues[1])
+        // Somebody else's score, in a sentence, is not the run's.
+        assertNull(SoloClear.SCORE.matchEntire("Notch: my Team Score: 300 lol"))
+    }
+
+    /**
+     * The better of the two official times: the tab list can already be empty at run end, while this
+     * line is printed at that exact moment.
+     */
+    @Test
+    fun `the official clear time is read off the same block`() {
+        assertEquals("06m 32s", SoloClear.CLEAR_TIME.matchEntire(" Clear Time: 06m 32s")!!.groupValues[1])
+        assertEquals("6:32", SoloClear.CLEAR_TIME.matchEntire("Elapsed Time: 6:32")!!.groupValues[1])
+        assertNull(SoloClear.CLEAR_TIME.matchEntire(" Clear Time: soon"))
+    }
+
+    @Test
+    fun `the prince is only claimed on his own line`() {
+        assertTrue(SoloClear.PRINCE.matchEntire(" A Prince falls. +1 Bonus Score") != null)
+        assertNull(SoloClear.PRINCE.matchEntire("Notch: A Prince falls. +1 Bonus Score"))
     }
 
     /**
@@ -102,7 +169,9 @@ class SoloClearTest {
      */
     @Test
     fun `a secret count the tab list never gave is absent, not zero`() {
-        val body = SoloClear.payload("Sighte", "F7", "6:32", secrets = null, deaths = 1, pb = false)
+        val body = SoloClear.payload(
+            "Sighte", "F7", "6:32", secrets = null, deaths = 1, score = null, prince = false, pb = false,
+        )
         assertFalse(body.has("secrets"))
         assertFalse(body["pb"].asBoolean)
         assertEquals(1, body["deaths"].asInt)

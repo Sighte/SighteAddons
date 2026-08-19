@@ -271,6 +271,10 @@ class SighteAddons : ClientModInitializer {
         onDungeonEvent(text)
         onCrit(text)
         onStorm(text)
+        // Unconditional and before the return below, because two of the three lines it reads arrive
+        // *after* the headline — `Team Score:` is what releases an armed announcement, and the Prince
+        // falls mid-run. Putting this behind the headline check is how they would stop arriving.
+        SoloClear.onChatLine(text)
         if (summaryPrinted || !RUN_END.matches(text)) return
         summaryPrinted = true
         DebugLog.event(
@@ -287,7 +291,9 @@ class SighteAddons : ClientModInitializer {
         RunReport.write(complete = true)
         // Same reason, and the same single call site: a floor that was left is not a clear, so the two
         // paths that write a report on the way out (`JOIN`, `DISCONNECT`) deliberately do not announce
-        // one. Off unless [Config.soloClears] is on, and a no-op for a run with company.
+        // one. Off unless [Config.soloClears] is on, and a no-op for a run with company. Arms rather
+        // than sends when a score gate is set — this headline is the block's first line, the score is
+        // further down it.
         SoloClear.onRunEnd()
     }
 

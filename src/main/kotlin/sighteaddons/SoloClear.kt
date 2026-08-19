@@ -16,13 +16,24 @@ import java.time.Duration
  *
  * Two halves that are deliberately not the same thing:
  *
- *  - **The file** is permanent and local. Every solo run is appended, and a personal best is just the
- *    minimum over it — the same design as [RoomHistory], for the same reason: a file that rewrites its
- *    own history cannot be trusted about it.
+ *  - **The file** is permanent and local. Every solo run that passed the gate is appended, and a
+ *    personal best is just the minimum over it — the same design as [RoomHistory], for the same
+ *    reason: a file that rewrites its own history cannot be trusted about it.
  *  - **The announcement** is one `POST /v1/solo_clear` to the receiver, which relays it into a Discord
  *    channel and stores nothing. One attempt, no queue, no retry. That mirrors the receiver's own
  *    decision about the same message: an announcement whose moment has passed is not worth resending,
  *    and the run itself is already recorded — here and in [RunReport].
+ *
+ * **Everything this announces about a run, Hypixel states outright.** The score, the clear time and the
+ * Prince are read off the end-of-run chat block, not derived: [DungeonScore] can compute a score, but
+ * it is a live estimate for a screen, and an estimate must not be what a channel is gated on.
+ * [DungeonSession.runTicks] is the same story for the time — it starts at calibration, not at the door.
+ * So both are fallbacks, and both are visible as such in the debug log.
+ *
+ * **The block arrives over several lines, which is why this is armed rather than fired.** The headline
+ * `Catacombs - Floor VII` is the *first* line of it; `Team Score:` comes several lines later. So the
+ * headline captures the run ([onRunEnd]) and the score line releases it ([onChatLine]) — a gate cannot
+ * be evaluated on a number that has not arrived yet.
  *
  * **`pb` is this side's claim and the receiver takes it as one.** Nothing is stored on the box, so it
  * has no history to check a record against; a floor's best time exists only on the machine that played
@@ -37,6 +48,32 @@ object SoloClear {
     private val FILE = FabricLoader.getInstance().configDir.resolve("sighteaddons/soloclears.jsonl")
 
     private const val ROUTE = "/v1/solo_clear"
+
+    /** Hypixel indents these lines; [SighteAddons.onChat] hands them over stripped but not trimmed. */
+    private const val LEAD = """^\s*"""
+
+    /**
+     * `Team Score: 305 (S+)` — the run's official score, and the only thing the gate may read.
+     *
+     * The trailing `.*` is deliberate: the grade in brackets is decoration this mod has no use for, and
+     * anchoring against it would make the pattern fail the day Hypixel words it differently. The number
+     * is what the gate needs and the number is all that is captured.
+     */
+    internal val SCORE = Regex("""${LEAD}Team Score: (\d+).*$""", RegexOption.IGNORE_CASE)
+
+    /**
+     * `Clear Time: 06m 32s` from the same block, in either spelling and either format.
+     *
+     * The better of the two official times: [DungeonTab.ELAPSED] reads the tab list, which Hypixel may
+     * already have emptied by the time the run ends, while this line is printed *at* that moment.
+     */
+    internal val CLEAR_TIME = Regex(
+        """${LEAD}(?:Clear|Elapsed) Time: (\d{1,2}m ?\d{1,2}s|\d{1,3}:\d{2})\s*$""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /** `A Prince falls. +1 Bonus Score`, announced mid-run rather than in the summary block. */
+    internal val PRINCE = Regex("""${LEAD}A Prince falls\..*$""")
 
     /**
      * Was anybody else in the party this run.
@@ -53,10 +90,38 @@ object SoloClear {
     /** Only a run that showed a roster, and never showed a second person in it. */
     val solo get() = seenAlone && !withCompany
 
-    /** Called from [DungeonSession.reset]: the flags are per run, like everything else there. */
+    /**
+     * What the headline captured, held until the gate can be decided. Everything in it is read at the
+     * headline and not at the release, because the score line arrives after Hypixel has begun tearing
+     * the run down and the tab list may already be empty by then.
+     */
+    internal class Pending(
+        val player: String,
+        val floor: String,
+        val ticks: Int,
+        val secrets: Int?,
+        val deaths: Int,
+    )
+
+    private var pending: Pending? = null
+    private var score: Int? = null
+    private var clearTime: String? = null
+    private var princeSeen = false
+
+    /** Called from [DungeonSession.reset]: everything here is per run. */
     fun reset() {
+        // Evidence, and the only place it can be collected: a run that was still armed at reset never
+        // saw a `Team Score:` line, so the pattern is wrong or Hypixel stopped printing it. Without
+        // this line the symptom is an announcement that silently never happens.
+        if (pending != null) {
+            DebugLog.event("solo_clear_unreleased", "gate" to Config.soloClearMinScore, "score" to (score ?: -1))
+        }
         seenAlone = false
         withCompany = false
+        pending = null
+        score = null
+        clearTime = null
+        princeSeen = false
     }
 
     /**
@@ -75,6 +140,23 @@ object SoloClear {
     }
 
     /**
+     * Every chat line, stripped, from [SighteAddons.onChat] — before the headline check there, so these
+     * three patterns keep arriving whatever that path decides to return early on.
+     *
+     * The score line is what releases an armed run, so this is the other half of [onRunEnd] and not a
+     * side channel.
+     */
+    fun onChatLine(text: String) {
+        if (PRINCE.matchEntire(text) != null) princeSeen = true
+        CLEAR_TIME.matchEntire(text)?.let { clearTime = it.groupValues[1] }
+        SCORE.matchEntire(text)?.let {
+            score = it.groupValues[1].toIntOrNull()
+            DebugLog.event("run_score", "score" to (score ?: -1))
+            release()
+        }
+    }
+
+    /**
      * Best time per floor, in two units that are never compared with each other.
      *
      * **Hypixel's seconds and our ticks are different measurements of the same run**, and mixing them
@@ -83,8 +165,8 @@ object SoloClear {
      * short of the official time. Comparing a run timed one way against a record timed the other would
      * hand out records for the clock rather than for the run.
      *
-     * So a run is compared against the record in *its own* unit: Hypixel's when the tab list gave one,
-     * ours when it did not. A player whose tab list starts carrying the row mid-history simply starts a
+     * So a run is compared against the record in *its own* unit: Hypixel's when it gave one, ours when
+     * it did not. A player whose runs start carrying the official time mid-history simply starts a
      * fresh record in the better unit, which is the honest outcome — and the announced time is always
      * the one the comparison used.
      */
@@ -104,11 +186,26 @@ object SoloClear {
     }
 
     /**
+     * Whether a run of this score may be announced, and the one decision that must never be *assumed*.
+     *
+     * A gate of 0 announces every solo clear and needs no score at all. Above that, **an unknown score
+     * fails the gate**: a threshold that cannot be evaluated has not been met. The other way round
+     * would turn one wrong regex into a channel that announces every run, which is the failure that
+     * looks like the feature working.
+     */
+    internal fun passes(score: Int?, gate: Int): Boolean = when {
+        gate <= 0 -> true
+        score == null -> false
+        else -> score >= gate
+    }
+
+    /**
      * The body the receiver reads. Pure over what it is handed, like [RunReport.build].
      *
-     * Only the fields this mod can actually answer for. Crypts, the Prince and the Mimic are **not**
-     * sent, because nothing here tracks them — the receiver prints `?` for a field it was not given,
-     * which is the true answer, and a `false` we invented would be a claim about the run.
+     * Every field is either measured or absent. Crypts and the Mimic are **never** sent, because
+     * nothing here tracks them — the receiver prints `?` for a field it was not given, which is the
+     * true answer, and a `false` we invented would be a claim about the run. The Prince is sent only
+     * when his line was actually seen, for exactly the same reason.
      */
     internal fun payload(
         player: String,
@@ -116,6 +213,8 @@ object SoloClear {
         time: String,
         secrets: Int?,
         deaths: Int,
+        score: Int?,
+        prince: Boolean,
         pb: Boolean,
     ): JsonObject = JsonObject().apply {
         addProperty("player", player)
@@ -125,15 +224,22 @@ object SoloClear {
         // read are different facts, and the receiver spells the second one `?`.
         secrets?.let { addProperty("secrets", it) }
         addProperty("deaths", deaths)
+        // Hypixel's own number, passed through as a score component so the receiver shows it by name
+        // without having to learn the field. Absent when the gate is off and the line never arrived.
+        score?.let { add("score_components", JsonObject().apply { addProperty("score", it) }) }
+        if (prince) addProperty("prince", true)
         addProperty("pb", pb)
     }
 
     /**
-     * One finished solo run: appended to the file, then announced if the switch is on.
+     * Arms the announcement with everything the run knows at its last readable moment.
      *
      * Called from the run-end headline and from nowhere else — the same single call site that may claim
      * `complete = true` for [RunReport]. The paths that write a report on the way out of a floor
      * (`JOIN`, `DISCONNECT`) deliberately do not reach here: a run that was left is not a clear.
+     *
+     * Releases immediately when the gate needs no score, so switching the gate off keeps the old
+     * behaviour rather than making every announcement wait for a line it does not need.
      */
     fun onRunEnd() {
         if (!Config.soloClears || !solo) return
@@ -143,33 +249,67 @@ object SoloClear {
         // is not reliably readable on every path a run can end on.
         val player = PartyTracker.localName ?: return
 
-        val floor = floorTag(DungeonSession.floor)
-        val official = DungeonTab.elapsed
+        pending = Pending(
+            player = player,
+            floor = floorTag(DungeonSession.floor),
+            ticks = ticks,
+            secrets = DungeonTab.secretsFound,
+            deaths = ContributionTracker.deaths,
+        )
+        release()
+    }
+
+    /**
+     * Sends the armed run if the gate now allows it, and gives up on it if the gate refuses.
+     *
+     * Called twice per run in the ordinary case — once from the headline and once from the score line —
+     * which is why [pending] is cleared before anything leaves: it is the guard against announcing one
+     * run twice, the same shape [RunReport.reported] has.
+     */
+    private fun release() {
+        val run = pending ?: return
+        val gate = Config.soloClearMinScore
+        val seen = score
+        // Still waiting rather than refused: the score line is a few lines further down the same block.
+        if (gate > 0 && seen == null) return
+        if (!passes(seen, gate)) {
+            pending = null
+            DebugLog.event("solo_clear_below_gate", "score" to (seen ?: -1), "gate" to gate)
+            return
+        }
+        pending = null
+
+        // Hypixel's own, then the tab list's, then ours — see [CLEAR_TIME].
+        val official = clearTime ?: DungeonTab.elapsed
         val seconds = official?.let(DungeonTab::seconds)
         ensureLoaded()
 
         // Compared in the unit it was measured in — see [bestSeconds].
-        val previous = if (seconds != null) bestSeconds[floor] else bestTicks[floor]
-        val current = seconds ?: ticks
+        val previous = if (seconds != null) bestSeconds[run.floor] else bestTicks[run.floor]
+        val current = seconds ?: run.ticks
         val pb = previous == null || current < previous
 
-        val secrets = DungeonTab.secretsFound
-        val deaths = ContributionTracker.deaths
         // Before the announcement, and whatever the announcement does: the file is the record and the
         // message is a notification about it. A Discord outage must not cost the history.
-        append(floor, ticks, seconds, secrets, deaths, pb, System.currentTimeMillis())
-        bestTicks[floor] = minOf(bestTicks[floor] ?: ticks, ticks)
-        if (seconds != null) bestSeconds[floor] = minOf(bestSeconds[floor] ?: seconds, seconds)
+        append(run, seconds, seen, pb, System.currentTimeMillis())
+        bestTicks[run.floor] = minOf(bestTicks[run.floor] ?: run.ticks, run.ticks)
+        if (seconds != null) bestSeconds[run.floor] = minOf(bestSeconds[run.floor] ?: seconds, seconds)
 
         DebugLog.event(
             "solo_clear",
-            "floor" to floor, "pb" to pb, "ticks" to ticks,
-            // `-` when Hypixel's row was never read, which is the one thing a real session has to
-            // settle here: our clock is the fallback, not the intent. See [DungeonTab.ELAPSED].
-            "hypixelTime" to (official ?: "-"),
-            "secrets" to (secrets ?: -1), "deaths" to deaths,
+            "floor" to run.floor, "pb" to pb, "score" to (seen ?: -1), "gate" to gate,
+            "ticks" to run.ticks,
+            // Which clock the announced time came from, which is the one thing a real session has to
+            // settle here: ours is the fallback, not the intent.
+            "time" to (official ?: "own clock"), "fromChat" to (clearTime != null),
+            "secrets" to (run.secrets ?: -1), "deaths" to run.deaths, "prince" to princeSeen,
         )
-        post(payload(player, floor, official ?: DungeonGrid.formatTicks(ticks), secrets, deaths, pb).toString())
+        post(
+            payload(
+                run.player, run.floor, official ?: DungeonGrid.formatTicks(run.ticks),
+                run.secrets, run.deaths, seen, princeSeen, pb,
+            ).toString(),
+        )
     }
 
     /**
@@ -231,24 +371,18 @@ object SoloClear {
     )
 
     /**
-     * Appends one line. `seconds` is absent when the tab list never gave Hypixel's time, which is what
-     * keeps the two units apart in [fold] rather than defaulting one into the other.
+     * Appends one line. `seconds` is absent when no official time was read, which is what keeps the two
+     * units apart in [fold] rather than defaulting one into the other.
      */
-    private fun append(
-        floor: String,
-        ticks: Int,
-        seconds: Int?,
-        secrets: Int?,
-        deaths: Int,
-        pb: Boolean,
-        ts: Long,
-    ) {
+    private fun append(run: Pending, seconds: Int?, score: Int?, pb: Boolean, ts: Long) {
         val obj = JsonObject()
-        obj.addProperty("floor", floor)
-        obj.addProperty("ticks", ticks)
+        obj.addProperty("floor", run.floor)
+        obj.addProperty("ticks", run.ticks)
         seconds?.let { obj.addProperty("seconds", it) }
-        secrets?.let { obj.addProperty("secrets", it) }
-        obj.addProperty("deaths", deaths)
+        score?.let { obj.addProperty("score", it) }
+        run.secrets?.let { obj.addProperty("secrets", it) }
+        obj.addProperty("deaths", run.deaths)
+        obj.addProperty("prince", princeSeen)
         obj.addProperty("pb", pb)
         obj.addProperty("ts", ts)
         obj.addProperty("modVersion", TelemetryUpload.modVersion())

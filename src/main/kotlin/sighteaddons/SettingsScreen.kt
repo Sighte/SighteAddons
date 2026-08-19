@@ -1117,8 +1117,17 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         // A separate consent from the two above, not a sub-setting of them: this one puts a name and a
         // time in a chat channel other people read, which is not what a run report does.
         toggle("announce in discord", Config.soloClears) { Config.soloClears = !Config.soloClears }
+        // Three stops rather than a free number: S+ and S are the two thresholds anybody means, and 0
+        // is "announce everything". A stepper over 0..300 would offer 298 as if it meant something.
+        action("minimum score", scoreGate()) {
+            Config.soloClearMinScore = when (Config.soloClearMinScore) {
+                0 -> 270
+                270 -> 300
+                else -> 0
+            }
+        }
         note(soloClears())
-        note("every solo run is kept in soloclears.jsonl, switch or not")
+        note("every announced run is kept in soloclears.jsonl")
 
         section("hypixel key", if (Config.hypixelKey.isBlank()) "not set" else "set")
         field("your key")
@@ -1713,15 +1722,29 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
 
     /** The switch says what would leave the machine, so it is legible before the click. */
     /**
+     * The gate as a label, with the grade it corresponds to — the number alone does not say why 300.
+     *
+     * **Hypixel's score, not [DungeonScore]'s.** Above 0 an unknown score fails the gate, so this row
+     * also says what a run costs when the line cannot be read: nothing is announced. See
+     * [SoloClear.passes].
+     */
+    private fun scoreGate(): String = when (val gate = Config.soloClearMinScore) {
+        0 -> "any solo clear"
+        270 -> "270 · S"
+        300 -> "300 · S+"
+        else -> gate.toString()
+    }
+
+    /**
      * What the switch above actually does, spelled out before the click rather than after it — the same
      * correction [uploadName] is here for. The name is not optional on this route: the receiver refuses
      * a clear without one, because a personal best nobody can be told apart from another is not an
      * announcement.
      */
-    private fun soloClears(): String = if (!Config.soloClears) {
-        "off: solo runs are recorded here and go nowhere"
-    } else {
-        "${minecraft.user.name} and your time, in the channel, at run end"
+    private fun soloClears(): String = when {
+        !Config.soloClears -> "off: nothing is sent and nothing is recorded"
+        Config.soloClearMinScore <= 0 -> "${minecraft.user.name} and your time, every solo clear"
+        else -> "${minecraft.user.name} and your time, from ${Config.soloClearMinScore} score up"
     }
 
     private fun uploadName(): String = when {
