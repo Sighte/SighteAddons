@@ -119,6 +119,9 @@ object DungeonSession {
         RunReport.reset()
         // Per run for the same reason: a `solo` latch carried into the next floor would announce a
         // party run as a solo clear, and the flags only mean anything about one run.
+        // Before [LiveScore.reset], and not interchangeable: SoloClear's own diagnosis reads
+        // [LiveScore.high] to say how close the run got to the gate, and that number is gone one line
+        // later.
         SoloClear.reset()
         LiveScore.reset()
         sidebarScore = null

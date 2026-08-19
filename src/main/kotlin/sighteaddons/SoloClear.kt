@@ -128,6 +128,16 @@ object SoloClear {
      */
     internal val GATED_FLOORS = setOf("F7", "M7")
 
+    /**
+     * Which refusal in [onScore] was the last one, for the one line [reset] writes.
+     *
+     * **A gate that does not fire is indistinguishable from a broken one**, and that cost a whole solo
+     * session to learn: the run was solo, on M7, with the switch on, and the only visible fact was the
+     * absence of a message. A constant per refusal costs nothing per tick and turns the absence into a
+     * sentence.
+     */
+    private var refusal = "not in a run"
+
     /** Called from [DungeonSession.reset]: everything here is per run. */
     fun reset() {
         // Evidence, and the only place it can be collected: a run that was still armed at reset never
@@ -136,6 +146,19 @@ object SoloClear {
         if (pending != null) {
             DebugLog.event("solo_clear_unreleased", "gate" to Config.soloClearMinScore, "score" to (score ?: -1))
         }
+        // The line that was missing. Written whenever the feature was on and said nothing, with how close
+        // the run got: `high` against `gate` is the whole diagnosis, and `why` names the refusal that
+        // stood last. Read [LiveScore.high] before [DungeonSession.reset] clears it — this runs first
+        // there, and that ordering is the only reason this can be read at all.
+        if (Config.soloClears && !announced) {
+            DebugLog.event(
+                "solo_clear_missed",
+                "why" to refusal, "gate" to Config.soloClearMinScore, "high" to LiveScore.high,
+                "short" to (Config.soloClearMinScore - LiveScore.high).coerceAtLeast(0),
+                "solo" to solo, "floor" to floorTag(DungeonSession.floor),
+            )
+        }
+        refusal = "not in a run"
         seenAlone = false
         withCompany = false
         pending = null
@@ -324,13 +347,17 @@ object SoloClear {
      * them from describing two different moments.
      */
     fun onScore(score: Int?, inBoss: Boolean) {
-        if (announced || !Config.soloClears || !solo || inBoss) return
+        if (announced) return
+        if (!Config.soloClears) return refuse("switched off")
+        if (!solo) return refuse("not solo")
+        if (inBoss) return refuse("in the boss")
         val gate = Config.soloClearMinScore
-        if (gate <= 0) return
+        if (gate <= 0) return refuse("no gate, the run end owns it")
         val floor = floorTag(DungeonSession.floor)
-        if (floor !in GATED_FLOORS) return
-        if (!passes(score, gate)) return
-        val player = PartyTracker.localName ?: return
+        if (floor !in GATED_FLOORS) return refuse("floor $floor is not gated")
+        if (score == null) return refuse("no score could be read")
+        if (!passes(score, gate)) return refuse("score below the gate")
+        val player = PartyTracker.localName ?: return refuse("no name captured")
 
         send(
             player = player,
@@ -344,6 +371,11 @@ object SoloClear {
             // instant. The tab list is a second later at worst, our own clock is the last resort.
             official = DungeonSession.sidebarTime ?: DungeonTab.elapsed,
         )
+    }
+
+    /** Records why this tick did not announce. Returns Unit so a refusal is one line at the call site. */
+    private fun refuse(why: String) {
+        refusal = why
     }
 
     /**

@@ -52,12 +52,33 @@ object LiveScore {
     private var startedAtMs = 0L
     private var bloodDone = false
 
+    /**
+     * The highest score this run reached, and the reason it exists.
+     *
+     * A gate that does not fire leaves no trace at all: the score is read every tick, [set] only logs a
+     * change of *source*, and a run that got to 268 with the gate at 300 looks exactly like a run whose
+     * score could never be read. One number turns "nothing happened" into "you were 32 short", and it is
+     * the difference between a feature that can be tuned and one that can only be guessed at.
+     */
+    var high = 0
+        private set
+
+    /** The step [high] is logged at. Twelve lines over a full run, which is the price of seeing the curve. */
+    private const val STEP = 25
+
+    private var loggedStep = 0
+
     /** Per run, from [DungeonSession.reset]. */
     fun reset() {
+        // Logged here rather than by a reader, so no call site has to run before [DungeonSession.reset]
+        // clears this. A run that never had a score says so with a zero.
+        if (startedAtMs != 0L) DebugLog.event("score_high", "high" to high, "source" to source.name.lowercase())
         score = null
         source = Source.NONE
         startedAtMs = 0L
         bloodDone = false
+        high = 0
+        loggedStep = 0
     }
 
     /** The Watcher's `You may pass.`, routed from [SighteAddons]. Feeds [extraRooms] and nothing else. */
@@ -189,5 +210,14 @@ object LiveScore {
         if (source != from) DebugLog.event("score_source", "source" to from.name.lowercase(), "score" to value)
         score = value
         source = from
+        if (value <= high) return
+        high = value
+        // Every [STEP] points of new maximum, not every tick: the curve is what is worth seeing, and the
+        // score moves in ones for the whole clear phase.
+        val step = value / STEP
+        if (step > loggedStep) {
+            loggedStep = step
+            DebugLog.event("score_step", "score" to value, "source" to from.name.lowercase())
+        }
     }
 }

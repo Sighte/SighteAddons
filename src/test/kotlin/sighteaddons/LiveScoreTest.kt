@@ -93,6 +93,28 @@ class LiveScoreTest {
         assertEquals(0, LiveScore.extraRooms(bloodDone = true, inBoss = true, isEntrance = false))
     }
 
+    /**
+     * **The number that turns "nothing was announced" into a diagnosis.** A solo M7 on 2026-08-19 refused
+     * correctly and left no trace of how close it came; the gate at 300 and a run that reached 268 looked
+     * exactly like a run whose score was never readable.
+     */
+    @Test
+    fun `the run's high water mark survives a falling score`() {
+        LiveScore.observe(
+            floor = "M7", sidebarScore = 268, footer = { null }, rows = tab(),
+            clearedFraction = 0.9, secretsPercent = 90.0, inBoss = false, nowMs = 1_000,
+        )
+        assertEquals(268, LiveScore.high)
+
+        // The score does fall: the time component decays as the run goes on.
+        LiveScore.observe(
+            floor = "M7", sidebarScore = 261, footer = { null }, rows = tab(),
+            clearedFraction = 0.9, secretsPercent = 90.0, inBoss = false, nowMs = 2_000,
+        )
+        assertEquals(261, LiveScore.score)
+        assertEquals(268, LiveScore.high, "how close the run got is not undone by getting slower")
+    }
+
     @Test
     fun `only F6, F7, M6 and M7 have a mimic to infer`() {
         assertTrue(LiveScore.hasMimics("M7"))

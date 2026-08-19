@@ -82,13 +82,31 @@ wird nicht angekuendigt, obwohl der Schalter an war (`soloClears: true`, `soloCl
 `ScoreProbe` ist geloescht — es war dafuer gebaut. Der laufende Abgleich haengt jetzt an `run_score`,
 das Hypixels Endscore neben der letzten Live-Lesung und deren Quelle loggt.
 
-**Was noch aussteht: ein Solo-M7.** Nur der sagt, ob der Trigger im Clear feuert und welche Zeit im Kanal
-landet.
+**Der Solo-M7 ist gelaufen** (dev5, Session `session-1787167317404.jsonl`) und **es ging nichts raus —
+korrekt.** Die Verweigerung war die richtige: Solo stimmte (`tab_slot` nur Slot 0, `classes:
+['Archer XLVII']`), Floor M7, Schalter an, Gate 300, nicht im Boss. Uebrig bleibt nur, dass der Score im
+Clear nie 300 erreichte; der Run endete `complete: false` nach 7160 Ticks mit 17 Raeumen.
 
-**Zum Testen: `build/libs/sighteaddons-0.17.0-dev5.jar`** (19.08., 427 Tests grün). Gebaut mit
-`./gradlew assemble check -Pmod_version=0.17.0-dev5` — `mod_version` in `gradle.properties` steht
+**Nur war das aus dem Log nicht ablesbar, und das war der eigentliche Fehler.** `score_source` feuert
+nur bei Quellenwechsel, also einmal mit `score: 0` — ein Run, der bei 268 stand, sah aus wie einer,
+dessen Score nie lesbar war. Dagegen jetzt zwei Zeilen (dev6):
+
+- **`score_step`** alle 25 Punkte neuen Maximums, plus `score_high` am Run-Ende: die Kurve, zwoelf
+  Zeilen pro Run.
+- **`solo_clear_missed`** einmal pro Run, wenn der Schalter an war und nichts rausging: `why` (welche
+  der sieben Verweigerungen zuletzt stand), `gate`, `high`, `short` und `solo`.
+
+`LiveScore.high` ist ein Hoechststand und faellt nicht mit dem Score zurueck — der Time-Score sinkt im
+Laufe des Runs, und die Frage ist, wie nah der Run *je* war.
+
+**Offen bleibt die Produktfrage:** 300 im Clear auf M7 verlangt praktisch alles (100 % Secrets fuer den
+vollen Explore-Teil). Ob das die Schwelle ist, die der User im Kanal haben will, sagt erst die Kurve aus
+ein paar Runs — `270 · S` steht als zweiter Stop schon in `/sa`.
+
+**Zum Testen: `build/libs/sighteaddons-0.17.0-dev6.jar`** (19.08., 428 Tests grün). Gebaut mit
+`./gradlew assemble check -Pmod_version=0.17.0-dev6` — `mod_version` in `gradle.properties` steht
 weiter auf `0.16.0` und `dist/` hält unverändert das released 0.16.0. Der Dev-Jar ist als
-`0.17.0-dev5` gestempelt, damit `X-Mod-Version` und `modVersion` in den Reports ihn nicht mit dem
+`0.17.0-dev6` gestempelt, damit `X-Mod-Version` und `modVersion` in den Reports ihn nicht mit dem
 Release verwechseln.
 
 **Der `SecretApi`-Fix liegt auf `main` und bei keinem Spieler.** Er kostet ein Release, und ein
