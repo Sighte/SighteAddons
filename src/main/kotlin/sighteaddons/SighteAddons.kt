@@ -214,6 +214,7 @@ class SighteAddons : ClientModInitializer {
             secretsPercent = DungeonTab.secretsPercent,
             inBoss = DungeonSession.inBoss,
             nowMs = System.currentTimeMillis(),
+            runTicks = DungeonSession.runTicks,
         )
         SoloClear.tryAnnounce()
 

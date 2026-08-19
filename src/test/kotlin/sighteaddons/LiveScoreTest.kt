@@ -30,14 +30,14 @@ class LiveScoreTest {
     fun `the sidebar answers before the footer, and the footer before the formula`() {
         LiveScore.observe(
             floor = "M7", sidebarScore = 152, footer = { "Score: 999" }, rows = tab("Completed Rooms: 12"),
-            clearedFraction = 0.68, secretsPercent = 80.0, inBoss = false, nowMs = 1_000_000,
+            clearedFraction = 0.68, secretsPercent = 80.0, inBoss = false, nowMs = 1_000_000, runTicks = 0,
         )
         assertEquals(152, LiveScore.score)
         assertEquals(LiveScore.Source.SIDEBAR, LiveScore.source)
 
         LiveScore.observe(
             floor = "M7", sidebarScore = null, footer = { "Dungeon Score: 287" }, rows = tab(),
-            clearedFraction = 0.68, secretsPercent = 80.0, inBoss = false, nowMs = 1_000_000,
+            clearedFraction = 0.68, secretsPercent = 80.0, inBoss = false, nowMs = 1_000_000, runTicks = 0,
         )
         assertEquals(287, LiveScore.score)
         assertEquals(LiveScore.Source.FOOTER, LiveScore.source)
@@ -51,7 +51,7 @@ class LiveScoreTest {
     fun `with nothing readable there is no score at all`() {
         LiveScore.observe(
             floor = "M7", sidebarScore = null, footer = { null }, rows = tab(),
-            clearedFraction = null, secretsPercent = null, inBoss = false, nowMs = 1_000_000,
+            clearedFraction = null, secretsPercent = null, inBoss = false, nowMs = 1_000_000, runTicks = 0,
         )
         assertNull(LiveScore.score, "no completed-rooms row and no percentage is not a score of 20")
         assertEquals(LiveScore.Source.NONE, LiveScore.source)
@@ -62,7 +62,7 @@ class LiveScoreTest {
     fun `the formula runs once its two required rows are there`() {
         LiveScore.observe(
             floor = "M7", sidebarScore = null, footer = { null }, rows = tab("Completed Rooms: 20", "Crypts: 5"),
-            clearedFraction = 1.0, secretsPercent = 100.0, inBoss = false, nowMs = 60_000,
+            clearedFraction = 1.0, secretsPercent = 100.0, inBoss = false, nowMs = 60_000, runTicks = 0,
         )
         assertEquals(LiveScore.Source.COMPUTED, LiveScore.source)
         val score = LiveScore.score
@@ -102,14 +102,14 @@ class LiveScoreTest {
     fun `the run's high water mark survives a falling score`() {
         LiveScore.observe(
             floor = "M7", sidebarScore = 268, footer = { null }, rows = tab(),
-            clearedFraction = 0.9, secretsPercent = 90.0, inBoss = false, nowMs = 1_000,
+            clearedFraction = 0.9, secretsPercent = 90.0, inBoss = false, nowMs = 1_000, runTicks = 0,
         )
         assertEquals(268, LiveScore.high)
 
         // The score does fall: the time component decays as the run goes on.
         LiveScore.observe(
             floor = "M7", sidebarScore = 261, footer = { null }, rows = tab(),
-            clearedFraction = 0.9, secretsPercent = 90.0, inBoss = false, nowMs = 2_000,
+            clearedFraction = 0.9, secretsPercent = 90.0, inBoss = false, nowMs = 2_000, runTicks = 0,
         )
         assertEquals(261, LiveScore.score)
         assertEquals(268, LiveScore.high, "how close the run got is not undone by getting slower")

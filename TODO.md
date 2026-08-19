@@ -119,13 +119,38 @@ Laufe des Runs, und die Frage ist, wie nah der Run *je* war.
 Damit ist der `inBoss`-Refusal weg. Ein Run, der 300 erst im Boss oder erst laut `Team Score:` erreicht,
 wird jetzt angekuendigt — genau wie in der Vorlage.
 
-**Produktfrage bleibt offen:** `300` ist S+. Steht in `solo_clear_missed` dauerhaft `high: 265–285`, ist
-`270 · S` der Stop, der zu den Runs passt; er ist der zweite Klick in `/sa`.
+**Die Kette ist bewiesen** (dev7, Session `session-1787168867208.jsonl`): ein Solo-M7, in dem der Spieler
+nach einem Raum starb, ist rausgegangen — `solo_clear` mit `pb: true`, `time: "10s"`, und die Zeile liegt
+in `soloclears.jsonl`. Mehr Beweis braucht der Pfad nicht.
 
-**Zum Testen: `build/libs/sighteaddons-0.17.0-dev7.jar`** (19.08., 429 Tests grün). Gebaut mit
-`./gradlew assemble check -Pmod_version=0.17.0-dev7` — `mod_version` in `gradle.properties` steht
+**Zwei Runs, zwei verschiedene Gruende fuer Stille, keiner davon ein Fehler im Gate:**
+
+- Der abgebrochene: `gate: 0`, Run zu Ende (Tod) → **angekuendigt**.
+- Der bis 300 gespielte: `gate: 0` und `complete: false` nach 6895 Ticks / 18 Raeumen. Bei Gate 0 besitzt
+  die **Run-Ende-Headline** die Ankuendigung, und die druckt Hypixel nur fuer einen beendeten Floor. Ein
+  verlassener Run kann in diesem Modus nichts ausloesen. **Fuer "im Clear bei 300 posten" muss das Gate
+  auf `300 · S+` stehen, nicht auf 0.**
+
+**Und die Sidebar-Zahl ist NICHT identifiziert.** Sie lief 25 → 266 ueber den Solo-M7, den der Spieler bei
+300 sah, und auf dem Zwei-Raum-Run stand sie auf 35, waehrend Hypixels `Team Score:` **24** sagte. Die
+Deutung "die Klammer ist der Score" aus der Party-Session war zu schnell: dort passte sie zu zwei
+Messpunkten, hier passt sie zu keinem.
+
+Deshalb rechnet `LiveScore` seit dev8 die Formel **daneben** mit (alle 10 Ticks, wie Upstream) und beide
+Zahlen stehen in `score_step`, `score_high` und vor allem in `run_score` neben Hypixels Endzahl. **Ein
+gewoehnlicher Party-Run genuegt**, um zu sehen, welche der beiden mit `Team Score:` uebereinstimmt — danach
+ist die andere ein Feld zum Loeschen. Solange nichts identifiziert ist, kann die Sidebar-Zahl nur zu
+*niedrig* sein und damit nur zu spaet feuern, nie falsch: `best()` nimmt das Maximum aus ihr und der
+Chat-Zahl.
+
+Zwei Warzen im Diagnose-Log dazu gefixt: `solo_clear_missed` trug immer `floor: "?"` (gelesen, nachdem
+`DungeonSession.reset` den Floor genullt hat — jetzt beim Refusal gemerkt), und es feuerte bei jedem
+Lobby-Hop mit `why: "not in a run"`, was die eine Zeile ertraenkt hat, die etwas bedeutete.
+
+**Zum Testen: `build/libs/sighteaddons-0.17.0-dev8.jar`** (19.08., 429 Tests grün). Gebaut mit
+`./gradlew assemble check -Pmod_version=0.17.0-dev8` — `mod_version` in `gradle.properties` steht
 weiter auf `0.16.0` und `dist/` hält unverändert das released 0.16.0. Der Dev-Jar ist als
-`0.17.0-dev7` gestempelt, damit `X-Mod-Version` und `modVersion` in den Reports ihn nicht mit dem
+`0.17.0-dev8` gestempelt, damit `X-Mod-Version` und `modVersion` in den Reports ihn nicht mit dem
 Release verwechseln.
 
 **Der `SecretApi`-Fix liegt auf `main` und bei keinem Spieler.** Er kostet ein Release, und ein

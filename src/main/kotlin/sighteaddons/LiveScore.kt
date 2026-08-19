@@ -63,6 +63,21 @@ object LiveScore {
     var high = 0
         private set
 
+    /**
+     * The formula's answer, kept **beside** the read one rather than instead of it.
+     *
+     * **Because the sidebar's number is not identified.** It tracked 25 → 266 over a solo M7 on
+     * 2026-08-19 while the player put the run at 300, and on a two-room failed run it read 35 where
+     * Hypixel's own `Team Score:` said 24. Close, wrong, or a different quantity altogether — no
+     * reasoning from here can settle which, and a gate is exactly the wrong place to find out.
+     *
+     * So both travel to the log on every step and at every run end, next to Hypixel's final number.
+     * One ordinary run — a party one will do — says which of the two the `Team Score:` line agrees
+     * with, and then this becomes either the source or a deleted field.
+     */
+    var computedScore: Int? = null
+        private set
+
     /** The step [high] is logged at. Twelve lines over a full run, which is the price of seeing the curve. */
     private const val STEP = 25
 
@@ -72,12 +87,18 @@ object LiveScore {
     fun reset() {
         // Logged here rather than by a reader, so no call site has to run before [DungeonSession.reset]
         // clears this. A run that never had a score says so with a zero.
-        if (startedAtMs != 0L) DebugLog.event("score_high", "high" to high, "source" to source.name.lowercase())
+        if (startedAtMs != 0L) {
+            DebugLog.event(
+                "score_high", "high" to high, "source" to source.name.lowercase(),
+                "computed" to (computedScore ?: -1),
+            )
+        }
         score = null
         source = Source.NONE
         startedAtMs = 0L
         bloodDone = false
         high = 0
+        computedScore = null
         loggedStep = 0
     }
 
@@ -173,8 +194,18 @@ object LiveScore {
         secretsPercent: Double?,
         inBoss: Boolean,
         nowMs: Long,
+        runTicks: Int,
     ) {
         if (startedAtMs == 0L) startedAtMs = nowMs
+
+        // Computed every tick would mean matching eighty tab rows against seven patterns twenty times a
+        // second for a number nothing reads yet. Upstream samples at ten ticks; so does this.
+        if (runTicks % 10 == 0) {
+            computedScore = computed(
+                floor, DungeonStats.read(rows), clearedFraction, secretsPercent,
+                inBoss, bloodDone, startedAtMs, nowMs,
+            )
+        }
 
         sidebarScore?.let {
             set(it, Source.SIDEBAR)
@@ -187,10 +218,7 @@ object LiveScore {
             set(it, Source.FOOTER)
             return
         }
-        val computed = computed(
-            floor, DungeonStats.read(rows), clearedFraction, secretsPercent,
-            inBoss, bloodDone, startedAtMs, nowMs,
-        )
+        val computed = computedScore
         if (computed == null) {
             score = null
             source = Source.NONE
@@ -217,7 +245,10 @@ object LiveScore {
         val step = value / STEP
         if (step > loggedStep) {
             loggedStep = step
-            DebugLog.event("score_step", "score" to value, "source" to from.name.lowercase())
+            DebugLog.event(
+                "score_step", "score" to value, "source" to from.name.lowercase(),
+                "computed" to (computedScore ?: -1),
+            )
         }
     }
 }

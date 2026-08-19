@@ -154,6 +154,15 @@ object SoloClear {
      */
     private var refusal = "not in a run"
 
+    /**
+     * The floor the refusal happened on, captured at the refusal.
+     *
+     * [DungeonSession.reset] clears `floor` before this object's own reset runs, so reading it there gave
+     * `?` on every single line — which is worse than useless in a diagnostic that exists to say which
+     * floor was not announced.
+     */
+    private var refusalFloor = "?"
+
     /** Called from [DungeonSession.reset]: everything here is per run. */
     fun reset() {
         // Evidence, and the only place it can be collected: a run that was still armed at reset never
@@ -166,15 +175,18 @@ object SoloClear {
         // the run got: `high` against `gate` is the whole diagnosis, and `why` names the refusal that
         // stood last. Read [LiveScore.high] before [DungeonSession.reset] clears it — this runs first
         // there, and that ordering is the only reason this can be read at all.
-        if (Config.soloClears && !announced) {
+        // Only for a run that happened. A reset outside a dungeon — a lobby hop, a server change — is not
+        // a run that failed to be announced, and three of those per session drowned the one line that was.
+        if (Config.soloClears && !announced && refusal != "not in a run") {
             DebugLog.event(
                 "solo_clear_missed",
                 "why" to refusal, "gate" to Config.soloClearMinScore, "high" to LiveScore.high,
                 "short" to (Config.soloClearMinScore - LiveScore.high).coerceAtLeast(0),
-                "solo" to solo, "floor" to floorTag(DungeonSession.floor),
+                "solo" to solo, "floor" to refusalFloor, "computed" to (LiveScore.computedScore ?: -1),
             )
         }
         refusal = "not in a run"
+        refusalFloor = "?"
         seenAlone = false
         withCompany = false
         pending = null
@@ -217,6 +229,9 @@ object SoloClear {
             DebugLog.event(
                 "run_score", "score" to (score ?: -1),
                 "live" to (LiveScore.score ?: -1), "source" to LiveScore.source.name.lowercase(),
+                // The identification line. Whichever of these two the number on the left agrees with is
+                // the one a live gate may be built on; the other is a field to delete.
+                "computed" to (LiveScore.computedScore ?: -1), "high" to LiveScore.high,
             )
             // The same decision the tick makes, with the number that just arrived. Upstream lets its
             // `chatScore` into the very same comparison; nothing here is a second code path.
@@ -412,6 +427,7 @@ object SoloClear {
     /** Records why this tick did not announce. Returns Unit so a refusal is one line at the call site. */
     private fun refuse(why: String) {
         refusal = why
+        DungeonSession.floor?.let { refusalFloor = floorTag(it) }
     }
 
     /**
