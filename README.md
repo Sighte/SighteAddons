@@ -22,6 +22,9 @@ Minecraft **26.1.2**, Fabric, client only.
 | Attribution | `ContributionTracker.kt` | per-room presence, clear/secret timeline, point split |
 | Secrets | `SecretTracker.kt` | per-room secret count, which of them were provably yours, secret-run timer |
 | History | `RoomHistory.kt` | append-only permanent room times, chat announcements, run summary |
+| Splits | `Splits.kt`, `DungeonSplits.kt` | the run in spans: blood, portal, every boss phase, and the total |
+| Split records | `SplitPbs.kt` | best seconds per split per floor, on Odin's own keys |
+| Server ticks | `ServerTicks.kt` | Hypixel's tick beat, counted off its keep-alive packets |
 | Telemetry | `DebugLog.kt` | JSONL event log for diagnosing a real run |
 | Pseudonyms | `Pseudonym.kt` | replaces party member names on their way into that log |
 | Run report | `RunReport.kt` | permanent per-run record: every room and what it cost the party |
@@ -32,10 +35,22 @@ Minecraft **26.1.2**, Fabric, client only.
 ## In game
 
 The HUD draws the dungeon map with every party member on it, the run clock, and the current room with
-how long *you* have been in it. Map, clear popup and storm countdown are each placed by anchor +
-offset and dragged in an editor (arrow keys nudge, `r` resets). Run totals — idle/nav time and the
-standings — live in a panel behind a keybind that ships **unbound**; the `/sa` screen says so and
-links to Vanilla's key screen.
+how long *you* have been in it. Map, clear popup, storm countdown, splits panel and split clock are
+each placed by anchor + offset and dragged in an editor (arrow keys nudge, `r` resets). Run totals —
+idle/nav time and the standings — live in a panel behind a keybind that ships **unbound**; the `/sa`
+screen says so and links to Vanilla's key screen.
+
+The **splits panel** is the run as spans, ported from Odin: Mort's line opens `blood open`, and every
+row after it is the time from the line that names it to the next one — `blood clear`, `portal entry`,
+then the floor's own boss phases, with an optional `boss entry` row summing the first three. Each row
+carries two times: the wall clock, and the same span in Hypixel's **server ticks**, which is the one
+two players can compare because it does not include whatever the server was doing at the time. The
+panel keeps drawing through the boss phase, where the map card deliberately fades out.
+
+Best times are kept per split per floor, in `config.json`, **on Odin's own record keys** — so
+`/sa` → debug → *import from odin* folds an existing Odin install's records in, taking the faster of
+the two, and running it twice does nothing. Master mode keeps its records apart from the F floors even
+though the two share their chat lines.
 
 Two numbers that never change meaning: `cleared` is run-relative, the tick the room's checkmark
 appeared. `secrets` is the **secret run** — a stopwatch that starts on the room's first secret and
@@ -181,10 +196,16 @@ Room-detection maths, map colour IDs and API shapes were verified against three 
 
 - [Skyblocker](https://github.com/SkyblockerMod/Skyblocker) (LGPL-3.0) — grid maths, map colour IDs,
   checkmark scan, current Mojmap/Fabric API shapes for 26.1.2. No code copied.
-- [Odin](https://github.com/odtheking/Odin) (BSD-3-Clause, © 2025 odtheking) — **`RoomDatabase.kt` is a
-  derivative work**: the core-hash algorithm is ported from Odin's `WorldScan.getRoomCore` and
-  `assets/sighteaddons/rooms.json` is Odin's room database verbatim. The hashes only match that data if
-  the algorithm matches exactly. Also: per-floor boss-room bounds, the "centre pixel equals room colour
+- [Odin](https://github.com/odtheking/Odin) (BSD-3-Clause, © 2025 odtheking) — **`RoomDatabase.kt` and
+  the run splits are derivative works.** `RoomDatabase.kt` ports the core-hash algorithm from Odin's
+  `WorldScan.getRoomCore` and `assets/sighteaddons/rooms.json` is Odin's room database verbatim; the
+  hashes only match that data if the algorithm matches exactly. `DungeonSplits.kt` is a transliteration
+  of the split tables in Odin's `SplitsManager.kt` — every chat pattern, the per-floor grouping and the
+  order — and `Splits.kt` follows its chain semantics: a span credited to the earlier of two marks, the
+  first signal winning, master mode reusing the F-floor lines, the boss-entry aggregate, and the
+  `Starting in 1 second.` trigger. `SplitPbs.kt` keeps Odin's record keys so the two stores are the same
+  data, and `ConnectionMixin.java` counts Hypixel's tick beat off `ClientboundPingPacket` the way Odin's
+  mixin of the same name does. Also: per-floor boss-room bounds, the "centre pixel equals room colour
   means no checkmark" rule, tab-list regex, and the Blood Room clear split. See `LICENSE-Odin`.
 - [NoammAddons](https://github.com/Noamm9/NoammAddons) (CC0-1.0) — decoration map keys carry a
   player-slot digit (noted as the upgrade path in `PartyTracker.kt`), run-end chat regex.

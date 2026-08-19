@@ -113,7 +113,7 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     private class Line(val row: RecordTable.Row, val detail: Detail?)
 
     /**
-     * The three things that can be placed on screen, and the only three.
+     * The things that can be placed on screen, and the only ones.
      *
      * Each is an [OverlayPlacement] in [Config] plus two words: [what] names it in the hint line, and
      * [label] is the settings row it is reached from. The editor asks a [Target] for nothing else —
@@ -124,6 +124,8 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         CARD(Config.hudPlacement, "card", "position"),
         POPUP(Config.clearPopupPlacement, "popup", "popup position"),
         TIMER(Config.stormPlacement, "countdown", "timer position"),
+        SPLITS(Config.splitsPlacement, "splits", "splits position"),
+        SPLITS_CURRENT(Config.splitsCurrentPlacement, "split clock", "clock position"),
     }
 
     /**
@@ -776,6 +778,12 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
                 PLACING_POPUP.name, PLACING_POPUP.detail, PLACING_POPUP.pb, ClearPopup.PRESENT_MS,
             )
             Target.TIMER -> StormHud.draw(graphics, font, width, height, StormHud.sample())
+            // The scripted mid-run F7: the tallest the panel gets, and the one state that shows all
+            // three of its tones at once. See Splits.sample.
+            Target.SPLITS -> SplitsHud.draw(graphics, font, Splits.sample(), origin.x, origin.y)
+            Target.SPLITS_CURRENT -> SplitsCurrentHud.draw(
+                graphics, font, width, height, SplitsCurrentHud.sample(),
+            )
         }
 
         // The numbers, beside the element and out of it, so a player who wants an exact position can
@@ -829,12 +837,16 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         Target.CARD -> HudRoot.WIDTH
         Target.POPUP -> ClearPopup.width(font, PLACING_POPUP.name, PLACING_POPUP.detail, PLACING_POPUP.pb, width)
         Target.TIMER -> StormHud.width(font, StormHud.sample())
+        Target.SPLITS -> SplitsHud.WIDTH
+        Target.SPLITS_CURRENT -> SplitsCurrentHud.width(font, SplitsCurrentHud.sample())
     }
 
     private fun placingHeight(target: Target): Int = when (target) {
         Target.CARD -> previewHud.measure(placingSnapshot())
         Target.POPUP -> ClearPopup.HEIGHT
         Target.TIMER -> StormHud.HEIGHT
+        Target.SPLITS -> SplitsHud.measure(Splits.sample())
+        Target.SPLITS_CURRENT -> SplitsCurrentHud.HEIGHT
     }
 
     /**
@@ -1069,6 +1081,26 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
                 )
             }
         }
+
+        // Its own section rather than another row under "elsewhere on screen", because it is five
+        // settings and two placeable elements — the same reason that heading exists at all.
+        section("splits", if (Config.splits) "timed" else "off")
+        toggle("run splits", Config.splits) { Config.splits = !Config.splits }
+        note("blood, portal and every boss phase, timed from mort")
+        if (Config.splits) {
+            place(Target.SPLITS)
+            toggle("tick column", Config.splitsTickTime) { Config.splitsTickTime = !Config.splitsTickTime }
+            // The distinction the second column exists for, in the row that switches it on. Two times
+            // side by side with no explanation is the one thing a reader cannot work out from the panel.
+            note("the same span in server ticks, free of lag")
+            toggle("boss entry row", Config.splitsBossEntry) { Config.splitsBossEntry = !Config.splitsBossEntry }
+            note("mort's line to the boss's first, summed")
+            toggle("splits in chat", Config.splitsSendToChat) { Config.splitsSendToChat = !Config.splitsSendToChat }
+            note("one line per split when the run ends")
+            toggle("split clock", Config.splitsCurrent) { Config.splitsCurrent = !Config.splitsCurrent }
+            note("the running split alone, large, for a boss fight")
+            if (Config.splitsCurrent) place(Target.SPLITS_CURRENT)
+        }
     }
 
     private fun chatItems(): List<SettingsPage.Item> = buildList {
@@ -1146,6 +1178,35 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         // rooms while showing this. Both are worth having and only one of them is a room count.
         info("room cores", RoomDatabase.size.toString())
         info("lines in the history", RoomHistory.entryCount().toString())
+        // Splits records live in `config.json` beside the settings and not in `history.jsonl` — a
+        // different unit and a different subject, which SplitPbs argues in full. So they are counted
+        // here rather than folded into the line above.
+        info("split records", splitRecords().toString())
+        // A hand asks for this, and it is never done on startup: reading a neighbouring mod's config
+        // unprompted is not something anybody asked for, and the answer cannot change while playing.
+        action("import from odin", "config/odin/ · run") { importSplitRecords() }
+        note("takes the faster of the two, safe to run twice")
+    }
+
+    private fun splitRecords(): Int = SplitPbs.floors().sumOf { SplitPbs.of(it).size }
+
+    /**
+     * Folds a local Odin install's split records into this mod's, and says what happened in chat.
+     *
+     * Chat rather than a row that changes, because the answer has to survive the screen closing — and
+     * because [Chat] is this mod's one place for saying anything at all.
+     */
+    private fun importSplitRecords() {
+        val result = SplitPbs.importFromOdin()
+        if (result.changed > 0) Config.save()
+        Chat.say(
+            when {
+                !result.found -> Chat.label("no odin splits config to import from")
+                result.changed == 0 -> Chat.label("odin's split records were already in here")
+                else -> Chat.value(result.changed.toString())
+                    .append(Chat.label(" split records imported from odin"))
+            },
+        )
     }
 
     /**

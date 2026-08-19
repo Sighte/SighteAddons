@@ -55,6 +55,25 @@ object Config {
     )
 
     /**
+     * Where the two splits elements sit — the table, and the single running clock.
+     *
+     * Two of them, for the reason the three above are three: the table is something a player reads
+     * between fights and the clock is something they glance at during one, so they belong in different
+     * places and moving one must not move the other. The table starts down the left edge rather than on
+     * the crosshair because it is ten rows tall; the clock starts with the other chips and is off until
+     * it is asked for ([splitsCurrent]).
+     */
+    val splitsPlacement = OverlayPlacement(
+        "splits", SplitsHud.DEFAULT_ANCHOR, SplitsHud.DEFAULT_OFFSET_X, SplitsHud.DEFAULT_OFFSET_Y,
+    )
+    val splitsCurrentPlacement = OverlayPlacement(
+        "splitsCurrent",
+        SplitsCurrentHud.DEFAULT_ANCHOR,
+        SplitsCurrentHud.DEFAULT_OFFSET_X,
+        SplitsCurrentHud.DEFAULT_OFFSET_Y,
+    )
+
+    /**
      * A parsed config file still at version 0, held until there is a screen to migrate it against.
      *
      * Null for every other case, including a fresh install: a config nobody has written yet is already
@@ -156,6 +175,37 @@ object Config {
      */
     var stormCountdownTicks = 138
     var stormShootTicks = 20
+
+    /**
+     * The run splits — see [Splits]. Its own switch for [clearPopup]'s reason, and it is the only gate
+     * the feature has: off, nothing is timed, nothing is drawn, nothing is filed.
+     *
+     * **That last part is a deliberate departure from the mod this came from.** Odin keeps writing
+     * personal bests while its Splits module is switched off, so a player who turned the feature away
+     * still accumulates records they never asked for and cannot see. `Splits.arm` refuses instead, which
+     * is `CLAUDE.md`'s rule about gating *whether* something is written rather than what is in it.
+     */
+    var splits = true
+
+    /**
+     * The second time column: the same span counted in Hypixel's server ticks ([ServerTicks]) rather
+     * than on a wall clock. On, because it is the column two players can actually compare — the wall
+     * clock carries whatever the server happened to be doing at the time.
+     */
+    var splitsTickTime = true
+
+    /** The aggregate row: Mort's line to the boss's first. Odin's `Boss Entry Split`, and its default. */
+    var splitsBossEntry = true
+
+    /** The per-split lines at the end of a run. Odin's `Send Splits`, and its default. */
+    var splitsSendToChat = true
+
+    /**
+     * The single large clock for the running split — see [SplitsCurrentHud]. Off, as Odin's is: three
+     * elements already default to the middle of the screen and a fourth arriving switched on would land
+     * on one of them.
+     */
+    var splitsCurrent = false
 
     var roomMessages = true
     var ownPbsOnly = false
@@ -358,6 +408,8 @@ object Config {
             // exactly one session is worse than one that never moved.
             clearPopupPlacement.read(obj)
             stormPlacement.read(obj)
+            splitsPlacement.read(obj)
+            splitsCurrentPlacement.read(obj)
 
             hud = obj.bool("hud", hud)
             // Clamped on the way in for the reason the storm ticks are: `config.json` is hand-edited,
@@ -378,6 +430,14 @@ object Config {
                 .coerceIn(StormTimer.COUNTDOWN_MIN, StormTimer.COUNTDOWN_MAX)
             stormShootTicks = obj.int("stormShootTicks", stormShootTicks)
                 .coerceIn(StormTimer.SHOOT_MIN, StormTimer.SHOOT_MAX)
+            splits = obj.bool("splits", splits)
+            splitsTickTime = obj.bool("splitsTickTime", splitsTickTime)
+            splitsBossEntry = obj.bool("splitsBossEntry", splitsBossEntry)
+            splitsSendToChat = obj.bool("splitsSendToChat", splitsSendToChat)
+            splitsCurrent = obj.bool("splitsCurrent", splitsCurrent)
+            // Records rather than a setting, and read as defensively as one: a malformed floor costs
+            // that floor and nothing else. See SplitPbs.read.
+            SplitPbs.read(obj)
             roomMessages = obj.bool("roomMessages", roomMessages)
             ownPbsOnly = obj.bool("ownPbsOnly", ownPbsOnly)
             runSummary = obj.bool("runSummary", runSummary)
@@ -413,6 +473,8 @@ object Config {
         // launch that has not been able to migrate the card yet.
         clearPopupPlacement.write(obj)
         stormPlacement.write(obj)
+        splitsPlacement.write(obj)
+        splitsCurrentPlacement.write(obj)
         obj.addProperty("hud", hud)
         obj.addProperty("hudScrim", hudScrim)
         obj.addProperty("showRoom", showRoom)
@@ -424,6 +486,12 @@ object Config {
         obj.addProperty("stormTimer", stormTimer)
         obj.addProperty("stormCountdownTicks", stormCountdownTicks)
         obj.addProperty("stormShootTicks", stormShootTicks)
+        obj.addProperty("splits", splits)
+        obj.addProperty("splitsTickTime", splitsTickTime)
+        obj.addProperty("splitsBossEntry", splitsBossEntry)
+        obj.addProperty("splitsSendToChat", splitsSendToChat)
+        obj.addProperty("splitsCurrent", splitsCurrent)
+        SplitPbs.write(obj)
         obj.addProperty("roomMessages", roomMessages)
         obj.addProperty("ownPbsOnly", ownPbsOnly)
         obj.addProperty("runSummary", runSummary)

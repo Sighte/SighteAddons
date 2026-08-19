@@ -1,8 +1,8 @@
 # TODO — SighteAddons
 
-## Stand — 2026-08-18
+## Stand — 2026-08-19
 
-`main` = **394 Tests / 35 Klassen / grün**, `mod_version` 0.16.0 released (`v0.16.0`, Modrinth
+`main` = **447 Tests / 40 Klassen / grün**, `mod_version` 0.16.0 released (`v0.16.0`, Modrinth
 `kIbj76Z4`, SHA1 `931b1152…` auf beiden Seiten). `dist/sighteaddons-0.16.0.jar` ist die committete
 Datei. `RunReport.SCHEMA` 6, der Receiver akzeptiert `idleTicks`/`navTicks` als optional und ist
 deployt — **dem Receiver ist nichts geschuldet.**
@@ -163,9 +163,13 @@ Config, Chat) plus zwei Review-Durchgänge, 18 Befunde. Kein Farbliteral mehr au
 
 ## Was das Redesign offen gelassen hat
 
-- **Der Blood-Room hat kein HUD-Split.** Die Live-Uhr dort sind deine Ticks im Raum, der Record ist
-  Odins Tür-bis-Pass-Spanne (`BloodClear.kt`, eigener Kind `bloodclear`) — ein Delta zwischen beiden
-  wäre eine Lüge. Soll es aufs HUD, muss die laufende Blood-Uhr in den Snapshot.
+- ~~**Der Blood-Room hat kein HUD-Split.**~~ **Erledigt am 19.08. durch den Splits-Port**, aber nicht
+  so, wie es hier stand: die Blood-Spanne steht jetzt als Zeile `blood clear` auf dem Splits-Panel,
+  gemessen von Tür/Watcher bis zur Pass-Zeile — **dieselbe Spanne, die `BloodClear.kt` als Kind
+  `bloodclear` ins `history.jsonl` schreibt**, nur in Millisekunden und Server-Ticks statt in Run-Ticks.
+  Kein `HudSnapshot`-Feld dafür, und das war die eigentliche Antwort auf die Warnung oben: das Panel
+  liest eine reine Funktion (`Splits.readout`) direkt, wie `StormHud` es tut, statt einen Raum-Timer
+  gegen einen Run-Split zu deltaieren. Die Karte hat nach wie vor kein Blood-Delta, und soll keins.
 - **`SecretApi`/`SecretAudit` ist zum ersten Mal überhaupt lauffähig** (seit `Config.hypixelKey` ein
   UI-Feld hat). Ob es läuft, sagt ein `secret_api_baseline` im Debug-Log — bis dahin hat es das nie
   gegeben.
@@ -211,6 +215,38 @@ in einem *released* Build entstehen.
   über alle Floors; der Receiver faltet absichtlich genauso.
 - **`party-001`** — der Mechanismus existiert nicht: kein Dekorations-Key überlebt die Leitung in
   26.1.2, Party-Sync verbietet das eigene Design. Wartet auf `deconame-001`.
+
+## Splits (19.08., ohne Versionsänderung)
+
+**Odins Splits sind portiert, Dungeons only** — E, F1–F7, M1–M7. `DungeonSplits.kt` ist die
+Transliteration seiner Tabellen (jedes Chat-Pattern, die Floor-Gruppen, die Reihenfolge),
+`Splits.kt` die Kette: eine Spanne wird der *früheren* von zwei Marken zugeschrieben, das erste Signal
+gewinnt, Master Mode nimmt die F-Zeilen und eigene Records, `Starting in 1 second.` armiert. Zwei
+Uhren pro Zeile — Wanduhr und Hypixels Server-Ticks (`ServerTicks.kt` + `ConnectionMixin.java`, dritter
+Mixin, zählt `ClientboundPingPacket` mit `id != 0` wie Odins gleichnamiger).
+
+Bewusst *nicht* 1:1: monochrom und `m:ss.t` durch `Format` statt `§`-Farben und `59m 59s (59.9)`; die
+Tick-Zeit ist eine zweite rechtsausgerichtete Spalte statt einer Klammer; die Zusammenfassung hängt am
+`RUN_END`-Headline-Hook statt an Odins 10-Tick-Defer (`onTick` kehrt früh zurück — `StormTimer`); das
+`boss entry`-Kriterium ist `size > 4` statt Odins `> 3`, das dem Entrance eine Boss-Zeile gibt; und
+`Config.splits` **aus** schaltet auch die Records ab, wo Odin sie weiterschreibt.
+
+**Records: `SplitPbs.kt`, in `config.json`, auf Odins eigenen Keys** (`DungeonM7` → `blood open` →
+Sekunden). Nicht in `history.jsonl` — andere Einheit, anderes Subjekt, keine `kind` umdefiniert.
+`/sa` → debug → *import from odin* liest `config/odin/odin-config.json`, strippt die Farbcodes,
+nimmt das Minimum und ist idempotent. **Keine eingecheckte Tabelle mit Zeiten**: zwei Leute benutzen
+die Mod, ein Seed im Jar hätte dem zweiten die Rekorde des ersten als eigene untergeschoben.
+
+Panel und Uhr liegen **über** dem `calibrated`-Gate in `renderHud`, wie `StormHud` — die Hälfte der
+Spannen läuft in der Bossphase, genau wo die Karte ausblendet. `/sa gallery` Seite `0` zeigt beide
+gefroren auf einem scripted Mid-Run-F7 (`Splits.sample`), derselbe Zustand, den der Platzierungsmodus
+zieht.
+
+**Unverifiziert und nur im Spiel klärbar:** ob die ~20 Hypixel-Strings stimmen. `splits_armed`,
+`split` und `split_missing` im Session-Log sind die Instrumentierung dafür — ein Name unter `unclosed`
+oder `unstarted` auf einem Floor, der den Boss sicher erreicht hat, ist ein Pattern zum Korrigieren.
+**Odin 0.3.0 läuft parallel im Modpack**: ein echter Run zeigt beide Panels gleichzeitig, und jede
+Zeile, die abweicht, benennt ihren Regex.
 
 ## Unverifiziert
 

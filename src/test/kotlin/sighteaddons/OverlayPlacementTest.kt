@@ -33,6 +33,29 @@ class OverlayPlacementTest {
     private fun timer() =
         OverlayPlacement("stormTimer", StormHud.DEFAULT_ANCHOR, StormHud.DEFAULT_OFFSET_X, StormHud.DEFAULT_OFFSET_Y)
 
+    /** Every key prefix [Config] hands an [OverlayPlacement], in the order the file is written. */
+    private val prefixes = listOf("hud", "clearPopup", "stormTimer", "splits", "splitsCurrent")
+
+    /**
+     * Five placeable elements share one flat config object, and each one owns three keys in it.
+     *
+     * **A repeated prefix is silent and total.** Two elements given the same one write over each other
+     * on save and read the same position on load, so both settle in the same place and the second is
+     * simply not placeable any more — with nothing in the file, the log or the screen to say which pair
+     * collided. It cost nothing to check when there were three; the splits port took it to five, two of
+     * which differ from each other only by a suffix (`splits`, `splitsCurrent`), which is exactly the
+     * pair a copied line would produce.
+     *
+     * Counted rather than compared name by name: fifteen distinct keys is the property, and it stays
+     * true of a sixth element added later without this case having to learn its name.
+     */
+    @Test
+    fun `no two placeable elements share a config key`() {
+        val obj = JsonObject()
+        prefixes.forEach { OverlayPlacement(it, HudPlacement.DEFAULT_ANCHOR, 1, 2).write(obj) }
+        assertEquals(prefixes.size * 3, obj.size(), "one of these prefixes wrote over another")
+    }
+
     /**
      * A fresh install draws both chips on exactly the pixels they were drawn on before either was
      * placeable.

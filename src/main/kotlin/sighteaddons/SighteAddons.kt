@@ -292,6 +292,12 @@ class SighteAddons : ClientModInitializer {
         onDungeonEvent(text)
         onCrit(text)
         onStorm(text)
+        // Ungated, next to the two above and for a sharper version of their reason: the line that arms
+        // a run — `Starting in 1 second.` — arrives *before* the map is readable, so `onDungeonEvent`'s
+        // `calibrated` gate would drop the one line without which no split is ever timed. The clocks
+        // are read here rather than inside, so the whole of the arithmetic stays drivable from a test;
+        // see Splits.
+        Splits.onChat(text, System.currentTimeMillis(), ServerTicks.count)
         // Unconditional and before the return below, because two of the three lines it reads arrive
         // *after* the headline — `Team Score:` is what releases an armed announcement, and the Prince
         // falls mid-run. Putting this behind the headline check is how they would stop arriving.
@@ -306,6 +312,10 @@ class SighteAddons : ClientModInitializer {
             "newRecords" to RoomHistory.newBestsThisRun().size,
         )
         RoomHistory.printSummary()
+        // At the headline rather than on a timer of its own, which is where Odin's ten-tick deferral
+        // was aiming: this is the moment after Hypixel's end-of-run block. A countdown would have to be
+        // ticked from `onTick`, and that function returns early on several paths — see StormTimer.
+        Splits.printSummary(System.currentTimeMillis(), ServerTicks.count)
         // Permanent record of the whole run, unlike the chat summary and unlike the debug log. The
         // headline is the only evidence that the run reached its end, which is why this is the one
         // call site that may claim it.
@@ -490,6 +500,19 @@ class SighteAddons : ClientModInitializer {
         // separate element would be a second unsynchronised read of the same fields on a callback
         // whose ordering against this one nothing here defines.
         StormHud.render(graphics, font, client.window.guiScaledWidth, client.window.guiScaledHeight, client.level?.gameTime)
+
+        // Both splits elements sit above the gate for the same reason the countdown does, and for one
+        // more of their own: half of a run's spans are timed *during* the boss, which is exactly when
+        // the card fades itself out and when `calibrated` stops being a useful question. A splits table
+        // that vanished when Maxor spoke would be absent for five of the ten rows it exists to show.
+        //
+        // Both clocks read once and handed to both elements, so the table and the chip cannot disagree
+        // about "now" — the tick counter is written from the netty thread and can move between two reads
+        // inside one frame.
+        val nowMs = System.currentTimeMillis()
+        val serverTicks = ServerTicks.count
+        SplitsHud.render(graphics, font, window.guiScaledWidth, window.guiScaledHeight, nowMs, serverTicks)
+        SplitsCurrentHud.render(graphics, font, window.guiScaledWidth, window.guiScaledHeight, nowMs, serverTicks)
 
         if (!DungeonSession.calibrated) return
 

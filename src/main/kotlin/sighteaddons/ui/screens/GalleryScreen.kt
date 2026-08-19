@@ -7,7 +7,11 @@ import net.minecraft.client.input.MouseButtonEvent
 import net.minecraft.network.chat.Component
 import org.lwjgl.glfw.GLFW
 import sighteaddons.ClearPopup
+import sighteaddons.Config
 import sighteaddons.RoomHistory
+import sighteaddons.Splits
+import sighteaddons.SplitsCurrentHud
+import sighteaddons.SplitsHud
 import sighteaddons.StormHud
 import sighteaddons.StormTimer
 import sighteaddons.ui.components.Anim
@@ -67,6 +71,7 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
         NAV("nav"),
         DATA("data"),
         OVERLAY("overlay"),
+        SPLITS("splits"),
     }
 
     private var page = Page.COLOUR
@@ -173,12 +178,13 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
             Page.NAV -> navPage(graphics, left, top, mouseX, mouseY)
             Page.DATA -> dataPage(graphics, left, top, mouseX, mouseY)
             Page.OVERLAY -> overlayPage(graphics, left, top)
+            Page.SPLITS -> splitsPage(graphics, left, top)
         }
 
         val footer = if (page == Page.HUD || page == Page.OVERLAY) {
-            "1-9 page  ·  T theme  ·  M reduce motion  ·  space ${if (previewPaused) "run" else "hold"}  ·  , . step  ·  esc close"
+            "1-0 page  ·  T theme  ·  M reduce motion  ·  space ${if (previewPaused) "run" else "hold"}  ·  , . step  ·  esc close"
         } else {
-            "1-9 page  ·  T theme  ·  M reduce motion (${if (Motion.reduceMotion) "on" else "off"})  ·  esc close"
+            "1-0 page  ·  T theme  ·  M reduce motion (${if (Motion.reduceMotion) "on" else "off"})  ·  esc close"
         }
         graphics.flat(footer, left, height - Tokens.SPACE_20, Tokens.textTertiary)
     }
@@ -918,6 +924,63 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
         }
     }
 
+    /**
+     * The splits panel and its companion clock, on the scripted mid-run F7 [Splits.sample] holds.
+     *
+     * **Frozen and not scripted, unlike the page before it.** The overlay page runs a timeline because
+     * what it has to show is a fade landing and an escalation arriving in order. Nothing on this panel
+     * animates: it is a table, and every question about it is a question about one frame — whether the
+     * two time columns read as two columns, whether the three tones separate a span that is running from
+     * one that is finished from one that has not started, and whether the aggregate row at the bottom
+     * reads as an aggregate rather than as an eleventh split.
+     *
+     * The tick column and the boss-entry row follow [Config], because they are the player's switches and
+     * a specimen that ignored them would be showing a panel nobody has. The caption says which state is
+     * on screen so a reader is not left wondering whether a missing column is a setting or a defect.
+     */
+    private fun splitsPage(graphics: GuiGraphicsExtractor, left: Int, top: Int) {
+        val readout = Splits.sample()
+
+        graphics.label("PANEL  ·  F7, MID-RUN, FROZEN", left, top, Tokens.textSecondary)
+        val panelH = SplitsHud.measure(readout)
+        stage(graphics, left, top + Tokens.SPACE_12, SPLITS_CELL_W, panelH + Tokens.SPACE_16) { _, _ ->
+            SplitsHud.draw(graphics, font, readout, Tokens.SPACE_8, Tokens.SPACE_8)
+        }
+        val captionY = top + Tokens.SPACE_12 + panelH + Tokens.SPACE_16 + 2
+        graphics.flat(
+            "running is brightest  ·  finished is one step down  ·  not started yet is a dash",
+            left, captionY, Tokens.textTertiary,
+        )
+        graphics.flat(
+            if (Config.splitsTickTime) {
+                "two columns  ·  wall clock, then the same span in server ticks"
+            } else {
+                "one column  ·  the tick column is switched off in /sa"
+            },
+            left, captionY + Tokens.SPACE_12, Tokens.textTertiary,
+        )
+        graphics.flat(
+            if (Config.splitsBossEntry) {
+                "the last row is the first three spans summed, in the qualifying tone"
+            } else {
+                "the boss entry row is switched off in /sa"
+            },
+            left, captionY + Tokens.SPACE_24, Tokens.textTertiary,
+        )
+
+        // The chip on the right, at the size and position argument it actually ships with: double text,
+        // on the crosshair, which is why it is shown on a stage that has one.
+        val right = left + SPLITS_CELL_W + Tokens.SPACE_24
+        graphics.label("SPLIT CLOCK  ·  THE RUNNING SPAN ALONE", right, top, Tokens.textSecondary)
+        stage(graphics, right, top + Tokens.SPACE_12, STORM_CELL_W, STORM_CELL_H) { w, h ->
+            SplitsCurrentHud.draw(graphics, font, w, h, SplitsCurrentHud.sample())
+        }
+        graphics.flat(
+            "server ticks, not the wall clock  ·  off until asked for",
+            right, top + Tokens.SPACE_12 + STORM_CELL_H + 2, Tokens.textTertiary,
+        )
+    }
+
     /** How the urgency reads without a hue, spelled out beside the specimen that shows it. */
     private fun marks(urgency: StormTimer.Urgency): String = when (urgency) {
         StormTimer.Urgency.CALM -> "1 of 3 filled"
@@ -1002,6 +1065,7 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
             GLFW.GLFW_KEY_7 -> page = Page.NAV
             GLFW.GLFW_KEY_8 -> page = Page.DATA
             GLFW.GLFW_KEY_9 -> page = Page.OVERLAY
+            GLFW.GLFW_KEY_0 -> page = Page.SPLITS
             GLFW.GLFW_KEY_LEFT -> page = Page.entries[(page.ordinal + Page.entries.size - 1) % Page.entries.size]
             GLFW.GLFW_KEY_RIGHT -> page = Page.entries[(page.ordinal + 1) % Page.entries.size]
             GLFW.GLFW_KEY_T -> dark = !dark
@@ -1131,6 +1195,9 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
         const val STAGE_H = 130
 
         /** A countdown on its own: 24px below a crosshair at the middle, plus the 30px chip. */
+        /** Wide enough for the panel and the padding of the stage it sits on, and no wider. */
+        const val SPLITS_CELL_W = SplitsHud.WIDTH + Tokens.SPACE_16
+
         const val STORM_CELL_W = 190
         const val STORM_CELL_H = 100
 

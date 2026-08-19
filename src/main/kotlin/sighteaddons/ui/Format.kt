@@ -28,6 +28,26 @@ internal object Format {
     fun ticks(ticks: Int): String =
         if (ticks < 0) MISSING else DungeonGrid.formatTicks(ticks)
 
+    /**
+     * Wall-clock milliseconds in the same `m:ss.t`, by way of [ticks].
+     *
+     * **A conversion and not a second formatter**, which is the whole point: [sighteaddons.Splits]
+     * measures its spans off `System.currentTimeMillis` because that is what its records are stored in
+     * ([sighteaddons.SplitPbs] says why), and a `%.2fs` written for it here would be the fifth dialect
+     * this file exists to have removed — sitting next to `0:41.2` on the same card.
+     *
+     * The division is exact rather than lossy: a tick is 50 ms and the tenth of a second this spelling
+     * shows needs 100, so every millisecond value maps onto the tick grid without a tenth ever landing
+     * between two of them. Negative is [MISSING], as it is for ticks.
+     */
+    fun millis(ms: Long): String = if (ms < 0) MISSING else ticks((ms / MS_PER_TICK).toInt())
+
+    /** A signed split in milliseconds. [delta]'s spelling, [millis]' conversion. */
+    fun deltaMillis(deltaMs: Long): String = delta((deltaMs / MS_PER_TICK).toInt())
+
+    /** One tick, in milliseconds. The grid [millis] projects onto. */
+    private const val MS_PER_TICK = 50L
+
     /** The one minus sign in this mod. U+2212, never a hyphen — see [delta]. */
     const val MINUS = "−"
 

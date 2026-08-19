@@ -163,6 +163,10 @@ object DungeonSession {
         // run would be subtracted from that run's pass line and file a blood clear measured across
         // two floors.
         BloodClear.reset()
+        // The chain belongs to the floor it was armed on. Left standing, the next run's first chat
+        // line would land in the previous floor's splits and file its span under the previous floor's
+        // records — and a chain armed for M7 would go on collecting F7 lines after a transfer.
+        Splits.reset()
     }
 
     /** Reads the floor from the sidebar as a side effect; that is also the in-dungeon check. */

@@ -167,12 +167,18 @@ internal object ChatEvents {
     private val DEATH = Regex("""$LEAD☠ $NAME .+ and became a ghost\.$""")
     private val REVIVED = Regex("""$LEAD❣ $NAME was revived.*$""")
     private val WITHER_DOOR = Regex("""$LEAD$RANKS$NAME opened a WITHER door!$""")
-    private val BLOOD_DOOR = Regex("""${LEAD}The BLOOD DOOR has been opened!$""")
+    /**
+     * `internal`, because [DungeonSplits] opens its `blood clear` span on this line or on
+     * [BLOOD_OPEN], whichever lands first. Shared rather than copied: one Hypixel string, one place it
+     * is written down, and a correction to it cannot reach one consumer and miss the other.
+     */
+    internal val BLOOD_DOOR = Regex("""${LEAD}The BLOOD DOOR has been opened!$""")
 
     /** Only the server writes `[BOSS] `, which is what both Watcher patterns below rest on. */
     private const val WATCHER = """\[BOSS] The Watcher:"""
 
-    private val BLOOD_OPEN = Regex(
+    /** Shared with [DungeonSplits], for [BLOOD_DOOR]'s reason. */
+    internal val BLOOD_OPEN = Regex(
         "$LEAD$WATCHER (?:" +
             """Congratulations, you made it through the Entrance\.|""" +
             """Ah, you've finally arrived\.|""" +
@@ -185,7 +191,8 @@ internal object ChatEvents {
             ")$",
     )
 
-    private val BLOOD_DONE = Regex("""$LEAD$WATCHER You have proven yourself\. You may pass\.$""")
+    /** Shared with [DungeonSplits], where it closes `portal entry`. Same reason as [BLOOD_DOOR]. */
+    internal val BLOOD_DONE = Regex("""$LEAD$WATCHER You have proven yourself\. You may pass\.$""")
     private val PUZZLE_SOLVED = Regex("""${LEAD}PUZZLE SOLVED! $NAME .+$""")
     private val PUZZLE_FAILED = Regex("""${LEAD}PUZZLE FAIL! $NAME .+$""")
     private val QUIZ_WRONG = Regex("""$LEAD\[STATUE] Oruo the Omniscient: $NAME chose the wrong answer!.*$""")
