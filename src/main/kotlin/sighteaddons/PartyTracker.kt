@@ -149,6 +149,11 @@ object PartyTracker {
             players[i] = parsed
         }
 
+        // Whether this run had company, for [SoloClear]. Read every second while the run is live and
+        // not once at the end: Hypixel takes the dungeon rows out of the tab list before the run-end
+        // headline arrives, so by then the list can no longer say who was in the party.
+        SoloClear.observe(roster().size)
+
         val self = client.player?.name?.string
         // Only ever overwritten with a real name: a null here means the client is between players,
         // and forgetting who we are because of one such tick is exactly the loss [localName] exists

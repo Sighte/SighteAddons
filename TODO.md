@@ -11,6 +11,16 @@ Seit 18.08. dazu, alles ohne Versionsänderung: `DungeonScore` (die Formel der U
 Funktionen, **ruft noch niemand auf**), `SecretApi.lastCounts` — ein gescheiterter Abschluss-Snapshot
 löscht die Teammate-Zahlen nicht mehr — und `docs/features/`, acht annotierte Screenshots.
 
+**Seit 19.08.: `SoloClear`** — jeder solo abgeschlossene Run geht als `POST /v1/solo_clear` an die Box,
+die ihn nach Discord weitergibt und nichts speichert. Lokal landet er in `soloclears.jsonl`
+(append-only, wie `history.jsonl`); die Bestzeit pro Floor ist das Minimum darüber und `pb` im Body ist
+**unsere** Behauptung — die Box hat keine Historie, gegen die sie eine prüfen könnte. Ohne `pb: true`
+heißt die Zeile dort `**SOLO CLEAR**`. Die Receiver-Hälfte liegt auf `Sighte/SighteAddons-serverside`
+`soloclear-002` und ist **nicht deployt**: bis dahin behauptet jede Nachricht eine PB und Prince/Mimic
+stehen als `false` statt `?` da. Schalter ist `Config.soloClears`, **aus by default**, `/sa` → debug.
+Zwei Flags statt einem für die Solo-Erkennung: gelatcht wird *Gesellschaft*, nicht *solo* — die
+Tab-Liste füllt sich beim Laden, eine Fünfergruppe liest sich in den ersten Ticks als eine Person.
+
 **Der `SecretApi`-Fix liegt auf `main` und bei keinem Spieler.** Er kostet ein Release, und ein
 Release ist die Entscheidung des Users; bis dahin läuft draußen 0.16.0 mit dem alten Verhalten.
 
@@ -75,6 +85,13 @@ in einem *released* Build entstehen.
 **Keine Wiring-Zeile von `ownsecrets-001`, `secretpoints-001`, `idletime-001` und `recordowner-001`
 ist je im Spiel gelaufen** — die reine Logik deckt die Suite ab, die Verdrahtung nicht. Ein Floor
 klärt alles davon mit dem Auge.
+
+`DungeonTab.ELAPSED` ist **nie auf einem echten Floor gelaufen**, und daran hängt die angekündigte
+Zeit: Hypixels eigene Uhr (`Time: 06m 32s`) ist die, die zwei Spieler vergleichen können, `runTicks`
+beginnt erst bei der Kalibrierung und ist systematisch zu kurz. Greift die Zeile nicht, fällt
+`SoloClear` auf unsere Uhr zurück — leise, aber ein `tab_time` im Session-Log ist der Beweis, dass sie
+greift, und ein `solo_clear` mit `hypixelTime: "-"` der Beweis, dass sie es nicht tut. Beide Records
+werden getrennt gehalten, damit keine Sekunde je gegen einen Tick antritt.
 
 Dazu: `SECRET_ITEMS` sind zehn geratene Namen (exakter Match, nie Präfix); der Mixin nutzt
 `require = 0`, ein falscher Injector schweigt also — Erkennung ist das *Fehlen* von `own_pickup`;

@@ -128,6 +128,58 @@ class DungeonTabTest {
     }
 
     /**
+     * Hypixel's own clock, which is the number [SoloClear] announces. Ours is close but starts at
+     * calibration, so it cannot be the one two players compare in a channel.
+     */
+    @Test
+    fun `the run's official time is read in both spellings and both formats`() {
+        DungeonTab.readElapsed(tab("Time: 06m 32s"))
+        assertEquals("06m 32s", DungeonTab.elapsed)
+
+        DungeonTab.reset()
+        DungeonTab.readElapsed(tab("Time Elapsed: 6:32"))
+        assertEquals("6:32", DungeonTab.elapsed)
+    }
+
+    /**
+     * **The reading that matters is taken at the run-end headline, and by then Hypixel may already have
+     * pulled the dungeon rows.** A row that stopped advancing would otherwise shorten the run it is
+     * announcing — the one failure here that produces a plausible number rather than none.
+     */
+    @Test
+    fun `the furthest reading of the run wins, not the last one`() {
+        DungeonTab.readElapsed(tab("Time: 06m 32s"))
+        DungeonTab.readElapsed(tab("Time: 02m 10s"))
+        assertEquals("06m 32s", DungeonTab.elapsed)
+
+        // Comparison is on the parsed seconds, so it survives the two formats disagreeing about width.
+        DungeonTab.readElapsed(tab("Time: 11:04"))
+        assertEquals("11:04", DungeonTab.elapsed)
+    }
+
+    /**
+     * `Time:` is a far more ordinary prefix than `Secrets Found:`, so the value has to look like a
+     * duration and the row has to be nothing but the row. A wrong match here is a wrong time in a
+     * Discord channel.
+     */
+    @Test
+    fun `a row that merely mentions a time is not the run's time`() {
+        DungeonTab.readElapsed(
+            tab("Time: soon", "Ult Cooldown: 12s", "Time: 06m 32s left", "Sneak Time: 4:00", "Time: :32"),
+        )
+        assertNull(DungeonTab.elapsed)
+    }
+
+    @Test
+    fun `seconds only understands the two forms Hypixel writes`() {
+        assertEquals(392, DungeonTab.seconds("06m 32s"))
+        assertEquals(392, DungeonTab.seconds("6:32"))
+        assertEquals(664, DungeonTab.seconds("11:04"))
+        assertNull(DungeonTab.seconds("32s"))
+        assertNull(DungeonTab.seconds("soon"))
+    }
+
+    /**
      * Odin's `DungeonUtils.totalSecrets`, which is the only way to learn how many secrets the floor
      * has at all. Derived and approximate, which is why it is logged rather than printed.
      */

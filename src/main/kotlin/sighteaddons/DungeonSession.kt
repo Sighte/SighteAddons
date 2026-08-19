@@ -77,6 +77,9 @@ object DungeonSession {
         // ends. Before `runloss-001` the JOIN site did the guarding with `summaryPrinted` alone,
         // which could not see a report written on the way out.
         RunReport.reset()
+        // Per run for the same reason: a `solo` latch carried into the next floor would announce a
+        // party run as a solo clear, and the flags only mean anything about one run.
+        SoloClear.reset()
         ContributionTracker.reset()
         // Counted against `runTicks`, so it is forgotten where `runTicks` is: a run that inherited
         // the previous floor's idle time would report a number describing two runs.

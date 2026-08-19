@@ -77,6 +77,22 @@ object DungeonTab {
     /** Anything Hypixel wrote under this prefix that neither pattern accepted. See [observe]. */
     private const val PREFIX = "Secrets Found:"
 
+    /**
+     * `Time: 06m 32s` — Hypixel's own clock for the run, in either spelling it uses.
+     *
+     * **Hypixel's number and not ours, which is the entire reason to read it.** [DungeonSession.runTicks]
+     * starts at calibration rather than at the door and is therefore a little short of the official
+     * time; that is fine for a room record, which is a difference of ticks within one run, and wrong
+     * for [SoloClear], which puts a time in a channel where two players compare theirs. A leaderboard
+     * built on two different clocks compares nothing.
+     *
+     * Narrow on both ends. `matchEntire` plus a value that has to look like a duration is what keeps
+     * `Time:` — a prefix far more ordinary than `Secrets Found:` — from taking something else off the
+     * list. Nothing here is verified against a real floor yet: a `tab_time` event in a session log is
+     * what turns it into a measurement, and until one appears [SoloClear] falls back to our own clock.
+     */
+    internal val ELAPSED = Regex("""Time(?: Elapsed)?: (\d{1,2}m ?\d{1,2}s|\d{1,3}:\d{2})""")
+
     /** One reading of the tab list. Either half can be missing; the pair rarely is. */
     internal data class Secrets(val found: Int?, val percent: Double?)
 
@@ -95,14 +111,48 @@ object DungeonTab {
     var secretsPercent: Double? = null
         private set
 
+    /**
+     * Hypixel's elapsed time for this run, verbatim, or null if the row was never read.
+     *
+     * The longest reading rather than the last, for [secretsFound]'s reason and one more: the run-end
+     * headline is what asks for this, and by then Hypixel may have taken the dungeon rows out of the
+     * list — so the last read can be a row that stopped advancing, while the longest is the furthest
+     * the run ever got. Comparison is on [seconds], never on the string.
+     */
+    var elapsed: String? = null
+        private set
+
+    private var elapsedSeconds = -1
+
     /** Only suppresses repeat logging; `observe` runs once a second all run long. */
     private var loggedUnparsed = false
 
     fun reset() {
         secretsFound = null
         secretsPercent = null
+        elapsed = null
+        elapsedSeconds = -1
         loggedUnparsed = false
     }
+
+    /**
+     * `06m 32s` or `6:32` as whole seconds, or null for anything else.
+     *
+     * Only ever used to decide which of two readings is later, so a form this does not understand
+     * costs nothing — the reading is simply not preferred over the one already held.
+     */
+    internal fun seconds(text: String): Int? {
+        MINUTES_SECONDS.matchEntire(text)?.let {
+            return it.groupValues[1].toInt() * 60 + it.groupValues[2].toInt()
+        }
+        COLON.matchEntire(text)?.let {
+            return it.groupValues[1].toInt() * 60 + it.groupValues[2].toInt()
+        }
+        return null
+    }
+
+    private val MINUTES_SECONDS = Regex("""(\d{1,2})m ?(\d{1,2})s""")
+    private val COLON = Regex("""(\d{1,3}):(\d{2})""")
 
     /**
      * Every row of the sorted tab list, as [PartyTracker.update] already built it.
@@ -159,6 +209,8 @@ object DungeonTab {
             }
         }
 
+        readElapsed(rows)
+
         val seen = read(rows) ?: return
         val found = seen.found ?: return
         val previous = secretsFound
@@ -174,6 +226,28 @@ object DungeonTab {
             "floorSecrets" to (floorSecrets(found, seen.percent) ?: -1),
             "tabRows" to rows.size,
         )
+    }
+
+    /**
+     * Keeps the furthest elapsed time the tab list has shown this run.
+     *
+     * Separate from [read] because it is not part of the secret reading and must not be able to
+     * suppress it: [observe] returns early when there is no secret row, and a run whose secrets
+     * Hypixel never listed still has a time worth announcing.
+     */
+    internal fun readElapsed(rows: List<String?>) {
+        for (row in rows) {
+            val text = row ?: continue
+            val value = ELAPSED.matchEntire(text)?.groupValues?.get(1) ?: continue
+            val seconds = seconds(value) ?: continue
+            if (seconds <= elapsedSeconds) continue
+            val first = elapsed == null
+            elapsed = value
+            elapsedSeconds = seconds
+            // Once per run, not once per second: the point is whether this row exists at all on this
+            // Hypixel version, which the first sighting answers. See [ELAPSED].
+            if (first) DebugLog.event("tab_time", "elapsed" to value, "seconds" to seconds)
+        }
     }
 
     /**

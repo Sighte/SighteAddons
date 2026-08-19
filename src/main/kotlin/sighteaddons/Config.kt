@@ -204,6 +204,20 @@ object Config {
     var uploadNoticeShown = false
 
     /**
+     * Whether a solo clear is announced in Discord — [SoloClear].
+     *
+     * **Off unless the player switches it on, and a separate decision from [upload].** A run report is
+     * about its own uploader, anonymous by default and read by nobody but the analysis agent; this
+     * puts a Minecraft name and a time into a chat channel other people read. The two switches are
+     * therefore independent in both directions: telemetry off with announcements on is a coherent
+     * choice, and so is the reverse, and neither may be inferred from the other.
+     *
+     * Off is the default for the reason [uploadName] is: this mod has a second user, and their runs
+     * are not something a default may start posting into somebody else's channel.
+     */
+    var soloClears = false
+
+    /**
      * A Hypixel API key, the player's own, for the true per-player secret counts in the run summary.
      *
      * **Blank by default and there is no bundled fallback.** A key in the jar would be public on the
@@ -358,6 +372,7 @@ object Config {
             upload = obj.bool("upload", upload)
             uploadName = obj.bool("uploadName", uploadName)
             uploadNoticeShown = obj.bool("uploadNoticeShown", uploadNoticeShown)
+            soloClears = obj.bool("soloClears", soloClears)
             hypixelKey = obj.str("hypixelKey", hypixelKey)
         } catch (e: Exception) {
             // A broken config must never cost the run — the defaults above are already in place.
@@ -402,6 +417,7 @@ object Config {
         obj.addProperty("upload", upload)
         obj.addProperty("uploadName", uploadName)
         obj.addProperty("uploadNoticeShown", uploadNoticeShown)
+        obj.addProperty("soloClears", soloClears)
         obj.addProperty("hypixelKey", hypixelKey)
         obj.addProperty("installId", installId)
         try {

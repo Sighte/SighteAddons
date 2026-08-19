@@ -259,6 +259,19 @@ object TelemetryUpload {
         return url to token
     }
 
+    /**
+     * Base URL and token for a request that is not a queued file — [SoloClear]'s announcement.
+     *
+     * `enabled = true` because the switch for that feature is [Config.soloClears] and not
+     * [Config.upload]: the two consents are independent, and reading the telemetry switch here would
+     * silently tie an announcement to a decision that was made about something else. Everything below
+     * that is inherited on purpose — the private tier's own box when there is an
+     * `upload.properties`, the public one otherwise, and null for a file that is half filled in.
+     */
+    internal fun endpoint(): Pair<String, String>? =
+        tier(enabled = true, FabricLoader.getInstance().configDir.resolve(CONFIG))
+            ?.let { it.base to it.token }
+
     internal fun modVersion(): String = FabricLoader.getInstance()
         .getModContainer(SighteAddons.ID)
         .map { it.metadata.version.friendlyString }

@@ -285,6 +285,10 @@ class SighteAddons : ClientModInitializer {
         // headline is the only evidence that the run reached its end, which is why this is the one
         // call site that may claim it.
         RunReport.write(complete = true)
+        // Same reason, and the same single call site: a floor that was left is not a clear, so the two
+        // paths that write a report on the way out (`JOIN`, `DISCONNECT`) deliberately do not announce
+        // one. Off unless [Config.soloClears] is on, and a no-op for a run with company.
+        SoloClear.onRunEnd()
     }
 
     /**

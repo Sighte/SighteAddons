@@ -1113,6 +1113,13 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         info("your upload id", Config.installId)
         note("all the server knows about you hangs off this")
 
+        section("solo clears", if (Config.soloClears) "announced" else "off")
+        // A separate consent from the two above, not a sub-setting of them: this one puts a name and a
+        // time in a chat channel other people read, which is not what a run report does.
+        toggle("announce in discord", Config.soloClears) { Config.soloClears = !Config.soloClears }
+        note(soloClears())
+        note("every solo run is kept in soloclears.jsonl, switch or not")
+
         section("hypixel key", if (Config.hypixelKey.isBlank()) "not set" else "set")
         field("your key")
         note("your own key · never logged, never uploaded")
@@ -1705,6 +1712,18 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     }
 
     /** The switch says what would leave the machine, so it is legible before the click. */
+    /**
+     * What the switch above actually does, spelled out before the click rather than after it — the same
+     * correction [uploadName] is here for. The name is not optional on this route: the receiver refuses
+     * a clear without one, because a personal best nobody can be told apart from another is not an
+     * announcement.
+     */
+    private fun soloClears(): String = if (!Config.soloClears) {
+        "off: solo runs are recorded here and go nowhere"
+    } else {
+        "${minecraft.user.name} and your time, in the channel, at run end"
+    }
+
     private fun uploadName(): String = when {
         !Config.uploadName -> "off: reports carry the id and nothing else"
         !Config.upload -> "${minecraft.user.name} · but reports are off"
