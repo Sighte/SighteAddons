@@ -21,6 +21,12 @@ stehen als `false` statt `?` da. Schalter ist `Config.soloClears`, **aus by defa
 Zwei Flags statt einem für die Solo-Erkennung: gelatcht wird *Gesellschaft*, nicht *solo* — die
 Tab-Liste füllt sich beim Laden, eine Fünfergruppe liest sich in den ersten Ticks als eine Person.
 
+**Zum Testen: `build/libs/sighteaddons-0.17.0-dev1.jar`** (19.08., 408 Tests grün). Gebaut mit
+`./gradlew assemble check -Pmod_version=0.17.0-dev1` — `mod_version` in `gradle.properties` steht
+weiter auf `0.16.0` und `dist/` hält unverändert das released 0.16.0. Der Dev-Jar ist als
+`0.17.0-dev1` gestempelt, damit `X-Mod-Version` und `modVersion` in den Reports ihn nicht mit dem
+Release verwechseln.
+
 **Der `SecretApi`-Fix liegt auf `main` und bei keinem Spieler.** Er kostet ein Release, und ein
 Release ist die Entscheidung des Users; bis dahin läuft draußen 0.16.0 mit dem alten Verhalten.
 
