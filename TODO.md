@@ -2,7 +2,7 @@
 
 ## Stand — 2026-08-19
 
-`main` = **446 Tests / 40 Klassen / grün**, `mod_version` 0.16.0 released (`v0.16.0`, Modrinth
+`main` = **449 Tests / 41 Klassen / grün**, `mod_version` 0.16.0 released (`v0.16.0`, Modrinth
 `kIbj76Z4`, SHA1 `931b1152…` auf beiden Seiten). `dist/sighteaddons-0.16.0.jar` ist die committete
 Datei. `RunReport.SCHEMA` 6, der Receiver akzeptiert `idleTicks`/`navTicks` als optional und ist
 deployt — **dem Receiver ist nichts geschuldet.**
@@ -29,8 +29,44 @@ bei nicht-ganzzahligem Faktor wird weich. **Bei 100% gilt davon nichts** — die
 Translation und die Pixel sind die, die released sind. Das ist der Grund, warum der Bereich bei 50%
 aufhört und nicht bei 25%.
 
-**Zum Testen: `build/libs/sighteaddons-0.17.0-dev13.jar`** (20.08., 446 Tests grün), gebaut mit
-`./gradlew assemble check -Pmod_version=0.17.0-dev13`. `gradle.properties` steht weiter auf `0.16.0`,
+**Seit 20.08.: `RunPbs` — Run-Bestzeiten pro Floor und Teamgröße, und jede neue geht raus.** Nicht
+`SplitPbs`, und das ist der ganze Punkt: dessen `total` läuft auf **unserer** Uhr (Mort → `☠ Defeated`,
+damit es neben `blood clear` in derselben Spalte stehen und mit Odins Datei vergleichbar sein kann) und
+hat **keine Teamgröße im Key**. Eine Run-Zeit ohne Teamgröße ist die Zeit der größten Gruppe und sonst
+nichts — die Solo-Bestzeit wäre an dem Tag unsichtbar, an dem sie ein Fünfer schlägt.
+
+Also ein zweiter, kleinerer Store: `runpbs.jsonl`, append-only, nur PBs, Record = Minimum darüber
+(`RoomHistory`/`SoloClear`-Form). Key ist `Floor|Spieler|Uhr`, **gerankt wird Hypixels `Clear Time:`** —
+die einzige Zahl, die zwei Spieler vergleichen können. Fehlt die Zeile (Run verlassen, Hypixel formuliert
+um), fällt es beim Reset auf unsere Mort→Defeated-Spanne zurück, **in eigenem Key-Space und als `own`
+markiert**; die zwei Uhren treffen sich nirgends, genau wie SoloClears seconds/ticks.
+
+**Die gerankte Hälfte hängt nicht an `Config.splits`** — sie braucht nur die Chat-Zeile und den
+Floornamen von der Sidebar, den `onChatLine` selbst greift, solange `DungeonSession.reset` ihn noch nicht
+genullt hat. Nur der own-clock-Fallback braucht die armierte Kette, weil dort die Spanne gemessen wird.
+
+**Das Leaderboard gibt es noch nicht, deshalb gibt es eine Outbox.** Jede fällige PB liegt als
+`pbs/pb-<millis>.json`, wird sofort einmal gepostet (`POST /v1/run_pb`) und erst nach 2xx gelöscht. Ein
+`404` von einer Route, die niemand geschrieben hat, ist über `TelemetryUpload.outcome` ein `RETRY` — die
+Zeilen warten, `RunPbs.flush()` versucht es beim nächsten Start wieder, und das erste Leaderboard, das
+antwortet, bekommt alle PBs, die vor ihm gesetzt wurden. Eigener Pass und nicht Teil von
+`TelemetryUpload.start()`, weil der bei `upload = false` gar nicht anläuft und die Schalter unabhängig
+sind.
+
+**`Config.runPbs`, aus by default** (`/sa` → debug, „send new bests"). Das ist `uploadName`s Argument an
+der Stelle, um die es dabei ging: ein Leaderboard braucht einen Namen, und auf einem zu stehen ist keine
+Voreinstellung. Der Record wird trotzdem geführt — eine Zahl in einer Datei auf der eigenen Platte, wie
+ein Split-Record —, und solange der Schalter aus ist, wird **nichts** in die Outbox geschrieben, damit
+ein späteres Einschalten keine alten Runs nachschickt.
+
+**Die Receiver-Hälfte fehlt.** `POST /v1/run_pb` existiert auf der Box nicht; bis dahin sammeln sich die
+Zeilen in `pbs/`. Der Payload ist der Vertrag und steht in `RunPbsTest` Feld für Feld: `player`,
+`installId`, `floor`, `players`, `time`, `seconds`, `timeSource`, `totalMs`, `totalTicks`, `previous`,
+`ts`, `modVersion` — `player`/`time`/`previous`/`totalTicks` fehlen, wenn es sie nicht gibt, statt eine
+erfundene Null zu tragen.
+
+**Zum Testen: `build/libs/sighteaddons-0.17.0-dev14.jar`** (20.08., 449 Tests grün), gebaut mit
+`./gradlew assemble check -Pmod_version=0.17.0-dev14`. `gradle.properties` steht weiter auf `0.16.0`,
 `dist/` hält unverändert das released 0.16.0.
 
 **Seit 19.08.: `SoloClear`** — jeder solo abgeschlossene Run geht als `POST /v1/solo_clear` an die Box,

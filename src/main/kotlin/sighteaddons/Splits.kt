@@ -205,6 +205,10 @@ object Splits {
                     results[index] = it
                     wrote = wrote || it !is SplitPbs.Result.Missed
                 }
+                // The same span, handed to the other record store rather than measured again there.
+                // It keys on the party as well and prefers Hypixel's own clock, so it is a different
+                // record from the `total` above and not a copy of it — [RunPbs] argues that in full.
+                RunPbs.onTotal(floorTag, totalMs, current[index].atTicks - first.atTicks)
             }
             // The chain is complete. If the headline has already been seen, this is the moment the
             // summary is both due and correct — the total exists now and did not a tick ago.

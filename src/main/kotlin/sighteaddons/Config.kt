@@ -268,6 +268,22 @@ object Config {
     var soloClears = false
 
     /**
+     * Whether a new run personal best is sent to the leaderboard — [RunPbs].
+     *
+     * **Off unless the player switches it on**, and this is [uploadName]'s argument arriving at the
+     * thing it was about: a leaderboard needs a name to put on it, and the choice to be on one is not
+     * a default anybody can be opted into. It is a third independent consent, not a sub-setting of
+     * [upload] or [soloClears] — a run report is anonymous and read by an analysis agent, an
+     * announcement is one line in a channel, and this is a standing, public row with a name on it.
+     *
+     * **The record is kept either way.** A personal best is a number in a file on the player's own
+     * disk, exactly like a split record, and this switch is about the wire and nothing else. What it
+     * gates is complete: while it is off nothing is queued, so flipping it on later cannot post runs
+     * played while it was off.
+     */
+    var runPbs = false
+
+    /**
      * The lowest score a solo run must reach to be announced. `0` announces every solo clear.
      *
      * **Hypixel's own number, off the end-of-run chat block, and never [DungeonScore]'s.** That one is a
@@ -434,6 +450,7 @@ object Config {
             uploadName = obj.bool("uploadName", uploadName)
             uploadNoticeShown = obj.bool("uploadNoticeShown", uploadNoticeShown)
             soloClears = obj.bool("soloClears", soloClears)
+            runPbs = obj.bool("runPbs", runPbs)
             soloClearMinScore = obj.int("soloClearMinScore", soloClearMinScore)
         } catch (e: Exception) {
             // A broken config must never cost the run — the defaults above are already in place.
@@ -487,6 +504,7 @@ object Config {
         obj.addProperty("uploadName", uploadName)
         obj.addProperty("uploadNoticeShown", uploadNoticeShown)
         obj.addProperty("soloClears", soloClears)
+        obj.addProperty("runPbs", runPbs)
         obj.addProperty("soloClearMinScore", soloClearMinScore)
         obj.addProperty("installId", installId)
         try {

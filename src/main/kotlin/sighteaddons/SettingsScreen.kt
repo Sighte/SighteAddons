@@ -1185,6 +1185,14 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         note(soloClears())
         note("kept in soloclears.jsonl, the boss never counts")
 
+        section("run records", if (Config.runPbs) "on the leaderboard" else "kept here only")
+        // A third consent and not a sub-setting of the two above: this one is a standing public row
+        // with a name on it, where a report is anonymous and an announcement is one line in a channel.
+        // Config.runPbs argues it in full; this row is where a hand reaches it.
+        toggle("send new bests", Config.runPbs) { Config.runPbs = !Config.runPbs }
+        note(runPbs())
+        note("recorded either way, in runpbs.jsonl, per floor and party size")
+
         // **Blank is the normal state now, not a missing prerequisite.** The heading used to read
         // "not set" over a note saying the feature stayed inert, which was true when every player
         // needed their own key and is a lie now that the receiver holds one — see SecretApi.Source.
@@ -1203,9 +1211,24 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         // unprompted is not something anybody asked for, and the answer cannot change while playing.
         action("import from odin", "config/odin/ · run") { importSplitRecords() }
         note("takes the faster of the two, safe to run twice")
+        // A different store from the line above — a whole run, keyed by party size, on Hypixel's clock
+        // where it stated one. See RunPbs.
+        info("run records", RunPbs.count().toString())
     }
 
     private fun splitRecords(): Int = SplitPbs.floors().sumOf { SplitPbs.of(it).size }
+
+    /**
+     * What leaving the run-record switch on actually sends, named field by field.
+     *
+     * The same job [uploadName]'s note does, and for the same reason: a switch about a public row has
+     * to be legible before it is clicked, not after somebody sees their name on a board. The floor and
+     * the party size are in there because they are what makes the row comparable at all.
+     */
+    private fun runPbs(): String = when {
+        !Config.runPbs -> "off: bests are recorded, nothing leaves this machine"
+        else -> "${minecraft.user.name}, the floor, the party size and the time, on every new best"
+    }
 
     /**
      * Folds a local Odin install's split records into this mod's, and says what happened in chat.

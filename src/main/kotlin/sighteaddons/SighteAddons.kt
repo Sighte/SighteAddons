@@ -113,6 +113,9 @@ class SighteAddons : ClientModInitializer {
         RoomStats.start()
         // Ships the previous sessions' logs while nothing is happening yet. No-op without a config.
         TelemetryUpload.start()
+        // Any personal best that has not reached the leaderboard yet, including every one set before
+        // the route existed. Its own pass and not part of the call above — see RunPbs.flush.
+        RunPbs.flush()
     }
 
     /**
@@ -302,6 +305,9 @@ class SighteAddons : ClientModInitializer {
         // *after* the headline — `Team Score:` is what releases an armed announcement, and the Prince
         // falls mid-run. Putting this behind the headline check is how they would stop arriving.
         SoloClear.onChatLine(text)
+        // The same summary block, read for the one line that carries the official clear time. Here
+        // rather than behind the headline check for SoloClear's reason: this line arrives after it.
+        RunPbs.onChatLine(text)
         if (summaryPrinted || !RUN_END.matches(text)) return
         summaryPrinted = true
         DebugLog.event(

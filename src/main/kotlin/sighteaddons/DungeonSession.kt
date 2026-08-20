@@ -167,6 +167,10 @@ object DungeonSession {
         // line would land in the previous floor's splits and file its span under the previous floor's
         // records — and a chain armed for M7 would go on collecting F7 lines after a transfer.
         Splits.reset()
+        // **After [Splits.reset], and that order is the whole of it.** This is the last moment a run
+        // can still be filed, and it files the own-clock fallback for a run whose summary block never
+        // printed. Running it before the chain closed would file nothing on exactly those runs.
+        RunPbs.reset()
     }
 
     /** Reads the floor from the sidebar as a side effect; that is also the in-dungeon check. */

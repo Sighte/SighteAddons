@@ -164,6 +164,9 @@ object PartyTracker {
         // not once at the end: Hypixel takes the dungeon rows out of the tab list before the run-end
         // headline arrives, so by then the list can no longer say who was in the party.
         SoloClear.observe(roster().size)
+        // The same reading, for the other thing that has to know how many people ran it: a run PB is
+        // keyed by party size, and the tab list is the only place that number exists.
+        RunPbs.observe(roster().size)
 
         val self = client.player?.name?.string
         // Only ever overwritten with a real name: a null here means the client is between players,
