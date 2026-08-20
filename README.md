@@ -51,7 +51,7 @@ The JSONL debug log is off for an ordinary install. When it is on, everyone in i
 — appears as a pseudonym derived from a salt made fresh every launch and never written down.
 
 The server side is its own repository:
-[Sighte/skyblock-server](https://github.com/Sighte/skyblock-server).
+[Sighte/SighteAddons-serverside](https://github.com/Sighte/SighteAddons-serverside).
 
 ## Build
 
