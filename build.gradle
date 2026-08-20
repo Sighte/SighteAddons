@@ -9,6 +9,12 @@ base { archivesName = project.archives_base_name }
 
 repositories {
 	// Loom adds Fabric + Mojang repos automatically.
+	maven {
+		url = 'https://jitpack.io'
+		// Scoped to the one group taken from JitPack. An unscoped JitPack repo is asked about every
+		// unresolved coordinate in the build - slower, and a wider supply-chain surface than it needs.
+		content { includeGroup 'com.github.DreamcastERA1.BlackSkija' }
+	}
 }
 
 dependencies {
@@ -18,6 +24,13 @@ dependencies {
 	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 	implementation "net.fabricmc:fabric-language-kotlin:${project.flk_version}"
+
+	// BlackSkija: the renderer every screen and the HUD draw through. `implementation` puts it on the
+	// compile classpath (skija-shared and types arrive transitively); `include` nests the mod jar, so
+	// the two people running this still install exactly one file. Its own published jar already nests
+	// skija-shared and types, so this single coordinate is the whole runtime dependency.
+	implementation "com.github.DreamcastERA1.BlackSkija:blackskija-${project.minecraft_version}:${project.blackskija_version}"
+	include "com.github.DreamcastERA1.BlackSkija:blackskija-${project.minecraft_version}:${project.blackskija_version}"
 
 	testImplementation "net.fabricmc:fabric-loader-junit:${project.loader_version}"
 }
