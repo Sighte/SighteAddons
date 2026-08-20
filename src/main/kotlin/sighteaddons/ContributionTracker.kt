@@ -154,6 +154,23 @@ class TrackedRoom(val type: RoomType, val mapSegments: Set<Pos>, val cells: Set<
         return at - stay.lastSeen - 1 <= ContributionTracker.MIN_TICKS
     }
 
+    /**
+     * One member's current stay, as the two run ticks that decide [presentFromStart].
+     *
+     * The only reason [stays] has a reader at all: `clear_record` has to be able to say *how far* a
+     * refusal missed by, and the whole of that distance is the gap between [lastSeen] and the tick the
+     * checkmark landed on. A predicate answers yes or no; a measurement needs the number.
+     *
+     * Deliberately **not** the [Stay] itself and deliberately not a second copy of the predicate. This
+     * hands over two integers and decides nothing — [RoomHistory.ownClear] stays the one place that
+     * says what they mean, which is what keeps the five conditions in that function the only five there
+     * are.
+     */
+    class Seen(val start: Int, val lastSeen: Int)
+
+    /** [Seen] for one member, or null if this room has never seen them. */
+    fun seen(player: String): Seen? = stays[player]?.let { Seen(it.start, it.lastSeen) }
+
     var clearedAtTick: Int? = null
     var secretsAtTick: Int? = null
     var pointsAwarded = false

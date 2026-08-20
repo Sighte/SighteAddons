@@ -176,12 +176,21 @@ object RoomHistory {
         // room are awarded in ContributionTracker, not here.
         if (room.type == RoomType.BLOOD) return
 
-        val eligible = room.ticks.filterValues { it >= ContributionTracker.MIN_TICKS }
-        val (topPlayer, topTicks) = eligible.maxByOrNull { it.value } ?: return
-
         val self = Minecraft.getInstance().player?.name?.string
+        val eligible = room.ticks.filterValues { it >= ContributionTracker.MIN_TICKS }
+        val top = eligible.maxByOrNull { it.value }
+        if (top == null) {
+            // Nobody reached the one-second floor, so there is nobody to attribute the room to. Logged
+            // on the way out rather than only returned, because the identity in [logDecision] is what
+            // makes the count trustworthy, and an early return that says nothing is a hole in it.
+            logDecision(room, self, topPlayer = null, mine = false)
+            return
+        }
+        val (topPlayer, topTicks) = top
+
         val ownTicks = self?.let { room.ticks[it] } ?: 0
         val mine = ownClear(room, self, topPlayer)
+        logDecision(room, self, topPlayer, mine)
         // Appended first and unconditionally *given the gate*: the chat settings below hide the
         // message, never the record. A silenced chat that also stopped writing history would lose
         // runs for good. The gate is not a chat setting — it is the question of whether there is a
@@ -201,6 +210,70 @@ object RoomHistory {
         if (Config.ownPbsOnly && pb == null) return
 
         announce(clearLine(topPlayer, room.label(), topTicks, eligible.size - 1, pb))
+    }
+
+    /**
+     * Every non-blood clear and the numbers its record decision was made from. Measurement, not verdict.
+     *
+     * ### Why there is no reason field
+     *
+     * The obvious shape for this is an enum naming which of [ownClear]'s five conditions refused, and
+     * it is the wrong one twice over. It would be a **second copy of the predicate** — and `CLAUDE.md`
+     * names that function as one of the things not to touch, because the five lines are individually
+     * probeable and `build/recordprobe.py` deletes them one at a time by their literal text. A verdict
+     * computed beside them is a verdict that can disagree with them, and the disagreement would look
+     * exactly like data.
+     *
+     * So this ships the inputs and lets the reader do the arithmetic. Every refusal is recoverable:
+     *
+     *  - `self` null — the local player was not resolvable
+     *  - `self != top` — a teammate did the room, which is the ordinary case in a party
+     *  - `ownTicks` under [ContributionTracker.MIN_TICKS] — walked through rather than worked
+     *  - `clearTick` null — the room arrived here without a stamp, which should not happen
+     *  - `enterTick` null, or `stayStart` null, or `stayStart` after `enterTick`, or
+     *    `sinceSeen - 1` over [ContributionTracker.MIN_TICKS] — the four halves of
+     *    [TrackedRoom.presentFromStart]
+     *
+     * ### The number this exists for
+     *
+     * `sinceSeen` is how long the local player had been out of the room when the checkmark landed. A
+     * puzzle you finish and walk out of, whose checkmark arrives seconds later, refuses on exactly this
+     * and on nothing else — and until now it refused *silently*: no line said the record had been
+     * dropped, and the clear time itself is never wrong, so there was nothing to notice. What this
+     * cannot say is how long that delay actually is, which is the whole point of measuring before
+     * changing anything.
+     *
+     * ### One line per clear, not one per refusal
+     *
+     * `mine` rides on the line rather than deciding whether there is one, so the base rate is in the
+     * same place as the exceptions: **the number of these lines equals the number of non-blood clears**,
+     * and the ones with `mine: true` and `named: true` equal the attempts appended to `history.jsonl`.
+     * A count that can be checked against something is worth more than one that has to be believed.
+     *
+     * Pseudonymised like every other name in this log ([Pseudonym]); `self` and `top` are still
+     * comparable to each other, which is all the "was it mine" question needs.
+     */
+    private fun logDecision(room: TrackedRoom, self: String?, topPlayer: String?, mine: Boolean) {
+        if (!DebugLog.enabled) return
+        val at = room.clearedAtTick
+        val seen = self?.let { room.seen(it) }
+        DebugLog.event(
+            "clear_record",
+            "room" to room.label(),
+            "type" to room.type,
+            "mine" to mine,
+            // A room whose chunk never streamed has no name, and `record` refuses one — so a `true`
+            // here with a `false` there is the third way a clear goes unrecorded.
+            "named" to (room.name != null),
+            "self" to self?.let(Pseudonym::of),
+            "top" to topPlayer?.let(Pseudonym::of),
+            "ownTicks" to (self?.let { room.ticks[it] } ?: 0),
+            "topTicks" to (topPlayer?.let { room.ticks[it] } ?: 0),
+            "clearTick" to at,
+            "enterTick" to room.enteredAtTick,
+            "stayStart" to seen?.start,
+            "sinceSeen" to (if (seen != null && at != null) at - seen.lastSeen else null),
+        )
     }
 
     /**

@@ -7,6 +7,31 @@
 Datei. `RunReport.SCHEMA` 6, der Receiver akzeptiert `idleTicks`/`navTicks` als optional und ist
 deployt — **dem Receiver ist nichts geschuldet.**
 
+**Offen und als naechstes zu messen: `clear_record`.** Ein Puzzle, das man verlaesst, bevor der
+Checkmark kommt, verliert seinen Record — `presentFromStart` verlangt, dass man beim Checkmark
+hoechstens `MIN_TICKS + 1` = 21 Ticks (1,05 s) draussen war, und der Checkmark ist das einzige
+Clear-Signal. Die Zeit selbst ist nie falsch (`room.ticks[self]` zaehlt nur Anwesenheit), die
+ClearPoints auch nicht (`award` fragt die Anwesenheit beim Checkmark nicht), und Hypixels Score erst
+recht nicht (`LiveScore` liest die Sidebar). Weg ist der **ganze Attempt** in `history.jsonl`, das
+Popup, und mit `own PBs only` auch die Chat-Zeile.
+
+**Bewusst noch nicht gefixt, sondern instrumentiert.** `RoomHistory.logDecision` schreibt eine Zeile
+pro Non-Blood-Clear mit `mine`, `named`, `self`/`top`, `ownTicks`, `clearTick`, `enterTick`,
+`stayStart` und **`sinceSeen`** — wie lange man beim Checkmark schon draussen war. **Kein
+`reason`-Feld, und das ist die Entscheidung:** ein Verdikt neben `ownClear` waere eine zweite Kopie
+des Praedikats, und `CLAUDE.md` nennt genau diese fuenf Zeilen als nicht anzufassen, weil
+`build/recordprobe.py` sie einzeln loescht. Alle 21 Anker sind geprueft und intakt; `ownClear` und
+`presentFromStart` sind unveraendert. Die Rekonstruktion steht in `build/clearrefused.py` und
+**prueft sich gegen das `mine` der Mod** — eine `DISAGREEMENT`-Zeile heisst, das Skript ist
+abgedriftet, nicht die Mod.
+
+Eine Zeile pro Clear und nicht pro Ablehnung, damit die Identitaet gilt: *Zeilen = Non-Blood-Clears*,
+und *`mine` und `named` = Attempts in `history.jsonl`*. Naechster Schritt: ein Floor mit
+`0.17.0-dev18`, dann `python build/clearrefused.py`. Die Zahl, die die Entscheidung traegt, ist
+`worst` pro Raum — eine Toleranz muss den schlimmsten Fall decken, nicht den Median. Danach A
+(Toleranz fuer Puzzles) oder B (Record auf die letzte Anwesenheit stempeln, aendert aber, was `clear`
+bedeutet — und "keine Metrik wird umdefiniert" steht in `CLAUDE.md`).
+
 **Seit 20.08.: die Settings-Seiten tragen ihre Erklaerungen nicht mehr auf der Seite.** 22 der 28
 grauen Saetze sind `Item.notes` und erscheinen als Tooltip, solange der Cursor auf der Zeile liegt —
 die Seiten waren doppelt so lang wie die Einstellungen darauf, und der Schalter, fuer den jemand kam,
