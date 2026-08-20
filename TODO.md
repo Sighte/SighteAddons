@@ -11,19 +11,21 @@ Alles, was zwischen 0.16.0 und hier passiert ist, steht in `git log`: Splits-Por
 Split-PBs, die Solo-Clear-Ankündigung, `/sa import`, HUD-Scaling, das Icon, und der Key, der aus der
 Mod verschwunden ist. Diese Datei trägt nur noch, was **nicht** erledigt ist.
 
-## Der eine offene Deploy — `secrets-001`
+## `secrets-001` ist live — gemessen, nicht gelesen
 
-**Die Receiver-Hälfte ist nicht deployt** (`skyblock-server`, in `master`, aber `SIGHTE_HYPIXEL_KEY`
-fehlt in `/etc/sighte-ingest.env`, `chmod 600`, dann Restart). Ohne die Variable antwortet
-`GET /v1/secrets/<uuid>` mit `503`.
+`GET /v1/secrets/<uuid>` antwortet **`200`**: `SIGHTE_HYPIXEL_KEY` liegt seit 20.08. 07:22 UTC in
+`/etc/sighte-ingest.env`, der Dienst wurde 07:28 neu gestartet, und im Journal der Box stehen fuenf
+Lookups pro Run, zuletzt 18:45 UTC auf einer Fuenfer-Party. Hypixel nimmt den Key an. **Dem Receiver
+ist nichts geschuldet, auch hierfuer nicht.**
 
-Die Mod hat **keinen Key mehr und keinen Weg, einen einzutragen** — es gibt also keinen Rückfall auf
-einen Override, den es früher gab. Bis der Key auf der Box liegt, stehen Mitspieler-Secrets in der
-Zusammenfassung als Strich, genau wie vor dem Feature. Das ist leise, aber nicht kaputt: `404` latcht
-`boxRouteMissing` für die Sitzung, `502`/`503` latchen nicht, und `secret_api_baseline` trägt `via`.
+Diese Lookups kommen aus dem Dev-Jar, also laeuft die Mod-Haelfte im Spiel — der Request-Pfad ist
+damit verifiziert. Was ein Auge noch klaeren muss, ist die Anzeige: ob die Differenz aus zwei
+Lesungen bei einem Mitspieler eine plausible Zahl ergibt, statt eines Strichs oder einer Null.
 
-Regel 1 bleibt: Receiver zuerst. Ein Release der Mod-Hälfte ohne den Key liefert das Feature dunkel
-aus, und das ist eine Entscheidung, keine Panne.
+**Das `TODO.md` im `skyblock-server` sagt weiter „Nicht deployt" und ist falsch.** Es beschreibt den
+Stand des Branches, nicht den der Box, und hat es beim 1.0.0-Checkup fast in die Release-Notes
+geschafft. Ein Deploy-Status, der nur in einer Datei steht, ist keiner: `journalctl -u sighte-ingest`
+ist der Beweis.
 
 ## Nie im Spiel gesehen
 
