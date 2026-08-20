@@ -7,6 +7,27 @@
 Datei. `RunReport.SCHEMA` 6, der Receiver akzeptiert `idleTicks`/`navTicks` als optional und ist
 deployt — **dem Receiver ist nichts geschuldet.**
 
+**Seit 20.08.: die Settings-Seiten tragen ihre Erklaerungen nicht mehr auf der Seite.** 22 der 28
+grauen Saetze sind `Item.notes` und erscheinen als Tooltip, solange der Cursor auf der Zeile liegt —
+die Seiten waren doppelt so lang wie die Einstellungen darauf, und der Schalter, fuer den jemand kam,
+stand unter der Falz. Der Footer ist die einzige Stelle, die das sagt (`click to change · hover for
+the detail`); ein Marker auf jeder Zeile mit Erklaerung waere genau das Rauschen wieder, das
+Weglassen beseitigt hat.
+
+**Sechs bleiben Zeilen, und die Grenze ist nicht Geschmack.** `note()` erklaert, *was* eine Zeile ist,
+und ist derselbe Satz fuer immer — das kann hinter einem Cursor warten. `state()` sagt, was die Zeile
+*gerade tut*: `<name> rides on every report`, `unbound and closed: nothing below can show`, was ein
+Scrim unter der gemessenen Kontrastschwelle kostet. Die drei Consent-Zeilen (`uploadName`,
+`soloClears`, `runPbs`) muessen **vor** dem Klick lesbar sein — das steht seit ihrer Einfuehrung so im
+Code —, und eine Warnung, die man erst mit dem Cursor findet, findet man zu spaet.
+
+Nebenbei zwei Fehlzuordnungen repariert, die als Zeile nicht auffielen: `138 and 20 are inherited and
+unverified` sass ueber den zwei Steppern und haengt jetzt an jedem, und `kept in soloclears.jsonl`
+sass unter der Score-Zeile statt am Schalter. `note()` sucht die letzte Zeile, die *keine* `NOTE` ist,
+damit die Reihenfolge am Call-Site frei bleibt. Und der Footer wird jetzt auf die Content-Spalte
+gekuerzt — er war der eine String ohne Scissor und ohne `fit`, also lief ein langer Satz bei 320x240
+quer ueber den restlichen Bildschirm.
+
 **Seit 20.08.: jeder Record ist in `/sa` sichtbar, und die Seite hat dafür eine Ebene bekommen.** Die
 zwei PB-Stores waren vorher nur zwei Zahlen in `debug` → `data` — `split records: 27` und
 `run records: 4`, und kein Weg zu dem, was dahinter steht. Jetzt gibt es drei Tabellen hinter *einem*

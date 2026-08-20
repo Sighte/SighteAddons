@@ -38,6 +38,15 @@ internal object SettingsPage {
      * [SECTION] and [NOTE] are the structure, [TOGGLE] to [SLIDER] are the controls, and [STAT] is a
      * figure with its sample beside it — the stats overview's only line kind, here rather than in its
      * own list so both pages share the loop and the scroll.
+     *
+     * **[NOTE] is no longer what explains a row.** An explanation is [Item.notes] now and appears in a
+     * tooltip while the cursor is on the row, because thirty-odd permanent grey sentences made the
+     * pages twice as long as the settings on them and pushed the switch somebody came for below the
+     * fold. What is left on a [NOTE] line is the handful of sentences that are *not* explanations but
+     * statements about the current value — what a consent switch is sending right now, what a low scrim
+     * costs, which rows below are inert because the panel above them is closed. Those have to be
+     * readable without a cursor on them: a switch that publishes a name has to be legible before the
+     * click, not after somebody sees their name on a board.
      */
     enum class Kind { SECTION, NOTE, TOGGLE, ACTION, INFO, STEPPER, SLIDER, STAT }
 
@@ -66,6 +75,21 @@ internal object SettingsPage {
         val slide: ((fraction: Float) -> Unit)? = null,
     ) {
         /**
+         * What this row does, in a sentence or two, shown as a tooltip while the cursor is on it.
+         *
+         * **A property filled after construction rather than a constructor argument, and that is a
+         * builder buffer and not shared state.** An explanation is written *after* the row it explains
+         * in every one of these pages — that is the order somebody reads them in and the order they
+         * were in when they were lines — so the builder adds the row and then hangs its sentences off
+         * it. Every page but the stats overview is rebuilt from scratch each frame and none of them is
+         * kept across one, so nothing here outlives the frame that filled it.
+         *
+         * A list rather than one string because several rows have two things worth saying, and
+         * `Tooltip` already draws as many lines as it is handed.
+         */
+        val notes = ArrayList<String>()
+
+        /**
          * How tall this line is.
          *
          * A [Kind.STAT] with a bar is taller by exactly the bar: the bar sits under the figure it
@@ -88,7 +112,12 @@ internal object SettingsPage {
     /** A control row. Tall enough for a switch that is still a switch at GUI scale 4. */
     const val ROW = 20
 
-    /** An explanation under the row it explains. One line, never wrapped — see the screen's `note`. */
+    /**
+     * A statement about the current value, under the row it belongs to. One line, never wrapped.
+     *
+     * Not an explanation any more — see [Kind] and [Item.notes]. What still earns a line of its own is
+     * a sentence a reader must not have to go looking for.
+     */
     const val NOTE = 11
 
     /**

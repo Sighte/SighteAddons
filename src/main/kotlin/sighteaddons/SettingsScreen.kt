@@ -248,13 +248,18 @@ class SettingsScreen(
     private var cachedRunLines: List<PbTable.Line> = emptyList()
 
     /**
-     * The tooltip owed to this frame, if any: a room name the column had to cut off.
+     * The tooltip owed to this frame, if any: a row's explanation, or a name a column had to cut off.
      *
      * Deferred rather than drawn where it is discovered, because the row that discovers it is inside the
-     * table's scissor and a tooltip clipped to the list it came from is a tooltip nobody can read. It is
+     * list's scissor and a tooltip clipped to the list it came from is a tooltip nobody can read. It is
      * cleared at the top of every frame, so a stale one cannot outlive the row that asked for it.
+     *
+     * One field and one tooltip per frame, which is what makes the priority between the two callers
+     * decidable at all: [hint] runs before the row is drawn, so a value the row had to truncate takes
+     * the box off it. A name with nothing behind it is more urgent than a sentence that is the same
+     * sentence every time.
      */
-    private var tooltipText: String? = null
+    private var tooltipLines: List<String>? = null
     private var tooltipX = 0
     private var tooltipY = 0
 
@@ -383,18 +388,24 @@ class SettingsScreen(
             renderPlacing(graphics, it)
             return
         }
-        tooltipText = null
+        tooltipLines = null
 
         renderRail(graphics, mouseX, mouseY)
         renderHeader(graphics)
 
         if (tab == Tab.RECORDS) renderRecords(graphics, mouseX, mouseY) else renderPage(graphics, mouseX, mouseY)
 
-        graphics.text(font, footer(), contentLeft, height - Frame.MARGIN - Tokens.SPACE_6, Tokens.textTertiary, false)
+        // Truncated to the content column like every other line on this screen. It was the one string
+        // drawn with neither a scissor nor a fit, so a sentence longer than the column — and at the
+        // vanilla minimum the column is 168 pixels — was painted across the rest of the screen.
+        graphics.text(
+            font, fit(footer(), content), contentLeft, height - Frame.MARGIN - Tokens.SPACE_6,
+            Tokens.textTertiary, false,
+        )
 
         // Last, and outside every scissor: a floating surface that is clipped to the list it describes
         // is not floating.
-        tooltipText?.let { Tooltip.draw(graphics, font, tooltipX, tooltipY, width, height, listOf(it)) }
+        tooltipLines?.let { Tooltip.draw(graphics, font, tooltipX, tooltipY, width, height, it) }
     }
 
     /** The nav rail. Each entry carries its own hover and its own selected indicator. */
@@ -463,11 +474,36 @@ class SettingsScreen(
             val item = items[index]
             val y = bodyTop + tops[index] - scroll
             if (y + item.height <= bodyTop || y >= listBottom) continue
+            // Before the row is drawn, so a value the row has to truncate can still take the tooltip
+            // off it — see [tooltipLines].
+            hint(item, y, mouseX, mouseY)
             drawItem(graphics, item, y, mouseX, mouseY)
         }
         graphics.disableScissor()
 
         Controls.scrollbar(graphics, lastX + Tokens.SPACE_6, bodyTop, listBottom, total, pageHeight, scroll)
+    }
+
+    /**
+     * Owes the frame this row's explanation, if the cursor is on the row and the row has one.
+     *
+     * **In the loop rather than in [drawControl], and that is the reason there is a function.** A note
+     * hangs off whatever row it was written under, and that includes the rows nothing can click — the
+     * upload id, the line that says the history is written whatever the switch does. [drawControl]
+     * computes its hover from [SettingsPage.Item.interactive], because a hover *wash* is the signal
+     * that a row is a control and a fact must not carry one; a tooltip is not that signal and must not
+     * inherit that condition.
+     *
+     * **Instant, with no dwell.** Every other tooltip on this screen appears the moment the cursor is
+     * over what owes it, and a settings row whose explanation arrived on a delay would be the one place
+     * a hand had to learn to wait. The band check is what keeps a row scrolled half under the header
+     * from answering for a cursor that is over the header.
+     */
+    private fun hint(item: SettingsPage.Item, y: Int, mouseX: Int, mouseY: Int) {
+        if (item.notes.isEmpty()) return
+        if (mouseY !in bodyTop until listBottom) return
+        if (mouseX !in rowLeft..lastX || mouseY !in y until (y + item.height)) return
+        tooltip(item.notes, mouseX, mouseY)
     }
 
     private fun drawItem(graphics: GuiGraphicsExtractor, item: SettingsPage.Item, y: Int, mouseX: Int, mouseY: Int) {
@@ -1292,7 +1328,7 @@ class SettingsScreen(
         // screen whose cost is invisible in the room it is set in: a card that reads perfectly against
         // the black corridor behind the settings screen is the same card over a snow floor.
         if (Config.hudScrim < Tokens.SCRIM_CONTRAST_PERCENT) {
-            note("under ${Tokens.SCRIM_CONTRAST_PERCENT} % the smallest grey text can drop below 4.5:1")
+            state("under ${Tokens.SCRIM_CONTRAST_PERCENT} % the smallest grey text can drop below 4.5:1")
         }
 
         section("lines on the card")
@@ -1313,7 +1349,7 @@ class SettingsScreen(
         // permanently switches it on once instead of pressing a key every session — see
         // Config.totalsOpen for why it used to be neither.
         toggle("show the panel", Config.totalsOpen) { Config.totalsOpen = !Config.totalsOpen }
-        note(
+        state(
             if (Config.totalsOpen) {
                 "stays open — in every run, and after a restart"
             } else {
@@ -1331,7 +1367,7 @@ class SettingsScreen(
             // Three states and three sentences, because the useless one is a *pair* of settings rather
             // than either of them: a closed panel with an unbound key is the case where switching on
             // "idle & nav" does nothing at all, and it is the only case worth a warning.
-            note(
+            state(
                 when {
                     !key.isUnbound -> "press it in a run to open and close the panel"
                     Config.totalsOpen -> "the panel is open above, so this is optional"
@@ -1363,7 +1399,10 @@ class SettingsScreen(
         // arithmetic about something that is not going to be drawn.
         if (Config.stormTimer) {
             place(Target.TIMER)
-            note("138 and 20 are inherited and unverified")
+            // On both steppers rather than once above them. As a line it sat over the pair and read
+            // as being about both; as a tooltip it has to be on the row a hand is actually over, and
+            // the row a hand is over is one of the two numbers the sentence is about.
+            val inherited = "138 and 20 are inherited and unverified"
             stepper(
                 "countdown", Config.stormCountdownTicks, StormTimer.COUNTDOWN_MIN, StormTimer.COUNTDOWN_MAX,
             ) { back ->
@@ -1371,11 +1410,13 @@ class SettingsScreen(
                     Config.stormCountdownTicks, StormTimer.COUNTDOWN_MIN, StormTimer.COUNTDOWN_MAX, back,
                 )
             }
+            note(inherited)
             stepper("shoot window", Config.stormShootTicks, StormTimer.SHOOT_MIN, StormTimer.SHOOT_MAX) { back ->
                 Config.stormShootTicks = StormTimer.step(
                     Config.stormShootTicks, StormTimer.SHOOT_MIN, StormTimer.SHOOT_MAX, back,
                 )
             }
+            note(inherited)
         }
 
         // Its own section rather than another row under "elsewhere on screen", because it is five
@@ -1441,7 +1482,7 @@ class SettingsScreen(
         // What would actually leave the machine, which the previous version computed and then never
         // drew: its renderer chose a toggle whenever a row had one, and the string was dead code
         // behind a KDoc promising it was legible before the click. A note is where it fits.
-        note(uploadName())
+        state(uploadName())
         info("your upload id", Config.installId)
         note("all the server knows about you hangs off this")
 
@@ -1449,6 +1490,10 @@ class SettingsScreen(
         // A separate consent from the two above, not a sub-setting of them: this one puts a name and a
         // time in a chat channel other people read, which is not what a run report does.
         toggle("announce in discord", Config.soloClears) { Config.soloClears = !Config.soloClears }
+        // Moved up onto the switch it is about. It used to be the last line of the section, which is
+        // where a line can sit and a tooltip cannot: nobody hovers the score row to find out where a
+        // solo clear is written down.
+        note("kept in soloclears.jsonl, the boss never counts")
         // Three stops rather than a free number: S+ and S are the two thresholds anybody means, and 0
         // is "announce everything". A stepper over 0..300 would offer 298 as if it meant something.
         action("minimum score", scoreGate()) {
@@ -1458,15 +1503,14 @@ class SettingsScreen(
                 else -> 0
             }
         }
-        note(soloClears())
-        note("kept in soloclears.jsonl, the boss never counts")
+        state(soloClears())
 
         section("run records", if (Config.runPbs) "on the leaderboard" else "kept here only")
         // A third consent and not a sub-setting of the two above: this one is a standing public row
         // with a name on it, where a report is anonymous and an announcement is one line in a channel.
         // Config.runPbs argues it in full; this row is where a hand reaches it.
         toggle("send new bests", Config.runPbs) { Config.runPbs = !Config.runPbs }
-        note(runPbs())
+        state(runPbs())
         note("recorded either way, in runpbs.jsonl, per floor and party size")
 
         // **Blank is the normal state now, not a missing prerequisite.** The heading used to read
@@ -1558,7 +1602,31 @@ class SettingsScreen(
     private fun MutableList<SettingsPage.Item>.section(title: String, meta: String = "") =
         add(SettingsPage.Item(SettingsPage.Kind.SECTION, title, meta = meta))
 
-    private fun MutableList<SettingsPage.Item>.note(text: String) =
+    /**
+     * What the row above does, for the tooltip that appears when the cursor is on it.
+     *
+     * **The last row that is a row.** A [state] line is itself a sentence about the row above it, so a
+     * note landing on one would be an explanation of an explanation — and nothing would ever show it,
+     * because a hand hovers the switch and not the grey line under it. Skipping back past them is what
+     * lets the two be written in whichever order reads best at the call site.
+     *
+     * Nothing at all if there is no row yet, which is a source mistake rather than a state: a lost
+     * sentence is a page that still works, and a settings screen must not be the thing that crashes.
+     */
+    private fun MutableList<SettingsPage.Item>.note(text: String) {
+        lastOrNull { it.kind != SettingsPage.Kind.NOTE }?.notes?.add(text)
+    }
+
+    /**
+     * A sentence that stays on the page as its own line, because it is about the current value.
+     *
+     * The whole of the distinction [SettingsPage.Kind] now draws: [note] explains what a row *is* and
+     * is the same sentence forever, so it can wait behind a cursor. This says what the row is *doing* —
+     * `$name rides on every report`, `unbound and closed: nothing below can show`, what a scrim under
+     * the measured contrast floor costs — and a reader who has to hover to find that out is a reader
+     * who finds it out too late.
+     */
+    private fun MutableList<SettingsPage.Item>.state(text: String) =
         add(SettingsPage.Item(SettingsPage.Kind.NOTE, text))
 
     private fun MutableList<SettingsPage.Item>.toggle(label: String, on: Boolean, click: () -> Unit) =
@@ -2045,8 +2113,10 @@ class SettingsScreen(
     private fun fit(text: String, room: Int): String = font.plainSubstrByWidth(text, room.coerceAtLeast(0))
 
     /** Owes this frame a tooltip. Anything a column cut off says so the same way. */
-    private fun tooltip(text: String, mouseX: Int, mouseY: Int) {
-        tooltipText = text
+    private fun tooltip(text: String, mouseX: Int, mouseY: Int) = tooltip(listOf(text), mouseX, mouseY)
+
+    private fun tooltip(lines: List<String>, mouseX: Int, mouseY: Int) {
+        tooltipLines = lines
         tooltipX = mouseX
         tooltipY = mouseY
     }
@@ -2067,11 +2137,15 @@ class SettingsScreen(
 
     private fun footer(): String = when {
         tab == Tab.STATS -> "everything here comes from history.jsonl"
-        tab != Tab.RECORDS -> "click a row to change it"
+        // **The one place the settings pages say their explanations exist.** With the sentences off the
+        // page there is nothing on it that says hovering a row does anything, and a marker on every row
+        // that has one would put back the clutter taking the sentences off did away with. A hint line
+        // already exists, and this is what it is for.
+        tab != Tab.RECORDS -> "click to change · hover for the detail"
         // The two personal-best views come before the two narrowings, because they have neither: a
         // footer promising that escape clears a search would be promising it on a view with no search.
-        view == View.SPLITS -> "every split's best, in the order the run happens"
-        view == View.RUNS -> "hypixel's clear time, and our own where there was none"
+        view == View.SPLITS -> "the best of every split, in the run's order"
+        view == View.RUNS -> "hypixel's clock, and ours where there was none"
         query.isNotEmpty() -> "esc clears the search"
         filter != RecordTable.Filter.ALL -> "esc shows every room"
         else -> "type to search · click a room for its detail"
