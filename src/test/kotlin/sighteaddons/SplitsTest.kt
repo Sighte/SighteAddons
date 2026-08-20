@@ -132,6 +132,53 @@ class SplitsTest {
         assertEquals(false, readout(20_000L, 400L)?.hasBossEntry)
     }
 
+    /**
+     * The lag figure is the two columns subtracted, and it refuses the one run it would be wrong about.
+     *
+     * **The dangerous case is a run with no ticks at all.** The subtraction is wall clock minus tick
+     * span, so a span that never saw a keep-alive ping would report the *whole run* as time lost to lag
+     * — the largest possible wrong number, on the row that claims to explain why a run felt slow.
+     * `hasLag` is what keeps that row off the panel, and it is the half of this that no amount of
+     * looking at a good run would catch.
+     *
+     * The clamp is the other half: ticks arrive in bursts after the server has been behind, so a span
+     * can hold more ticks than wall-clock time allows, and a negative reading would print as time
+     * *gained* to lag.
+     */
+    @Test
+    fun `the lag figure is the wall clock minus the server ticks`() {
+        // 20 ticks per second, so a clean 20 second span is 400 ticks and nothing was lost.
+        assertEquals(0L, Splits.lostToLag(20_000L, 400L))
+        // The same span with 60 ticks missing: three seconds of it were the server being behind.
+        assertEquals(3_000L, Splits.lostToLag(20_000L, 340L))
+        // A burst that overshoots is not time gained.
+        assertEquals(0L, Splits.lostToLag(20_000L, 440L))
+
+        // And on a real chain: 84 seconds of wall clock against 1,590 ticks (79.5 s) is 4.5 s of lag,
+        // taken from the run's two ends rather than accumulated per split — the spans telescope.
+        startRun("F7")
+        Splits.onChat(mort, 10_000L, 200L)
+        Splits.onChat(bloodDoor, 30_000L, 590L)
+        Splits.onChat(watcherPass, 90_000L, 1_600L)
+        Splits.onChat(maxor, 94_000L, 1_790L)
+        val lagged = readout(94_000L, 1_790L)!!
+        assertEquals(84_000L, lagged.totalMs)
+        assertEquals(1_590L, lagged.totalTicks)
+        assertEquals(4_500L, lagged.lagMs)
+        assertEquals(true, lagged.hasLag)
+        assertEquals("0:04.5", lagged.lagText)
+
+        // A run whose ticks never moved has nothing to subtract, and must not report its own length as
+        // lag. The panel and the summary both hang off this.
+        Splits.reset()
+        startRun("F7", atMs = 1_000L, atTicks = 0L)
+        Splits.onChat(mort, 10_000L, 0L)
+        val blind = readout(30_000L, 0L)!!
+        assertEquals(20_000L, blind.totalMs)
+        assertEquals(0L, blind.totalTicks)
+        assertEquals(false, blind.hasLag, "a run with no tick reading claims no lag")
+    }
+
     @Test
     fun `master mode uses the F floor lines and keeps its own records`() {
         startRun("M7")

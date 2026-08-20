@@ -2,7 +2,7 @@
 
 ## Stand — 2026-08-19
 
-`main` = **449 Tests / 41 Klassen / grün**, `mod_version` 0.16.0 released (`v0.16.0`, Modrinth
+`main` = **450 Tests / 41 Klassen / grün**, `mod_version` 0.16.0 released (`v0.16.0`, Modrinth
 `kIbj76Z4`, SHA1 `931b1152…` auf beiden Seiten). `dist/sighteaddons-0.16.0.jar` ist die committete
 Datei. `RunReport.SCHEMA` 6, der Receiver akzeptiert `idleTicks`/`navTicks` als optional und ist
 deployt — **dem Receiver ist nichts geschuldet.**
@@ -65,8 +65,30 @@ Zeilen in `pbs/`. Der Payload ist der Vertrag und steht in `RunPbsTest` Feld fü
 `ts`, `modVersion` — `player`/`time`/`previous`/`totalTicks` fehlen, wenn es sie nicht gibt, statt eine
 erfundene Null zu tragen.
 
-**Zum Testen: `build/libs/sighteaddons-0.17.0-dev14.jar`** (20.08., 449 Tests grün), gebaut mit
-`./gradlew assemble check -Pmod_version=0.17.0-dev14`. `gradle.properties` steht weiter auf `0.16.0`,
+**Seit 20.08. auch: die Lag-Zeile.** Das Panel zeigt seit dem Splits-Port zwei Spalten — links
+Wall-Clock, rechts dieselbe Spanne in Hypixels Server-Ticks —, und die Differenz ist die Zeit, die der
+Run gedauert hat und der Server nicht verbucht hat. `Splits.lostToLag(totalMs, totalTicks)` ist die ganze
+Rechnung, `Readout.lagMs`/`lagText` tragen sie (als **Default-Parameter** aus den beiden Totals, damit
+kein Readout gebaut werden kann, dessen Lag seinen eigenen Spalten widerspricht), Zeile auf dem Panel
+unter `boss entry` und eine Zeile in der Chat-Zusammenfassung unter `total`.
+
+Zwei Dinge daran sind nicht offensichtlich. **Aus den Totals gerechnet, nicht pro Split summiert** — die
+Spannen teleskopieren, das Ergebnis ist identisch, und aus den zwei Enden ist es auch für einen Run
+richtig, dessen mittlere Zeilen fehlen. **`hasLag` ist der gefährliche Teil:** ein Run ohne jede
+Tick-Lesung (kein Keep-Alive-Ping gesehen, also Disconnect) würde sonst die *ganze* Runlänge als
+Lag-Verlust melden — die größtmögliche falsche Zahl, auf genau der Zeile, die erklären soll, warum ein Run
+lang wirkte. Deshalb ist die Zeile dann abwesend statt null, und der Testfall dazu ist der, den kein Blick
+auf einen guten Run findet. Geklammert bei 0, weil Ticks nach einem Hänger im Bündel kommen und eine
+negative Lesung als *gewonnene* Zeit lesen würde.
+
+`Config.splitsLag`, an by default; die Panel-Zeile hängt zusätzlich an `splitsTickTime`, weil die Zahl die
+Differenz der zwei Spalten ist und auf einem Panel mit nur einer davon nichts hätte, woran man sie prüfen
+kann. `Format.MS_PER_TICK` ist von `private` auf `internal` — eine Definition von „ein Tick sind 50 ms".
+Im Leaderboard-Payload muss dafür nichts dazu: `totalMs` und `totalTicks` sind beide drin, die Box kann
+die Differenz selbst bilden.
+
+**Zum Testen: `build/libs/sighteaddons-0.17.0-dev15.jar`** (20.08., 450 Tests grün), gebaut mit
+`./gradlew assemble check -Pmod_version=0.17.0-dev15`. `gradle.properties` steht weiter auf `0.16.0`,
 `dist/` hält unverändert das released 0.16.0.
 
 **Seit 19.08.: `SoloClear`** — jeder solo abgeschlossene Run geht als `POST /v1/solo_clear` an die Box,

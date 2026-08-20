@@ -45,8 +45,13 @@ internal object Format {
     /** A signed split in milliseconds. [delta]'s spelling, [millis]' conversion. */
     fun deltaMillis(deltaMs: Long): String = delta((deltaMs / MS_PER_TICK).toInt())
 
-    /** One tick, in milliseconds. The grid [millis] projects onto. */
-    private const val MS_PER_TICK = 50L
+    /**
+     * One tick, in milliseconds. The grid [millis] projects onto.
+     *
+     * `internal` because [sighteaddons.Splits] needs the same number to subtract a tick span from a
+     * wall-clock one, and two spellings of "a tick is 50 ms" is one of them being wrong later.
+     */
+    internal const val MS_PER_TICK = 50L
 
     /** The one minus sign in this mod. U+2212, never a hyphen — see [delta]. */
     const val MINUS = "−"

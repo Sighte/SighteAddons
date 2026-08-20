@@ -387,10 +387,55 @@ object Splits {
         val hasBossEntry: Boolean,
         val runningRow: Int,
         val floorTag: String,
+        /**
+         * Seconds of this run that were the server being behind — [lostToLag] over the two totals.
+         *
+         * Defaulted from the two fields above rather than passed in, which is the property that matters:
+         * there is no way to build a readout whose lag disagrees with its own columns, and the two
+         * places that construct one — [readout] and [sample] — get it without having to remember it.
+         * Formatted here for [row]'s reason: the panel would otherwise build this string every frame for
+         * a number that changes ten times a second at most.
+         */
+        val lagMs: Long = lostToLag(totalMs, totalTicks),
+        val lagText: String = Format.millis(lagMs),
     ) {
         /** Whether the last mark has landed. A finished run has no running row. */
         val finished get() = runningRow < 0
+
+        /**
+         * Whether there is a lag figure to show at all.
+         *
+         * A run with no tick reading has a wall clock and nothing to subtract from it, and printing the
+         * whole run length as "lost to lag" would be the most wrong number on the card. That happens
+         * when no keep-alive ping was seen for the span — [ServerTicks] counts Hypixel's, so a
+         * disconnect is the case — and it is the one state where this row has to be absent rather than
+         * zero.
+         */
+        val hasLag get() = totalTicks > 0L && totalMs > 0L
     }
+
+    /**
+     * How much of a run was the server running behind, in milliseconds, and never below zero.
+     *
+     * **The whole of the feature is this subtraction.** The panel's left column is wall-clock time and
+     * its right one is the same span in Hypixel's own ticks ([ServerTicks] argues why that is the
+     * comparable number), so what separates them is exactly the time the run took and the server did
+     * not account for. Summing it per split would give the same answer — the spans telescope, and the
+     * two ends of the run are the only readings needed — so it is taken from the totals rather than
+     * accumulated, which is also what makes it right for a run whose middle rows are missing.
+     *
+     * **Clamped at zero, and that is not defensiveness.** Ticks arrive as keep-alive packets and a
+     * server that has been behind can send a burst of them, so a span can briefly show more ticks than
+     * wall-clock time allows. A negative reading would print as time the player *gained* to lag, which
+     * is not a thing; zero is the honest floor.
+     *
+     * What it measures is "time that was not the run being played", which includes this machine's own
+     * connection stalling — those delay the pings identically. From the seat of somebody who watched a
+     * run take longer than it should have, that is the same fact, and pretending to separate them would
+     * need a clock nobody here has.
+     */
+    internal fun lostToLag(totalMs: Long, totalTicks: Long): Long =
+        (totalMs - totalTicks * Format.MS_PER_TICK).coerceAtLeast(0L)
 
     /**
      * A scripted mid-run F7, for the placement editor to drag.
@@ -475,6 +520,10 @@ object Splits {
             Chat.say(line(DungeonSplits.BOSS_ENTRY, readout.bossEntryText, readout.bossEntryMs, null))
         }
         Chat.say(line(DungeonSplits.TOTAL, Format.millis(readout.totalMs), readout.totalMs, results.lastOrNull()))
+        // Last, under the total, because it is a statement *about* the total and not another split. No
+        // record clause: a personal best for having been lagged is not an achievement, and the number
+        // is not the player's to beat.
+        if (readout.hasLag) Chat.say(line(DungeonSplits.LAG, readout.lagText, readout.lagMs, null))
     }
 
     /**
@@ -521,6 +570,9 @@ object Splits {
             "floor" to floorTag,
             "unclosed" to if (readout.finished) null else readout.rows.getOrNull(readout.runningRow)?.name,
             "unstarted" to readout.rows.filter { !it.known }.joinToString(",") { it.name },
+            // Beside the two faults because it explains a third symptom: a run whose wall-clock total
+            // looks wrong against the records was often not a slow run but a lagged one.
+            "lagMs" to readout.lagMs,
         )
     }
 

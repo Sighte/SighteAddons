@@ -1121,6 +1121,10 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             note("mort's line to the boss's first, summed")
             toggle("splits in chat", Config.splitsSendToChat) { Config.splitsSendToChat = !Config.splitsSendToChat }
             note("one line per split when the run ends")
+            toggle("lag row", Config.splitsLag) { Config.splitsLag = !Config.splitsLag }
+            // What the number is, in the row that switches it on: the two columns minus each other,
+            // which is not something a reader can be expected to infer from the word "lag".
+            note("the run's wall clock minus its server ticks, summed")
             toggle("split clock", Config.splitsCurrent) { Config.splitsCurrent = !Config.splitsCurrent }
             note("the running split alone, large, for a boss fight")
             if (Config.splitsCurrent) place(Target.SPLITS_CURRENT)

@@ -81,6 +81,18 @@ internal object DungeonSplits {
     /** [BOSS_ENTRY] as the panel prints it. A constant for [Split.label]'s reason. */
     const val BOSS_ENTRY_LABEL = "BOSS ENTRY"
 
+    /**
+     * The other row that is not a [Split]: how much of the run was the server being behind.
+     *
+     * Not a span of its own but the difference between the two the panel already draws — see
+     * [Splits.lostToLag]. It is named here with the splits because it is a row on their panel and a
+     * line in their summary, and because a name a player reads belongs in one place.
+     */
+    const val LAG = "lag"
+
+    /** [LAG] as the panel prints it. */
+    const val LAG_LABEL = "LAG"
+
     /** [ChatEvents]' own leading-space tolerance, kept for the reason given there. */
     private const val LEAD = """^\s*"""
 

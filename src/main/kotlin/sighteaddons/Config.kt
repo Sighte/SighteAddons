@@ -201,6 +201,19 @@ object Config {
     var splitsSendToChat = true
 
     /**
+     * The lag row: how much of the run was the server being behind — [Splits.lostToLag].
+     *
+     * On, because it is the one number the two time columns already imply and nobody can do in their
+     * head: the panel has shown both readings since the port, and the difference between them is the
+     * part a player actually wants when a run felt slower than it read. Nothing Odin has.
+     *
+     * The row needs the tick column to make sense and [SplitsHud] gates it on that as well; the line at
+     * the end of a run is printed whatever the panel is showing, because a summary is read after the
+     * fact and has no column to sit next to.
+     */
+    var splitsLag = true
+
+    /**
      * The single large clock for the running split — see [SplitsCurrentHud]. Off, as Odin's is: three
      * elements already default to the middle of the screen and a fourth arriving switched on would land
      * on one of them.
@@ -437,6 +450,7 @@ object Config {
             splitsTickTime = obj.bool("splitsTickTime", splitsTickTime)
             splitsBossEntry = obj.bool("splitsBossEntry", splitsBossEntry)
             splitsSendToChat = obj.bool("splitsSendToChat", splitsSendToChat)
+            splitsLag = obj.bool("splitsLag", splitsLag)
             splitsCurrent = obj.bool("splitsCurrent", splitsCurrent)
             // Records rather than a setting, and read as defensively as one: a malformed floor costs
             // that floor and nothing else. See SplitPbs.read.
@@ -493,6 +507,7 @@ object Config {
         obj.addProperty("splitsTickTime", splitsTickTime)
         obj.addProperty("splitsBossEntry", splitsBossEntry)
         obj.addProperty("splitsSendToChat", splitsSendToChat)
+        obj.addProperty("splitsLag", splitsLag)
         obj.addProperty("splitsCurrent", splitsCurrent)
         SplitPbs.write(obj)
         obj.addProperty("roomMessages", roomMessages)

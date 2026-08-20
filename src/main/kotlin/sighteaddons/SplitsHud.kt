@@ -97,7 +97,7 @@ internal object SplitsHud {
      * screen, as a border that stops above the last row it is supposed to contain.
      */
     internal fun measure(readout: Splits.Readout): Int =
-        PADDING * 2 + (readout.rows.size + if (bossEntryShown(readout)) 1 else 0) * ROW
+        PADDING * 2 + (readout.rows.size + extraRows(readout)) * ROW
 
     /** Split out for the gallery, which has a readout and no screen to place it against. */
     internal fun draw(
@@ -146,11 +146,42 @@ internal object SplitsHud {
             if (Config.splitsTickTime) {
                 time(graphics, font, readout.bossEntryTickText, tickRight, y, Tokens.textTertiary)
             }
+            y += ROW
+        }
+
+        if (lagShown(readout)) {
+            // **In the left column, where wall-clock times live.** The number is milliseconds of wall
+            // clock and belongs under the totals it was subtracted from; the tick column stays empty
+            // because there is no tick figure for it — a lag span counted in ticks is zero by
+            // definition, and printing that would read as "no lag" next to a number saying otherwise.
+            Labels.draw(graphics, font, DungeonSplits.LAG_LABEL, left, y, Tokens.textTertiary)
+            time(graphics, font, readout.lagText, timeRight, y, Tokens.textTertiary)
         }
     }
 
     private fun bossEntryShown(readout: Splits.Readout): Boolean =
         Config.splitsBossEntry && readout.hasBossEntry && readout.bossEntryMs >= 0
+
+    /**
+     * The rows below the splits themselves, which the height has to include.
+     *
+     * Spelled out rather than inlined into [measure]: `if (a) 1 else 0 + if (b) 1 else 0` parses as
+     * `if (a) 1 else (0 + ...)`, which counts the second row only when the first is absent — a border
+     * drawn one row short of what is inside it, which is the exact failure [measure] exists to prevent.
+     */
+    private fun extraRows(readout: Splits.Readout): Int =
+        (if (bossEntryShown(readout)) 1 else 0) + (if (lagShown(readout)) 1 else 0)
+
+    /**
+     * Whether the lag row is drawn.
+     *
+     * Gated on the tick column as well as on its own switch: the number is the difference between the
+     * two columns, and on a panel showing only one of them it would be a figure with nothing on screen
+     * to check it against. Switching the tick column back on is also how a reader finds out where it
+     * came from.
+     */
+    private fun lagShown(readout: Splits.Readout): Boolean =
+        Config.splitsLag && Config.splitsTickTime && readout.hasLag
 
     /** One right-aligned cell, so a column of them stays a column whatever the digits are. */
     private fun time(graphics: GuiGraphicsExtractor, font: Font, text: String, right: Int, y: Int, argb: Int) {
