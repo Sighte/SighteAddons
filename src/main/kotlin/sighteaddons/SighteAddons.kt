@@ -49,6 +49,12 @@ class SighteAddons : ClientModInitializer {
                     .then(ClientCommands.literal("pbs").executes { records(SettingsScreen.View.ROOMS) })
                     .then(ClientCommands.literal("splits").executes { records(SettingsScreen.View.SPLITS) })
                     .then(ClientCommands.literal("runs").executes { records(SettingsScreen.View.RUNS) })
+                    // The one command that *does* something rather than opening something. It is here
+                    // and not only on the debug page because that is where a hand looks for it: an
+                    // import is a thing you do once, on the day you install the mod, and hunting for
+                    // the row that does it means already knowing the row exists. Both ways in run the
+                    // same code and print the same line — see SplitImport.
+                    .then(ClientCommands.literal("import").executes { imports() })
                     .then(ClientCommands.literal("gallery").executes { openGallery() }),
             )
         }
@@ -175,6 +181,19 @@ class SighteAddons : ClientModInitializer {
     private fun records(view: SettingsScreen.View): Int {
         val client = Minecraft.getInstance()
         client.schedule { client.setScreen(SettingsScreen(SettingsScreen.Tab.RECORDS, view)) }
+        return 1
+    }
+
+    /**
+     * Folds a local Odin install's split records into this mod's.
+     *
+     * **Not deferred, unlike [open] and [openGallery].** Those two have to wait because the command
+     * dispatcher closes the chat screen after the callback returns and would take a screen set here
+     * with it. This sets no screen: it reads a file, writes ours, and says one line — and [Chat.say]
+     * does its own scheduling. Deferring it would only move the work a frame later for nothing.
+     */
+    private fun imports(): Int {
+        SplitImport.run()
         return 1
     }
 

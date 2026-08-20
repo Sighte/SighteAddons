@@ -1532,8 +1532,12 @@ class SettingsScreen(
         // done on startup — reading a neighbouring mod's config unprompted is not something anybody
         // asked for, and the answer cannot change while playing — and this page is where the mod's
         // other one-off actions are.
-        action("import from odin", "config/odin/ · run") { importSplitRecords() }
+        // The answer goes to chat rather than into a row that changes, because it has to survive
+        // the screen closing — and because [Chat] is this mod's one place for saying anything at all.
+        // The row and `/sa import` are the same call, so neither can word the outcome differently.
+        action("import from odin", "config/odin/ · run") { SplitImport.run() }
         note("takes the faster of the two, safe to run twice")
+        note("or type /sa import, which is the same thing")
         note("the records themselves are on the records page")
     }
 
@@ -1547,25 +1551,6 @@ class SettingsScreen(
     private fun runPbs(): String = when {
         !Config.runPbs -> "off: bests are recorded, nothing leaves this machine"
         else -> "${minecraft.user.name}, the floor, the party size and the time, on every new best"
-    }
-
-    /**
-     * Folds a local Odin install's split records into this mod's, and says what happened in chat.
-     *
-     * Chat rather than a row that changes, because the answer has to survive the screen closing — and
-     * because [Chat] is this mod's one place for saying anything at all.
-     */
-    private fun importSplitRecords() {
-        val result = SplitPbs.importFromOdin()
-        if (result.changed > 0) Config.save()
-        Chat.say(
-            when {
-                !result.found -> Chat.label("no odin splits config to import from")
-                result.changed == 0 -> Chat.label("odin's split records were already in here")
-                else -> Chat.value(result.changed.toString())
-                    .append(Chat.label(" split records imported from odin"))
-            },
-        )
     }
 
     /**

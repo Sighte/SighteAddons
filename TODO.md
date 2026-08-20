@@ -7,6 +7,26 @@
 Datei. `RunReport.SCHEMA` 6, der Receiver akzeptiert `idleTicks`/`navTicks` als optional und ist
 deployt — **dem Receiver ist nichts geschuldet.**
 
+**Seit 20.08.: `/sa import` holt die Split-PBs aus Odin.** Den Import gab es schon, aber nur als
+Zeile auf der Debug-Seite — und eine Aktion, die man am Tag der Installation einmal macht, findet
+niemand, der nicht schon weiss, dass die Zeile existiert. Beide Wege rufen `SplitImport.run()`, also
+gibt es *eine* Formulierung und nicht zwei, die auseinanderlaufen.
+
+`SplitImport` ist ein eigener kleiner Object und keine Methode an einem der Nachbarn, aus zwei
+Gruenden, die beide bleiben: **`SplitPbs` speichert absichtlich nicht** (steht in seinem eigenen KDoc
+zu `record`, weil eine Chat-Zeile drei Records produziert und der Caller weiss, wann die Datei zu
+schreiben ist), und **`SplitPbs` traegt keine Minecraft-Typen**, was `SplitPbsTest` erst erlaubt,
+`merge` mit den echten Bytes einer echten Odin-Config zu fahren — `Chat` gibt eine `Component`
+zurueck. Auf `SettingsScreen` konnte es auch nicht bleiben: ein Befehl, der durch einen Screen laeuft,
+um eine Datei zu lesen, ist ein Befehl, der einen Screen braucht.
+
+**Gegen die echte Datei geprueft** (Odin 0.3.1, `odin-config.json` vom 20.08.), durch den echten
+Produktionscode und nicht durch eine Nachbildung: 83 Records auf 13 Floors (F2/F3 haben in Odin keine),
+zweiter Lauf aendert **0** — der Merge ist ein Minimum, also idempotent, also gefahrlos zweimal. Die
+`/sa splits`-Tabelle rendert daraus 96 Zeilen (83 Records + 13 Ueberschriften), M7 zuerst, in
+Kettenreihenfolge. Der Wegwerf-Test dafuer ist geloescht; `SplitPbsTest` deckt den Pfad mit einem
+realistischen Fixture ab, und `SplitImport.run()` braucht Chat und ist von hier nicht testbar.
+
 **Offen und als naechstes zu messen: `clear_record`.** Ein Puzzle, das man verlaesst, bevor der
 Checkmark kommt, verliert seinen Record — `presentFromStart` verlangt, dass man beim Checkmark
 hoechstens `MIN_TICKS + 1` = 21 Ticks (1,05 s) draussen war, und der Checkmark ist das einzige
