@@ -166,25 +166,30 @@ internal object Sk {
     // --- Text -----------------------------------------------------------------------------------
 
     /**
-     * Draws [text] with its left edge at [x] and its **baseline** at [y].
+     * Draws [text] with its left edge at [x] and the **top of its line box** at [y].
      *
-     * Baseline rather than top-left, which is the opposite of the vanilla font helper this replaces,
-     * and the change is deliberate: a real font's ascent depends on its size, so "top-left" can only
-     * be honoured by adding an ascent the caller cannot see. Two labels at different sizes aligned by
-     * their tops do not share a baseline, which is the one alignment reading actually depends on.
+     * Top rather than baseline, and this is BlackSkija's convention rather than a choice made here: a
+     * line drawn at [y] occupies `y` through `y + `[lineHeight]. It happens to be the same convention
+     * the vanilla font helper used, which is what makes the call sites migrate almost unchanged — but
+     * only *almost*, because the height of a line is now `ascent + descent` at the real font rather
+     * than a fixed nine pixels. Anything that centred text by hand-subtracting 4 has to ask
+     * [centreY] instead.
+     *
+     * [family] defaults to regular; [Type] says when a heavier one is warranted.
      */
-    fun text(text: String, x: Float, y: Float, size: Float, argb: Int) {
+    fun text(text: String, x: Float, y: Float, size: Float, argb: Int, family: String = Type.REGULAR) {
         if (text.isEmpty()) return
-        Skija.text(text, x, y, size, color(argb))
+        Type.ensure()
+        Skija.text(text, x, y, size, color(argb), family)
     }
 
     /** [text] with its right edge at [x]. */
-    fun textRight(text: String, x: Float, y: Float, size: Float, argb: Int) =
-        text(text, x - width(text, size), y, size, argb)
+    fun textRight(text: String, x: Float, y: Float, size: Float, argb: Int, family: String = Type.REGULAR) =
+        text(text, x - width(text, size, family), y, size, argb, family)
 
     /** [text] centred horizontally on [cx]. */
-    fun textCenter(text: String, cx: Float, y: Float, size: Float, argb: Int) =
-        text(text, cx - width(text, size) / 2f, y, size, argb)
+    fun textCenter(text: String, cx: Float, y: Float, size: Float, argb: Int, family: String = Type.REGULAR) =
+        text(text, cx - width(text, size, family) / 2f, y, size, argb, family)
 
     /**
      * How wide [text] will be drawn at [size].
@@ -193,18 +198,41 @@ internal object Sk {
      * measuring the same label every frame is cheap, and why measuring inside the draw pass is the
      * intended use rather than a compromise. Subject to rule 2 at the top of this file.
      */
-    fun width(text: String, size: Float): Float = if (text.isEmpty()) 0f else Skija.textWidth(text, size)
+    fun width(text: String, size: Float, family: String = Type.REGULAR): Float {
+        if (text.isEmpty()) return 0f
+        Type.ensure()
+        return Skija.textWidth(text, size, family)
+    }
 
     /**
-     * Ascent and descent at [size], as positive distances from the baseline.
+     * The height one line actually occupies at [size]: ascent plus descent.
      *
-     * What lets a caller lay out from a box's top edge and still hand [text] a baseline. Read from
-     * the font rather than approximated as a fraction of the size, because the ratio is a property of
-     * the typeface and quietly wrong for any other one.
+     * **Not [size].** A font size is an em, and the glyphs it rasterises to run to roughly 1.3× it, so
+     * every box sized to `size` clips its own descenders. This is the number every vertical layout in
+     * the UI is built on, and it is read from the font rather than approximated as a fraction, because
+     * the ratio belongs to the typeface and is quietly wrong for any other one.
      */
-    fun ascent(size: Float): Float = -Skija.textMetrics(size)[0]
+    fun lineHeight(size: Float, family: String = Type.REGULAR): Float {
+        Type.ensure()
+        val m = Skija.textMetrics(size, family)
+        return m[0] + m[1]
+    }
 
-    fun descent(size: Float): Float = Skija.textMetrics(size)[1]
+    /** Distance from the top of the line box down to the baseline, for aligning against other art. */
+    fun ascent(size: Float, family: String = Type.REGULAR): Float {
+        Type.ensure()
+        return Skija.textMetrics(size, family)[0]
+    }
+
+    /**
+     * The [text] y that centres one line vertically in a box of [height] starting at [top].
+     *
+     * The single most common vertical calculation on this screen — a row's label against its control,
+     * a value against its cell — and the one most likely to be got wrong by hand, because the naive
+     * `top + (height - size) / 2` is off by the difference between an em and a line.
+     */
+    fun centreY(top: Float, height: Float, size: Float, family: String = Type.REGULAR): Float =
+        top + (height - lineHeight(size, family)) / 2f
 
     /**
      * Truncates [text] to fit [room] pixels at [size], ending in an ellipsis when it had to cut.
@@ -213,15 +241,15 @@ internal object Sk {
      * proportional font needs the same search done against real measurements, and it is done here
      * once rather than at each of the call sites that used to ask the font directly.
      */
-    fun fit(text: String, room: Float, size: Float): String {
+    fun fit(text: String, room: Float, size: Float, family: String = Type.REGULAR): String {
         if (room <= 0f) return ""
-        if (width(text, size) <= room) return text
-        val budget = room - width(ELLIPSIS, size)
+        if (width(text, size, family) <= room) return text
+        val budget = room - width(ELLIPSIS, size, family)
         if (budget <= 0f) return ELLIPSIS
         // Linear from the end rather than a binary search: the strings that reach here are room names
         // and labels, and the cut is usually within a few characters of the full length.
         var end = text.length
-        while (end > 0 && width(text.substring(0, end), size) > budget) end--
+        while (end > 0 && width(text.substring(0, end), size, family) > budget) end--
         return text.substring(0, end).trimEnd() + ELLIPSIS
     }
 

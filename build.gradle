@@ -60,10 +60,20 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 jar {
-	// BSD-3 requires the notice to accompany redistribution in binary form, and Odin's
-	// rooms.json plus the ported core-hash algorithm ship inside this jar.
+	// Every licence here is in the jar because something the jar redistributes requires it there.
+	// Checked against the artefact rather than assumed: BlackSkija's own nested jar already carries
+	// its MIT text, but skija-shared and types carry nothing at all, and both are Apache-2.0 - whose
+	// section 4 wants the licence included in the redistribution doing the carrying.
+	//
+	// BSD-3: Odin's rooms.json and the ported core-hash algorithm.
+	// MIT: the ported DungeonScore, from BlackAddons.
+	// Apache-2.0: Skija and types, nested inside the BlackSkija jar.
+	// OFL-1.1: JetBrains Mono Medium, bundled for the one weight BlackSkija does not ship.
 	from("LICENSE") { rename { "${it}_sighteaddons" } }
 	from("LICENSE-Odin")
+	from("LICENSE-BlackAddons")
+	from("LICENSE-Skija")
+	from("LICENSE-JetBrainsMono")
 }
 
 // Keeps the installable jar in the repo, so the checked-in build can never go stale relative to the
