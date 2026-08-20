@@ -133,9 +133,29 @@ object RunPbs {
     private val best = HashMap<String, Float>()
     private var loaded = false
 
+    /**
+     * How many times this store has changed in this process. A cache key, and nothing else reads it.
+     *
+     * [SplitPbs.revision] argues it: a beaten record leaves [count] where it was and changes the number
+     * beside it, so a size cannot be what a `/sa` table caches on. The first read counts as a change,
+     * because that is when the file arrives.
+     */
+    var revision = 0
+        private set
+
     /** The key a record hangs off. Floor, party size, clock — in the order a person would read them. */
     internal fun key(floor: String, players: Int, clock: Clock): String =
-        "$floor|$players|${clock.key}"
+        "$floor$SEPARATOR$players$SEPARATOR${clock.key}"
+
+    /**
+     * The one character that joins the three halves of a key, and therefore the one that takes it
+     * apart again in [record].
+     *
+     * A constant because there are now two directions through it. A floor tag is `E`, `F1`…`M7` and a
+     * clock is one of two words, so nothing that goes into a key can contain this — but a second
+     * spelling of it would be the kind of thing that stays right until somebody widens one of those.
+     */
+    private const val SEPARATOR = '|'
 
     /** The standing record for one floor, party size and clock, or null. */
     fun best(floor: String, players: Int, clock: Clock): Float? {
@@ -147,6 +167,35 @@ object RunPbs {
     fun count(): Int {
         ensureLoaded()
         return best.size
+    }
+
+    /**
+     * One record on file, with its key taken apart again — the shape the `/sa` runs table reads.
+     *
+     * The store is keyed by a string because that is what makes "the minimum over the file, per key"
+     * one line ([ensureLoaded]), and a screen needs the three fields back. So the key is the record and
+     * this is a view of it, rather than a second store beside it that could disagree.
+     */
+    class Record(val floor: String, val players: Int, val clock: Clock, val seconds: Float)
+
+    /**
+     * Every record on file, in no particular order — [PbTable] is what puts them in one.
+     *
+     * A key this cannot read back is skipped rather than guessed at, for [ensureLoaded]'s reason: the
+     * file is hand-editable, and one malformed row costs that row.
+     */
+    fun records(): List<Record> {
+        ensureLoaded()
+        return best.entries.mapNotNull { (key, seconds) -> record(key, seconds) }
+    }
+
+    /** [key]'s three halves as a [Record], or null for a key of any other shape. */
+    internal fun record(key: String, seconds: Float): Record? {
+        val parts = key.split(SEPARATOR)
+        if (parts.size != 3 || parts[0].isEmpty()) return null
+        val players = parts[1].toIntOrNull()?.takeIf { it > 0 } ?: return null
+        val clock = Clock.entries.firstOrNull { it.key == parts[2] } ?: return null
+        return Record(parts[0], players, clock, seconds)
     }
 
     // --- The run's inputs -------------------------------------------------------------------
@@ -294,6 +343,7 @@ object RunPbs {
     internal fun commit(floor: String, players: Int, clock: Clock, seconds: Float) {
         ensureLoaded()
         best[key(floor, players, clock)] = seconds
+        revision++
     }
 
     // --- The row that leaves -----------------------------------------------------------------
@@ -491,6 +541,7 @@ object RunPbs {
     private fun ensureLoaded() {
         if (loaded) return
         loaded = true
+        revision++
         if (!Files.isRegularFile(FILE)) return
         try {
             Files.readAllLines(FILE).forEach { line ->
@@ -536,6 +587,7 @@ object RunPbs {
     internal fun forget() {
         best.clear()
         loaded = false
+        revision++
         players = 1
         floorTag = null
         totalMs = 0L

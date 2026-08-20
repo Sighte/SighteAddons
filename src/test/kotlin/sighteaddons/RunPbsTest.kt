@@ -2,6 +2,7 @@ package sighteaddons
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -26,6 +27,34 @@ class RunPbsTest {
     /** No file, no network: the store starts empty and stays in memory. */
     @BeforeEach
     fun clean() = RunPbs.useEmptyStore()
+
+    /**
+     * A key survives the round trip, and one that cannot is skipped rather than guessed at.
+     *
+     * The key *is* the record — the store is a map from it to seconds, which is what makes "the minimum
+     * over the file, per key" one line — so the `/sa` runs table has to be able to read all three fields
+     * back out of it. A wrong parse here is a five-man record filed under `solo` on a screen, which is
+     * the same failure the key exists to prevent, one layer up.
+     *
+     * `runpbs.jsonl` is hand-editable, so the refusals matter as much as the round trip: a row this
+     * cannot read costs that row and never the table.
+     */
+    @Test
+    fun `a record key reads back as its three fields`() {
+        val record = RunPbs.record(RunPbs.key("M7", 4, RunPbs.Clock.HYPIXEL), 348f)
+        assertEquals("M7", record?.floor)
+        assertEquals(4, record?.players)
+        assertEquals(RunPbs.Clock.HYPIXEL, record?.clock)
+        assertEquals(348f, record?.seconds)
+
+        assertEquals(RunPbs.Clock.OWN, RunPbs.record(RunPbs.key("F7", 1, RunPbs.Clock.OWN), 400f)?.clock)
+
+        // A missing half, a party size that is not one, and a clock nothing writes any more.
+        assertNull(RunPbs.record("M7|4", 348f))
+        assertNull(RunPbs.record("M7|many|hypixel", 348f))
+        assertNull(RunPbs.record("M7|4|stopwatch", 348f))
+        assertNull(RunPbs.record("M7|0|hypixel", 348f), "a party of nobody is not a party")
+    }
 
     /**
      * Hypixel's clock is the record, ours is only the fallback, and neither ever meets the other.

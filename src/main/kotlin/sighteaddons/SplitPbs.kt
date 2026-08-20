@@ -65,6 +65,18 @@ internal object SplitPbs {
      */
     private val best = LinkedHashMap<String, LinkedHashMap<String, Float>>()
 
+    /**
+     * How many times this store has changed in this process. A cache key, and nothing else reads it.
+     *
+     * **A counter and not [count], because a beaten record leaves the count where it was** and changes
+     * the number beside it — and `/sa` does not pause the game, so the table showing this store can be
+     * open while a run beats one, and [importFromOdin] can lower a time from a row on another page. A
+     * size is the wrong key for a store whose values move. [RunPbs.revision] is the same field for the
+     * same reason.
+     */
+    var revision = 0
+        private set
+
     /** Odin's key for a floor, which is this mod's too. See the class comment. */
     internal fun floorKey(floorTag: String): String = "Dungeon$floorTag"
 
@@ -92,10 +104,12 @@ internal object SplitPbs {
         val previous = floor[split]
         if (previous == null) {
             floor[split] = seconds
+            revision++
             return Result.First
         }
         if (seconds < previous) {
             floor[split] = seconds
+            revision++
             return Result.Beat(previous)
         }
         return Result.Missed(previous)
@@ -107,8 +121,33 @@ internal object SplitPbs {
     /** One floor's records, or an empty map. */
     fun of(floorKey: String): Map<String, Float> = best[floorKey] ?: emptyMap()
 
+    /**
+     * [floorKey]'s inverse: `DungeonM7` back to `M7`, and the key unchanged for anything that is not
+     * one of the fifteen floors.
+     *
+     * The `Dungeon` prefix is what makes this file diffable against Odin's and is not something a
+     * reader wants on a heading, so the screen prints the tag. Unrecognised keys are passed through
+     * rather than dropped — a hand-edited store is still somebody's records, and
+     * [PbTable.order] already has a place for a floor it cannot rank.
+     */
+    fun tagOf(floorKey: String): String = tagOfOdinFloorKey(floorKey) ?: floorKey
+
+    /** How many records are on file across every floor. */
+    fun count(): Int = best.values.sumOf { it.size }
+
+    /**
+     * Every record, keyed by floor **tag** — the shape [PbTable.splits] reads.
+     *
+     * Converted here rather than at the screen so there is one place that knows both spellings of a
+     * floor, which is [tagOf]'s whole reason for existing.
+     */
+    fun records(): Map<String, Map<String, Float>> = best.entries.associate { tagOf(it.key) to it.value }
+
     /** Drops everything. Only the `/sa` action calls this, and it saves afterwards. */
-    fun clear() = best.clear()
+    fun clear() {
+        best.clear()
+        revision++
+    }
 
     // --- Persistence ------------------------------------------------------------------------
 
@@ -121,6 +160,7 @@ internal object SplitPbs {
      */
     fun read(obj: JsonObject) {
         best.clear()
+        revision++
         val root = obj.get(KEY)?.takeIf { it.isJsonObject }?.asJsonObject ?: return
         for ((floorKey, value) in root.entrySet()) {
             if (!value.isJsonObject) continue
@@ -223,6 +263,7 @@ internal object SplitPbs {
                 if (previous != null && previous <= seconds) continue
                 floor[name] = seconds
                 changed++
+                revision++
             }
         }
         return changed

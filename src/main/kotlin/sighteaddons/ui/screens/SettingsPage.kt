@@ -174,6 +174,39 @@ internal object Frame {
     val bodyTop: Int get() = MARGIN + Tokens.SPACE_12 + Tokens.SPACE_32
 
     fun listBottom(guiHeight: Int): Int = guiHeight - MARGIN - Tokens.SPACE_16
+
+    // --- The records page's bands ------------------------------------------------------------
+    //
+    // Here rather than on the screen, for this file's own reason: these four numbers decide how many
+    // rows a table has, and how many rows a table has is the one thing about this screen that has been
+    // wrong at a size nobody opened the game at. A screen cannot be built in a test; this can, so
+    // `SettingsPageTest` walks the sizes Minecraft's auto scale actually hands out and states the
+    // answer at each of them.
+
+    /** The view chooser's row, at the top of the records page. */
+    val chooserTop: Int get() = bodyTop
+
+    /** The type chips, under the chooser. */
+    val chipsTop: Int get() = bodyTop + Tokens.SPACE_24
+
+    /**
+     * The column headers. [chips] is whether this view has a chip row above them, which only the room
+     * history does — the two personal-best views have no filter, so their columns come straight under
+     * the chooser and they pay nothing for it.
+     */
+    fun columnsTop(chips: Boolean): Int = if (chips) chipsTop + Tokens.SPACE_24 else chipsTop
+
+    /** The first data row. */
+    fun rowsTop(chips: Boolean): Int = columnsTop(chips) + Tokens.SPACE_16
+
+    /**
+     * How many whole rows of [row] pixels fit, which is also how far a press on the list may land.
+     *
+     * At least one, because a table with no rows is a table whose scroll clamp divides by nothing and
+     * whose press zone is empty — and a window that small is one the player is about to resize anyway.
+     */
+    fun rows(guiHeight: Int, chips: Boolean, row: Int): Int =
+        ((listBottom(guiHeight) - rowsTop(chips)) / row).coerceAtLeast(1)
 }
 
 /**

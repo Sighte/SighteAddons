@@ -1,11 +1,62 @@
 # TODO — SighteAddons
 
-## Stand — 2026-08-19
+## Stand — 2026-08-20
 
-`main` = **450 Tests / 41 Klassen / grün**, `mod_version` 0.16.0 released (`v0.16.0`, Modrinth
+`main` = **458 Tests / 42 Klassen / grün**, `mod_version` 0.16.0 released (`v0.16.0`, Modrinth
 `kIbj76Z4`, SHA1 `931b1152…` auf beiden Seiten). `dist/sighteaddons-0.16.0.jar` ist die committete
 Datei. `RunReport.SCHEMA` 6, der Receiver akzeptiert `idleTicks`/`navTicks` als optional und ist
 deployt — **dem Receiver ist nichts geschuldet.**
+
+**Seit 20.08.: jeder Record ist in `/sa` sichtbar, und die Seite hat dafür eine Ebene bekommen.** Die
+zwei PB-Stores waren vorher nur zwei Zahlen in `debug` → `data` — `split records: 27` und
+`run records: 4`, und kein Weg zu dem, was dahinter steht. Jetzt gibt es drei Tabellen hinter *einem*
+Rail-Eintrag (`records`), umgeschaltet über die `Segmented`-Komponente: `rooms` (die alte History),
+`splits` (`SplitPbs`, inklusive aller Bossphasen — maxor, storm, terminals, goldor, necron) und `runs`
+(`RunPbs`, pro Floor **und** Teamgröße, beide Uhren). `/sa splits` und `/sa runs` gehen direkt hin,
+`/sa pbs` bleibt die Zimmer-Tabelle.
+
+**Drei Rail-Einträge statt eines wären nicht gegangen, und das ist Arithmetik.** Das Rail hat keinen
+Scroll und `Nav.ROW` pro Eintrag; bei der Vanilla-Mindestgröße 320×240 bleiben 140 px, also fünf
+Einträge und nicht sieben. Deshalb bleibt das Rail bei fünf und die Wahl steckt in einem
+Segmented-Control über der Tabelle. **Der Preis ist eine Zeile der History-Tabelle**: das Control
+kostet `SPACE_24`, die die `rooms`-Ansicht vorher nicht ausgab — sechs sichtbare Zeilen werden fünf bei
+1080p, fünf werden drei bei 320×240. `splits` und `runs` haben keine Chip-Reihe, zahlen also nichts.
+Beide Zahlen stehen jetzt in `SettingsPageTest`, damit der Preis eine fehlschlagende Assertion ist und
+kein Screenshot. Die Bänder selbst (`chooserTop`, `chipsTop`, `columnsTop`, `rowsTop`, `rows`) sind aus
+dem Screen nach `Frame` gewandert, aus genau dem Grund, aus dem `RecordColumns` existiert.
+
+**Zwei Ordnungen, die falsch unsichtbar sind, und deshalb `PbTable` + `PbTableTest`.** Floors lesen
+Master zuerst und den höchsten zuerst (`M7 … M1, F7 … F1, E`) — nicht die Reihenfolge, in der
+`SplitPbs` einfügt, denn stabile Insertion-Order ist die richtige Eigenschaft für eine *Datei* und
+keine für eine Liste, die jemand liest. Innerhalb eines Floors gilt **die Reihenfolge des Runs**
+(`DungeonSplits.chainFor`) und keine Spalte: `blood clear` kommt alphabetisch vor `blood open`, und
+eine nach Namen sortierte Kette beschreibt keinen Run mehr. Namen, die die Kette nicht kennt — ein
+Import aus einem Odin, das diese Mod nie gesehen hat — kommen dahinter, alphabetisch, statt zu
+verschwinden.
+
+**Die zwei Uhren treffen sich auch auf der Tabelle nicht.** Die Überschrift eines Floors auf `runs`
+trägt dessen beste **gerankte** Zeit oder gar nichts; eine Own-Clock-Zeile steht in ihrem eigenen
+Label (`5 players · own clock`) und nie in einer eigenen Spalte, weil eine Spalte das ist, was bei
+schmalem Fenster wegfällt — und die Zeile, die dann übrig bliebe, sähe aus wie derselbe Record zweimal.
+Ein Floor, auf dem nur eine Own-Clock-Zeit liegt, hat Zeilen und keine Headline. Das ist `RunPbs`'
+Argument als Tabelle.
+
+Dazu: `Format.seconds` (die dritte Eingabeeinheit, weiter *ein* Dialekt — `Math.round` und nicht
+Truncation, sonst liest `19.6f` als `0:19.5`), `SplitPbs.revision`/`RunPbs.revision` als Cache-Key
+(ein *geschlagener* Record lässt `count` stehen und ändert die Zahl daneben, und `/sa` pausiert das
+Spiel nicht), `RunPbs.Record` + `RunPbs.records()`, `SplitPbs.tagOf`/`records()`. Aus `debug` → `data`
+sind die zwei Zählungen weg — sie stehen jetzt im Header der Tabelle, die sie zählt —, der
+Odin-Import bleibt dort, weil er eine Aktion ist und keine Zahl.
+
+**Nicht auf der Seite: `SoloClear`s `bestSeconds`/`bestTicks`.** Das ist die Zeit *bis zu einem Score*
+pro Floor und Metrik, kein Ganz-Run-Record, und die Solo-Bestzeit steht als `solo`-Zeile schon auf
+`runs`. Ein vierter Tab wäre auch nicht gegangen: vier Segmente wollen ~204 px in einer
+Content-Spalte, die bei 320×240 168 breit ist.
+
+**Nie im Spiel gesehen.** Die zwei neuen Tabellen sind Arithmetik und Tests; `runClient` ist verboten,
+also ist der Dev-Jar (`0.17.0-dev16`) der erste Blick darauf. Was ein Auge klären muss: ob die
+Segmented-Reihe bei GUI-Scale 4 lesbar über der Chip-Reihe sitzt, und ob drei Zeilen History bei
+320×240 noch benutzbar sind oder ob die Chip-Reihe dort besser wegfällt.
 
 Seit 18.08. dazu, alles ohne Versionsänderung: `DungeonScore` (die Formel der Upstream-Mod als reine
 Funktionen, **ruft noch niemand auf**), `SecretApi.lastCounts` — ein gescheiterter Abschluss-Snapshot

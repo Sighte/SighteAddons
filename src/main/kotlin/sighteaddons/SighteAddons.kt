@@ -33,14 +33,22 @@ import org.slf4j.LoggerFactory
 class SighteAddons : ClientModInitializer {
     override fun onInitializeClient() {
         Config.load()
-        // /sa opens the settings, /sa pbs jumps straight to the records table, /sa gallery opens the
-        // UI gallery — a development screen, undocumented on purpose, that renders every design token
-        // and every motion curve so they can be checked without a dungeon.
+        // /sa opens the settings and /sa gallery opens the UI gallery — a development screen,
+        // undocumented on purpose, that renders every design token and every motion curve so they can
+        // be checked without a dungeon.
+        //
+        // The other three land on the records page with one of its three tables already showing. `pbs`
+        // still opens the room history, which is where it has always gone and is a record store like
+        // the other two; `splits` and `runs` are the two that had no way in before this. One word each
+        // rather than `/sa pbs splits`, because a subcommand of a subcommand is two words to remember
+        // for a screen whose whole point is that the three are one click apart once you are on it.
         ClientCommandRegistrationCallback.EVENT.register { dispatcher, _ ->
             dispatcher.register(
                 ClientCommands.literal("sa")
                     .executes { open(SettingsScreen.Tab.HUD) }
-                    .then(ClientCommands.literal("pbs").executes { open(SettingsScreen.Tab.RECORDS) })
+                    .then(ClientCommands.literal("pbs").executes { records(SettingsScreen.View.ROOMS) })
+                    .then(ClientCommands.literal("splits").executes { records(SettingsScreen.View.SPLITS) })
+                    .then(ClientCommands.literal("runs").executes { records(SettingsScreen.View.RUNS) })
                     .then(ClientCommands.literal("gallery").executes { openGallery() }),
             )
         }
@@ -160,6 +168,13 @@ class SighteAddons : ClientModInitializer {
     private fun open(tab: SettingsScreen.Tab): Int {
         val client = Minecraft.getInstance()
         client.schedule { client.setScreen(SettingsScreen(tab)) }
+        return 1
+    }
+
+    /** The records page with one of its three tables already showing. Deferred for [open]'s reason. */
+    private fun records(view: SettingsScreen.View): Int {
+        val client = Minecraft.getInstance()
+        client.schedule { client.setScreen(SettingsScreen(SettingsScreen.Tab.RECORDS, view)) }
         return 1
     }
 

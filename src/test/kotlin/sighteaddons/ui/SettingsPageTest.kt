@@ -2,7 +2,11 @@ package sighteaddons.ui
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Assertions.assertTrue
+import sighteaddons.ui.components.Segmented
+import sighteaddons.ui.components.Table
 import sighteaddons.ui.components.TextField
+import sighteaddons.ui.screens.Frame
 import sighteaddons.ui.screens.Scroll
 import sighteaddons.ui.screens.SettingsPage
 
@@ -120,5 +124,55 @@ class SettingsPageTest {
             TextField.maskedIndexAt(key.length, TextField.offsetAt(x, x + 10_000, scroll = 0)),
             "a press past the last mark lands after it, never outside the value",
         )
+    }
+
+    /**
+     * The heights auto scale actually hands out, as `RecordColumnsTest` lists the widths for the same
+     * reason: every layout bug this screen has had was reasoned about at one of them and shipped for
+     * all of them.
+     */
+    private val heights = listOf(
+        270 to "1920×1080 at scale 4",
+        256 to "1366×768 at scale 3",
+        240 to "1280×720 at scale 3, and the vanilla minimum",
+    )
+
+    /**
+     * The records page's four bands are in order, never overlap, and always leave a row to press on.
+     *
+     * The view chooser is a band the page did not have before the splits and runs tables existed, and
+     * the rooms view is what pays for it — so the numbers below are not decoration, they are the price,
+     * stated where a change to it will fail rather than be noticed in a screenshot.
+     */
+    @Test
+    fun `the records page's bands are in order and always leave a row`() {
+        for (chips in listOf(true, false)) {
+            assertEquals(Frame.bodyTop, Frame.chooserTop, "the chooser is the top of the page")
+            assertTrue(
+                Frame.chooserTop + Segmented.HEIGHT <= Frame.chipsTop,
+                "the chooser must not run into what is under it",
+            )
+            assertTrue(Frame.chipsTop < Frame.columnsTop(chips) || !chips)
+            assertTrue(Frame.columnsTop(chips) < Frame.rowsTop(chips), "headers come before rows")
+            for ((height, where) in heights) {
+                assertTrue(Frame.rows(height, chips, Table.ROW) >= 1, "no rows at $where")
+                assertTrue(
+                    Frame.rowsTop(chips) + Frame.rows(height, chips, Table.ROW) * Table.ROW <=
+                        Frame.listBottom(height),
+                    "the last row runs past the list at $where",
+                )
+            }
+        }
+
+        // The chip row is the room history's alone, so it is the only view that pays for the chooser.
+        assertEquals(Frame.chipsTop, Frame.columnsTop(chips = false))
+
+        // What the chooser costs, at the two sizes it costs something visible at. Six rows became five
+        // at 1080p and five became three at the vanilla minimum; the personal-best views keep six and
+        // five because they have no chips above their columns.
+        assertEquals(5, Frame.rows(270, chips = true, row = Table.ROW))
+        assertEquals(6, Frame.rows(270, chips = false, row = Table.ROW))
+        assertEquals(3, Frame.rows(240, chips = true, row = Table.ROW))
+        assertEquals(5, Frame.rows(240, chips = false, row = Table.ROW))
     }
 }

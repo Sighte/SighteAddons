@@ -16,6 +16,7 @@ import sighteaddons.ui.components.EmptyState
 import sighteaddons.ui.components.Labels
 import sighteaddons.ui.components.Nav
 import sighteaddons.ui.components.ProgressBar
+import sighteaddons.ui.components.Segmented
 import sighteaddons.ui.components.Slider
 import sighteaddons.ui.components.Sparkline
 import sighteaddons.ui.components.Stepper
@@ -75,7 +76,10 @@ import sighteaddons.ui.theme.Tokens
  *    456 and 427 that Minecraft's auto scale hands out on ordinary displays. A layout that can only be
  *    checked by opening the game at one resolution is a layout nobody checks.
  */
-class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal("Sighte Addons")) {
+class SettingsScreen(
+    private var tab: Tab = Tab.HUD,
+    private var view: View = View.ROOMS,
+) : Screen(Component.literal("Sighte Addons")) {
 
     /** [label] rather than the enum name: the rest of this screen is lower case throughout. */
     enum class Tab(val label: String) {
@@ -93,8 +97,39 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
          * because that is what it is — the layer above the table.
          */
         STATS("stats"),
-        RECORDS("rooms"),
+
+        /**
+         * The three record stores, behind one rail entry and a segmented control.
+         *
+         * **Not three rail entries, and the reason is arithmetic rather than taste.** The rail is
+         * [Nav.ROW] per entry with no scroll, and the space it has is [pageHeight] — 140 pixels at the
+         * vanilla minimum GUI size of 320×240, which is five entries and not seven. A sixth would be
+         * drawn past the bottom of the panel and a seventh past the bottom of the screen, and neither
+         * would be reachable. So the rail keeps the five it can always draw, and [View] is what picks
+         * between the three tables underneath this one.
+         */
+        RECORDS("records"),
         DEBUG("debug"),
+    }
+
+    /**
+     * Which record store the [Tab.RECORDS] page is showing.
+     *
+     * Three, because there are three stores and they are three on purpose: [RoomHistory] is one
+     * player's time in one room in run ticks, [SplitPbs] is the party's time across a floor in
+     * wall-clock seconds, and [RunPbs] is a whole run keyed by party size on Hypixel's clock. Each of
+     * those objects argues at length that its numbers are not the others', and a single table with a
+     * `kind` column would be that argument thrown away — three units in one column, sorted against
+     * each other.
+     *
+     * A [Segmented] control and not a chip row, on that component's own distinction: this is a switch
+     * between three whole tables, and the thumb's travel is what says which way the page just moved. The
+     * chips below it stay what they have always been — a filter on the rows of one table.
+     */
+    enum class View(val label: String) {
+        ROOMS("rooms"),
+        SPLITS("splits"),
+        RUNS("runs"),
     }
 
     /**
@@ -199,6 +234,20 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     private var cachedStats: List<SettingsPage.Item> = emptyList()
 
     /**
+     * The two personal-best tables, rebuilt when their store changes.
+     *
+     * Keyed on [SplitPbs.revision] and [RunPbs.revision] rather than on a record count, which is what
+     * those two fields exist to say: a beaten record leaves the count where it was, this screen does
+     * not pause the game, and the odin import lowers times from a row on the debug page. Cached at all
+     * because the splits table is fifteen floors of ten lines and every line is a formatted duration —
+     * rebuilding that per frame is exactly what [Format.Cached] exists to have stopped doing.
+     */
+    private var splitsKey = -1
+    private var cachedSplitLines: List<PbTable.Line> = emptyList()
+    private var runsKey = -1
+    private var cachedRunLines: List<PbTable.Line> = emptyList()
+
+    /**
      * The tooltip owed to this frame, if any: a room name the column had to cut off.
      *
      * Deferred rather than drawn where it is discovered, because the row that discovers it is inside the
@@ -226,9 +275,25 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
 
     private val headerY get() = Frame.MARGIN + Tokens.SPACE_12
     private val bodyTop get() = Frame.bodyTop
-    private val chipsY get() = bodyTop
-    private val columnsY get() = bodyTop + Tokens.SPACE_24
-    private val firstRow get() = columnsY + Tokens.SPACE_16
+
+    /**
+     * The records page's four bands, out of [Frame] so a test can walk them at every real window size.
+     *
+     * **The chooser costs the history table one row, and that is the price of the two views beside
+     * it.** It is [Tokens.SPACE_24] the rooms view did not used to spend: six visible rows become five
+     * at the sizes auto scale hands out, and five become three at the vanilla minimum of 320×240.
+     * `SettingsPageTest` states both numbers rather than leaving them to be discovered.
+     *
+     * The alternatives were all worse. Three more rail entries do not fit the rail at that same minimum
+     * — [Tab.RECORDS] does that arithmetic — and a chooser sharing one row with the chips wants 153
+     * pixels beside their 278 in a content column that is 168 wide there, so the chips at the far end
+     * would be clipped and a filter nobody can reach is worse than a table with fewer rows. The two
+     * personal-best views have no chip row, so they pay nothing.
+     */
+    private val segmentsY get() = Frame.chooserTop
+    private val chipsY get() = Frame.chipsTop
+    private val columnsY get() = Frame.columnsTop(view == View.ROOMS)
+    private val firstRow get() = Frame.rowsTop(view == View.ROOMS)
     private val listBottom get() = Frame.listBottom(height)
 
     /** How much vertical room a scrolling page has. The one number [Scroll] measures against. */
@@ -288,7 +353,7 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     )
 
     /** How many table rows fit, which is also how far a press on the list may land. */
-    private val tableRows get() = ((listBottom - firstRow) / Table.ROW).coerceAtLeast(1)
+    private val tableRows get() = Frame.rows(height, view == View.ROOMS, Table.ROW)
 
     private val narrowing get() = RecordTable.narrowing(query, filter)
 
@@ -352,17 +417,21 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
 
     private fun renderHeader(graphics: GuiGraphicsExtractor) {
         Labels.draw(graphics, font, "SIGHTE ADDONS", frameLeft, headerY, Tokens.textPrimary)
-        val right = if (tab == Tab.RECORDS) {
-            build()
-            if (query.isEmpty()) {
-                "$cachedTotal rooms · ${RoomHistory.entryCount()} attempts"
-            } else {
-                "\"$query\"  $cachedMatches of $cachedTotal"
+        val right = when {
+            tab != Tab.RECORDS -> VERSION
+            view != View.ROOMS -> pbSummary()
+            else -> {
+                build()
+                if (query.isEmpty()) {
+                    "$cachedTotal rooms · ${RoomHistory.entryCount()} attempts"
+                } else {
+                    "\"$query\"  $cachedMatches of $cachedTotal"
+                }
             }
-        } else {
-            VERSION
         }
-        val tone = if (tab == Tab.RECORDS && query.isNotEmpty()) Tokens.textPrimary else Tokens.textTertiary
+        // Only the search readout earns the brighter tone, and only the rooms view has a search.
+        val searching = tab == Tab.RECORDS && view == View.ROOMS && query.isNotEmpty()
+        val tone = if (searching) Tokens.textPrimary else Tokens.textTertiary
         graphics.text(font, right, lastX - font.width(right), headerY, tone, false)
         Table.divider(graphics, frameLeft, headerY + Tokens.SPACE_16, frameWidth)
     }
@@ -538,9 +607,55 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         }
     }
 
-    // --- Rooms page -------------------------------------------------------------------------
+    // --- Records page -----------------------------------------------------------------------
 
+    /**
+     * The records page: the view chooser, and whichever of the three tables it points at.
+     *
+     * The chooser is drawn first and unconditionally, so it is in the same place whichever table is
+     * under it — a control that moves when the thing it controls changes is a control you have to find
+     * again after every use.
+     */
     private fun renderRecords(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
+        renderChooser(graphics, mouseX, mouseY)
+        when (view) {
+            View.ROOMS -> renderRooms(graphics, mouseX, mouseY)
+            View.SPLITS, View.RUNS -> renderPbs(graphics)
+        }
+    }
+
+    /**
+     * The three-way view chooser.
+     *
+     * The thumb is sprung rather than eased, which is `Segmented`'s own distinction put to work: the
+     * travel between segments is what says which way the page just moved, and a spring overshoots
+     * slightly in the direction it travelled. [Segmented.indexAt] is asked for the hover *and* is what
+     * the press resolves against, so rule 3 holds without either side holding a width.
+     *
+     * Scissored for the chip row's reason. Three labels want about 153 pixels and the narrowest content
+     * column this panel ever has is 168, so it fits at every size the game offers — and the one thing
+     * that must not happen if that ever stops being true is a segment painted over the rest of the
+     * screen with nothing clipping it.
+     */
+    private fun renderChooser(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
+        val travel = anim.spring("view", view.ordinal.toFloat())
+        travel.springTo(view.ordinal.toFloat(), Motion.BASE)
+        val over = if (mouseY in segmentsY until (segmentsY + Segmented.HEIGHT)) {
+            Segmented.indexAt(font, VIEWS, contentLeft, mouseX)
+        } else {
+            -1
+        }
+        graphics.enableScissor(contentLeft, segmentsY, lastX, segmentsY + Segmented.HEIGHT)
+        Segmented.draw(
+            graphics, font, contentLeft, segmentsY, Segmented.HEIGHT,
+            VIEWS, view.ordinal, travel.value, hover = over,
+        )
+        graphics.disableScissor()
+    }
+
+    // --- Rooms view -------------------------------------------------------------------------
+
+    private fun renderRooms(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
         build()
 
         // Widths are derived before drawing rather than returned from it, so hover and hit testing use
@@ -695,6 +810,163 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         graphics.text(
             font, fit(detail.text, lastX - badgeRoom - textX), textX, y + (Table.ROW - Labels.CAP) / 2,
             Tokens.textSecondary, false,
+        )
+    }
+
+    // --- Splits and runs views --------------------------------------------------------------
+
+    /**
+     * The lines of whichever personal-best table is showing, or nothing on the rooms view.
+     *
+     * Two caches rather than one, keyed on their own store's revision: the splits table and the runs
+     * table change for different reasons and at different moments, and a shared key would rebuild both
+     * whenever either moved.
+     */
+    private fun pbLines(): List<PbTable.Line> = when (view) {
+        View.ROOMS -> emptyList()
+
+        View.SPLITS -> {
+            if (SplitPbs.revision != splitsKey) {
+                splitsKey = SplitPbs.revision
+                cachedSplitLines = PbTable.splits(
+                    SplitPbs.records(),
+                    // The chain rather than a second list of split names: DungeonSplits is the one
+                    // place that says what order a run happens in, and a copy of it here would be a
+                    // second thing to correct the day Hypixel renames a boss line.
+                    { tag -> DungeonSplits.chainFor(tag)?.map { it.name } ?: emptyList() },
+                    Format::seconds,
+                )
+            }
+            cachedSplitLines
+        }
+
+        View.RUNS -> {
+            if (RunPbs.revision != runsKey) {
+                runsKey = RunPbs.revision
+                cachedRunLines = PbTable.runs(RunPbs.records(), Format::seconds)
+            }
+            cachedRunLines
+        }
+    }
+
+    /**
+     * Where a personal-best table's columns go.
+     *
+     * Two of them, measured right to left from what will actually be drawn, which is [RecordColumns]'
+     * argument in miniature: `BEST` is a fixed span of tracked capitals and a run total is a fixed span
+     * of digits, neither of them a share of the window, and whatever survives on the left is the
+     * label's. Nothing is ever dropped here — with two columns there is nothing to drop, and at the
+     * narrowest content column this panel has the label still keeps well over half of it.
+     *
+     * The sample is a **run** total rather than a room clear. `10:23.4` is seven characters where
+     * `0:41.2` is six, and a whole M7 does pass ten minutes — a column budgeted against the shorter one
+     * puts the slowest record it will ever hold one character into its own header.
+     */
+    private class PbLayout(val header: String, val labelWidth: Int, val timeX: Int)
+
+    private fun pbLayout(): PbLayout {
+        val time = maxOf(Labels.width(font, BEST_HEADER), font.width(SAMPLE_RUN_TIME))
+        return PbLayout(
+            header = if (view == View.RUNS) PARTY_HEADER else SPLIT_HEADER,
+            labelWidth = (content - time - RecordColumns.GAP - Table.INDENT).coerceAtLeast(0),
+            timeX = lastX,
+        )
+    }
+
+    /**
+     * One personal-best table: two headers, then a floor heading and its records, floor after floor.
+     *
+     * **The headers are labels and not [Table.headerCell]s, because there is nothing to sort by.**
+     * [PbTable.splits] states why the order inside a floor is the run's own and not a column's, and a
+     * header cell that grows a caret under the cursor is a promise that a click will reorder the table.
+     * The absence of that caret is the signal, which is exactly the three-state design that component
+     * already documents — this is its "neither" state, permanently.
+     */
+    private fun renderPbs(graphics: GuiGraphicsExtractor) {
+        val layout = pbLayout()
+        Labels.draw(graphics, font, layout.header, contentLeft, columnsY, Tokens.textTertiary)
+        Labels.draw(
+            graphics, font, BEST_HEADER,
+            layout.timeX - Labels.width(font, BEST_HEADER), columnsY, Tokens.textTertiary,
+        )
+        Table.divider(graphics, contentLeft, columnsY + Tokens.SPACE_12, content)
+
+        val lines = pbLines()
+        if (lines.isEmpty()) {
+            renderPbEmpty(graphics)
+            return
+        }
+
+        val visible = tableRows
+        pageSize = visible
+        scroll = Scroll.clamp(scroll, lines.size, visible)
+
+        graphics.enableScissor(0, firstRow, width, listBottom)
+        for ((index, line) in lines.drop(scroll).take(visible).withIndex()) {
+            renderPbLine(graphics, layout, line, firstRow + index * Table.ROW)
+        }
+        graphics.disableScissor()
+
+        Controls.scrollbar(graphics, lastX + Tokens.SPACE_6, firstRow, listBottom, lines.size, visible, scroll)
+    }
+
+    /**
+     * One line: a floor heading, or one record indented under it.
+     *
+     * **No hover wash on a record row, and that is deliberate rather than unfinished.** This screen's
+     * one signal separating a fact from a control is that only a control lights up under the cursor —
+     * [SettingsPage.Item] says so about its own non-interactive lines. A personal best is a fact: there
+     * is nothing behind it to expand, because the store holds one number per key and that number is
+     * already on the row.
+     *
+     * The heading is drawn through the same [Labels.sectionHeader] the settings pages use, so a floor
+     * boundary on a table and a section boundary on a page are the same shape. Its meta is the floor's
+     * headline time, and it is absent rather than dashed when there is none — see [PbTable].
+     */
+    private fun renderPbLine(
+        graphics: GuiGraphicsExtractor,
+        layout: PbLayout,
+        line: PbTable.Line,
+        y: Int,
+    ) {
+        val textY = y + (Table.ROW - Labels.CAP) / 2
+        if (line.heading) {
+            Labels.sectionHeader(
+                graphics, font, line.floor.uppercase(), contentLeft, textY, content,
+                line.time.takeIf { it.isNotEmpty() },
+            )
+            return
+        }
+        graphics.text(
+            font, font.plainSubstrByWidth(line.label!!, layout.labelWidth),
+            contentLeft + Table.INDENT, textY, Tokens.textSecondary, false,
+        )
+        right(graphics, line.time, layout.timeX, textY, present = true)
+    }
+
+    /**
+     * The empty state of a personal-best table.
+     *
+     * Its own function rather than a fourth case in [renderEmpty], because neither of this screen's two
+     * narrowings exists here — there is no search and no chip on these two views, so every sentence
+     * [renderEmpty] can produce is about a filter that is not there. What a reader needs instead is
+     * where the records would come from, which is a different fact per view.
+     */
+    private fun renderPbEmpty(graphics: GuiGraphicsExtractor) {
+        val splits = view == View.SPLITS
+        val note = if (splits) CONFIG_FILE else RUNPBS_FILE
+        val y = firstRow + ((listBottom - firstRow - EmptyState.height(note)) / 2).coerceAtLeast(0)
+        EmptyState.draw(
+            graphics, font, contentLeft, y, content,
+            if (splits) "no split records yet" else "no run records yet",
+            if (splits) {
+                // Both ways in, because the switch is the common case and the import is the one that
+                // gives somebody who has played for a year their records back on the first launch.
+                "switch on run splits in hud · or import from odin on debug"
+            } else {
+                "finish a floor and its clear time lands here"
+            },
+            note,
         )
     }
 
@@ -1207,20 +1479,19 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         // rooms while showing this. Both are worth having and only one of them is a room count.
         info("room cores", RoomDatabase.size.toString())
         info("lines in the history", RoomHistory.entryCount().toString())
-        // Splits records live in `config.json` beside the settings and not in `history.jsonl` — a
-        // different unit and a different subject, which SplitPbs argues in full. So they are counted
-        // here rather than folded into the line above.
-        info("split records", splitRecords().toString())
-        // A hand asks for this, and it is never done on startup: reading a neighbouring mod's config
-        // unprompted is not something anybody asked for, and the answer cannot change while playing.
+        // **The two record counts that used to be here are on the records page now**, each in the
+        // header of the table it counts. A number beside the rows it is a count of is something a
+        // reader can act on; the same two numbers in a `data` section three pages away from the
+        // records were two facts somebody had to carry there and back.
+        //
+        // The import stays, because it is an action and not a number: a hand asks for it, it is never
+        // done on startup — reading a neighbouring mod's config unprompted is not something anybody
+        // asked for, and the answer cannot change while playing — and this page is where the mod's
+        // other one-off actions are.
         action("import from odin", "config/odin/ · run") { importSplitRecords() }
         note("takes the faster of the two, safe to run twice")
-        // A different store from the line above — a whole run, keyed by party size, on Hypixel's clock
-        // where it stated one. See RunPbs.
-        info("run records", RunPbs.count().toString())
+        note("the records themselves are on the records page")
     }
-
-    private fun splitRecords(): Int = SplitPbs.floors().sumOf { SplitPbs.of(it).size }
 
     /**
      * What leaving the run-record switch on actually sends, named field by field.
@@ -1480,6 +1751,18 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         }
 
         if (tab == Tab.RECORDS) {
+            if (mouseY in segmentsY until (segmentsY + Segmented.HEIGHT)) {
+                // Resolved through the same call that drew the hover, so rule 3 holds without either
+                // side keeping a copy of the segment width.
+                val segment = Segmented.indexAt(font, VIEWS, contentLeft, mouseX)
+                if (segment >= 0) {
+                    selectView(View.entries[segment])
+                    return true
+                }
+            }
+            // Everything below belongs to the rooms table and to nothing else: the two personal-best
+            // views have no filter to chip, no column to sort by, and nothing behind a row to open.
+            if (view != View.ROOMS) return super.mouseClicked(event, doubleClick)
             if (mouseY in chipsY until (chipsY + CHIP_H)) {
                 chipHits.firstOrNull { mouseX in it.second..it.third }?.let {
                     filter = it.first
@@ -1635,9 +1918,13 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             return true
         }
         if (tab == Tab.RECORDS) {
+            // Rows, not pixels: every table on this page holds a whole number of fixed-height rows, and
+            // the history table has counted in them since it had a scrollbar at all.
+            if (view != View.ROOMS) {
+                scroll = Scroll.wheel(scroll, scrollY, 1, pbLines().size, tableRows)
+                return true
+            }
             build()
-            // Rows, not pixels: the table's rows are a fixed height and it has counted in them since it
-            // had a scrollbar at all.
             scroll = Scroll.wheel(scroll, scrollY, 1, cachedLines.size, pageSize)
             return true
         }
@@ -1677,7 +1964,9 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
                 return true
             }
         }
-        if (tab == Tab.RECORDS) {
+        // The search and both narrowings are the rooms table's. On the other two views escape is
+        // vanilla's again, which is what closes the screen — there is no state on them to leave first.
+        if (tab == Tab.RECORDS && view == View.ROOMS) {
             if (event.key() == GLFW.GLFW_KEY_BACKSPACE && query.isNotEmpty()) {
                 query = query.dropLast(1)
                 scroll = 0
@@ -1710,7 +1999,9 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
      */
     /** Type anywhere to filter. No input box: the query itself is the only thing worth showing. */
     override fun charTyped(event: CharacterEvent): Boolean {
-        if (tab != Tab.RECORDS || !event.isAllowedChatCharacter) return super.charTyped(event)
+        if (tab != Tab.RECORDS || view != View.ROOMS || !event.isAllowedChatCharacter) {
+            return super.charTyped(event)
+        }
         query += event.codepointAsString()
         scroll = 0
         return true
@@ -1720,6 +2011,19 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
 
     private fun selectTab(entry: Tab) {
         tab = entry
+        scroll = 0
+    }
+
+    /**
+     * Switches which record table is showing.
+     *
+     * The scroll goes back to the top, for [selectTab]'s reason and one more of its own: it counts rows,
+     * and the three tables have nothing like the same length. An offset carried out of a three-hundred
+     * row history into a twelve-row runs table lands past its end, and a table opened past its end is a
+     * table that looks empty.
+     */
+    private fun selectView(entry: View) {
+        view = entry
         scroll = 0
     }
 
@@ -1747,9 +2051,27 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         tooltipY = mouseY
     }
 
+    /**
+     * What the header states about a personal-best table: how many records, over how many floors.
+     *
+     * The floor count is not decoration. Eleven records on one floor and eleven spread over six are
+     * different situations, and the second is the one where the scrollbar beside them is the point.
+     * Counted off the lines rather than asked of the stores, so the number cannot disagree with the
+     * table under it — a heading is a line and a record is a line, and [PbTable.count] is which.
+     */
+    private fun pbSummary(): String {
+        val lines = pbLines()
+        val records = PbTable.count(lines)
+        return "$records records · ${lines.size - records} floors"
+    }
+
     private fun footer(): String = when {
         tab == Tab.STATS -> "everything here comes from history.jsonl"
         tab != Tab.RECORDS -> "click a row to change it"
+        // The two personal-best views come before the two narrowings, because they have neither: a
+        // footer promising that escape clears a search would be promising it on a view with no search.
+        view == View.SPLITS -> "every split's best, in the order the run happens"
+        view == View.RUNS -> "hypixel's clear time, and our own where there was none"
         query.isNotEmpty() -> "esc clears the search"
         filter != RecordTable.Filter.ALL -> "esc shows every room"
         else -> "type to search · click a room for its detail"
@@ -1849,6 +2171,37 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         const val PB = "PB"
 
         const val HISTORY_FILE = "config/sighteaddons/history.jsonl"
+
+        /** Where the split records live: beside the settings, which is [SplitPbs]' whole argument. */
+        const val CONFIG_FILE = "config/sighteaddons/config.json"
+
+        const val RUNPBS_FILE = "config/sighteaddons/runpbs.jsonl"
+
+        /**
+         * The view chooser's labels, built once.
+         *
+         * The order is [View]'s, and the selected index is its `ordinal` — one list, so the thumb cannot
+         * travel to a segment other than the one whose table is showing.
+         */
+        val VIEWS: List<String> = View.entries.map { it.label }
+
+        /**
+         * The personal-best tables' headers, already upper case.
+         *
+         * [Labels.draw] draws tracked capitals and says outright that callers uppercase their own
+         * strings; these are drawn every frame, so the conversion happens here no times instead.
+         */
+        const val BEST_HEADER = "BEST"
+        const val SPLIT_HEADER = "SPLIT"
+        const val PARTY_HEADER = "PARTY"
+
+        /**
+         * The widest time a personal-best column ever holds.
+         *
+         * A whole run and not a room clear: a bad M7 passes ten minutes, so seven characters, and a
+         * column measured against the six of `0:41.2` would put its slowest record inside its own header.
+         */
+        const val SAMPLE_RUN_TIME = "10:23.4"
 
         /**
          * The smallest rectangle the editor lets a hand aim at, in GUI pixels.

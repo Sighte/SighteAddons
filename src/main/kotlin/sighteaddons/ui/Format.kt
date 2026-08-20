@@ -42,6 +42,20 @@ internal object Format {
      */
     fun millis(ms: Long): String = if (ms < 0) MISSING else ticks((ms / MS_PER_TICK).toInt())
 
+    /**
+     * Wall-clock **seconds** in the same `m:ss.t`, by way of [millis].
+     *
+     * The third input unit and still no third spelling, which is this file's whole job. Seconds are
+     * what [sighteaddons.SplitPbs] and [sighteaddons.RunPbs] store — each says why, and both say it is
+     * so their numbers can be compared with somebody else's file — and a records table that printed
+     * `19.6s` beside the `0:19.6` on the splits panel would be two dialects for one record.
+     *
+     * Rounded to the nearest millisecond before the conversion rather than truncated: a `Float` holding
+     * 19.6 is 19.600000381469727, and cutting it short is how a record reads a tenth slower than the
+     * chat line that set it.
+     */
+    fun seconds(value: Float): String = if (value < 0f) MISSING else millis(Math.round(value * 1000.0))
+
     /** A signed split in milliseconds. [delta]'s spelling, [millis]' conversion. */
     fun deltaMillis(deltaMs: Long): String = delta((deltaMs / MS_PER_TICK).toInt())
 

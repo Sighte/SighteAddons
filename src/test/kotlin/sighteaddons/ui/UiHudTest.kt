@@ -93,6 +93,22 @@ class UiHudTest {
     }
 
     /**
+     * Seconds arrive as a `Float` and must not lose a tenth on the way to the same spelling.
+     *
+     * `19.6f` is 19.600000381469727 and `272.0f` is exact; truncating instead of rounding turns the
+     * first into 19.599 seconds, which is 391 ticks rather than 392 and prints `0:19.5`. That is a
+     * record reading a tenth *faster* than the chat line that set it — on a number
+     * [sighteaddons.SplitPbs] keeps so it can be compared with another mod's file.
+     */
+    @Test
+    fun `seconds reach the same spelling as ticks`() {
+        assertEquals("0:19.6", Format.seconds(19.6f))
+        assertEquals("4:32.0", Format.seconds(272.0f))
+        assertEquals(Format.ticks(824), Format.seconds(41.2f))
+        assertEquals(Format.MISSING, Format.seconds(-1f))
+    }
+
+    /**
      * The cache is the allocation claim, so it gets a test rather than a comment.
      *
      * Same input must return the identical instance — not merely an equal string — because the point
