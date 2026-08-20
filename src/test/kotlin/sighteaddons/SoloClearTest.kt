@@ -185,6 +185,20 @@ class SoloClearTest {
     }
 
     /**
+     * The other half of the fix a defeat forced: after the headline, a score that reaches the gate is
+     * only an announcement if the boss actually died. Hypixel prints `Team Score:` on a failed run too,
+     * and the one line this feature ever put in the channel was a death.
+     */
+    @Test
+    fun `a run that ended without a kill is not announced, whatever hypixel scored it`() {
+        assertEquals(305, SoloClear.endScore(305, cleared = true, gate = 270))
+        assertNull(SoloClear.endScore(305, cleared = false, gate = 270), "a defeat prints the same block")
+        // The gate still applies to a run that was won, and an unstated score is still not a score.
+        assertNull(SoloClear.endScore(268, cleared = true, gate = 270))
+        assertNull(SoloClear.endScore(null, cleared = true, gate = 270))
+    }
+
+    /**
      * Hypixel states the score outright a few lines under the run-end headline. It is the number that
      * settles the run, and after the headline the only one the gate will still accept — see
      * [SoloClear] on `runOver`.

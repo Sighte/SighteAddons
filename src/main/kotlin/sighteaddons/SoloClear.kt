@@ -425,13 +425,15 @@ object SoloClear {
      * the boss playing no part. It cannot come from the end-of-run `Team Score:` line, which arrives after
      * the boss and can no longer say *when*.
      *
-     * Three refusals before anything is sent, and each is a case where firing would be a claim rather
+     * Four refusals before anything is sent, and each is a case where firing would be a claim rather
      * than a measurement:
      *
      *  - **a floor outside [GATED_FLOORS]** - 300 on F1 is every run.
      *  - **no score** - the rows never parsed, so [LiveScore.computedScore] is null, the threshold is not
      *    evaluable, and an unevaluable threshold is not met ([passes]).
      *  - **already announced** - the score is crossed once and read for the rest of the floor.
+     *  - **the boss was not killed** - after the headline the gate is Hypixel's own score, and a defeat
+     *    prints that line too. See [endScore].
      *
      * **There is deliberately no boss refusal**, though an earlier version of this comment claimed one
      * the code never had. The projection keeps climbing into the fight, the gate is about the run rather
@@ -455,11 +457,17 @@ object SoloClear {
         // the score earned so far, it cannot reach 300 before the boss dies, and reading it here is what
         // kept the channel empty through five solo runs.
         val best = when {
-            runOver -> score?.takeIf { passes(it, gate) }
+            runOver -> endScore(score, cleared, gate)
             else -> gateScore(LiveScore.computedScore, score, gate)
         }
         if (best == null) {
-            return refuse(if (runOver) "the run ended below the gate" else "no score could be computed")
+            return refuse(
+                when {
+                    !runOver -> "no score could be computed"
+                    !cleared -> "the run ended without a kill"
+                    else -> "the run ended below the gate"
+                }
+            )
         }
         if (!passes(best, gate)) return refuse("score $best below the gate")
         val player = PartyTracker.localName ?: return refuse("no name captured")
@@ -502,6 +510,24 @@ object SoloClear {
      */
     internal fun gateScore(projected: Int?, chat: Int?, gate: Int): Int? =
         best(projected, chat?.takeIf { passes(it, gate) })
+
+    /**
+     * The number the gate is judged on **once the run is over**: Hypixel's own score, and only on a run
+     * that was won.
+     *
+     * **The `cleared` half is the same fix the ungated path got, on the branch that still needed it.** A
+     * defeat prints the whole summary block — headline, `Clear Time:`, `Team Score:` — so after the
+     * headline the score line alone cannot tell a clear from a death, and this branch was announcing one
+     * as the other for any failed run whose score happened to reach the gate.
+     *
+     * **It is a check here and a trigger in [release] because the two are driven by different clocks.**
+     * `☠ Defeated` arrives after `Team Score:`, on the same tick, so a check made *from* the score line
+     * would reject every real clear — that is why [release] is called from the defeated line instead.
+     * [tryAnnounce] runs on every client tick, so by the tick after that block both halves are in, and
+     * requiring the kill costs a tick and refuses nothing that was earned.
+     */
+    internal fun endScore(chat: Int?, cleared: Boolean, gate: Int): Int? =
+        chat?.takeIf { cleared && passes(it, gate) }
 
     /** Records why this tick did not announce. Returns Unit so a refusal is one line at the call site. */
     private fun refuse(why: String) {
