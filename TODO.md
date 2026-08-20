@@ -2,7 +2,7 @@
 
 ## Stand — 2026-08-19
 
-`main` = **444 Tests / 40 Klassen / grün**, `mod_version` 0.16.0 released (`v0.16.0`, Modrinth
+`main` = **446 Tests / 40 Klassen / grün**, `mod_version` 0.16.0 released (`v0.16.0`, Modrinth
 `kIbj76Z4`, SHA1 `931b1152…` auf beiden Seiten). `dist/sighteaddons-0.16.0.jar` ist die committete
 Datei. `RunReport.SCHEMA` 6, der Receiver akzeptiert `idleTicks`/`navTicks` als optional und ist
 deployt — **dem Receiver ist nichts geschuldet.**
@@ -10,6 +10,28 @@ deployt — **dem Receiver ist nichts geschuldet.**
 Seit 18.08. dazu, alles ohne Versionsänderung: `DungeonScore` (die Formel der Upstream-Mod als reine
 Funktionen, **ruft noch niemand auf**), `SecretApi.lastCounts` — ein gescheiterter Abschluss-Snapshot
 löscht die Teammate-Zahlen nicht mehr — und `docs/features/`, acht annotierte Screenshots.
+
+**Seit 20.08.: jedes HUD-Element hat eine Größe, und das Scrollrad ist sie.** Im Platzierungs-Editor
+(`/sa` → die `position`-Zeilen) ändert das Rad die Größe des Elements, das gerade unter der Hand liegt —
+auch mitten im Ziehen, weil das der Moment ist, in dem man merkt, dass es da nicht hinpasst. Gespeichert
+wird `<key>Scale` als **ganze Prozent** (50–300, zehn pro Rasterschritt) neben Anchor und Offsets in
+`OverlayPlacement`; ein Float in `config.json` liest sich als `1.2000000476837158` zurück und wiederholtes
+Multiplizieren mit 1.1 kommt nie wieder bei 100 an. `r` setzt jetzt Position **und** Größe zurück, Escape
+nimmt beide zurück (`OverlayPlacement.Saved`, nicht `HudPlacement.Placement` — vier Werte, nicht drei).
+
+Zwei Dinge, die dabei nicht offensichtlich sind. **Die Größe steckt in `origin()`, nicht in den fünf
+Draw-Sites:** ein Offset zählt von einer Kante nach innen, also hängt bei acht der neun Anchor die Ecke
+an der Größe, und ein Element, das ungeskaliert gemessen und 150% gezeichnet wird, hängt genau um die
+Differenz aus dem Bild. Der Editor greift und clampt deshalb über `placedWidth`/`placedHeight`.
+**Und der Preis steht in `ui/render/Zoom.kt`:** `DevicePixels.push` verweigert jede Pose, die keine reine
+Translation ist, also fallen Borders in einer skalierten Pose auf die 1-GUI-Pixel-Variante zurück und Text
+bei nicht-ganzzahligem Faktor wird weich. **Bei 100% gilt davon nichts** — die Pose ist dann eine reine
+Translation und die Pixel sind die, die released sind. Das ist der Grund, warum der Bereich bei 50%
+aufhört und nicht bei 25%.
+
+**Zum Testen: `build/libs/sighteaddons-0.17.0-dev13.jar`** (20.08., 446 Tests grün), gebaut mit
+`./gradlew assemble check -Pmod_version=0.17.0-dev13`. `gradle.properties` steht weiter auf `0.16.0`,
+`dist/` hält unverändert das released 0.16.0.
 
 **Seit 19.08.: `SoloClear`** — jeder solo abgeschlossene Run geht als `POST /v1/solo_clear` an die Box,
 die ihn nach Discord weitergibt und nichts speichert. Lokal landet er in `soloclears.jsonl`

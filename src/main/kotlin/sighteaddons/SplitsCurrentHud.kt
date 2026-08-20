@@ -6,6 +6,7 @@ import sighteaddons.ui.Format
 import sighteaddons.ui.hud.HudRoot
 import sighteaddons.ui.render.ScaledText
 import sighteaddons.ui.render.Surface
+import sighteaddons.ui.render.Zoom
 import sighteaddons.ui.theme.Tokens
 
 /**
@@ -78,15 +79,20 @@ internal object SplitsCurrentHud {
         text: String,
     ) {
         val width = width(font, text)
-        val origin = Config.splitsCurrentPlacement.origin(screenWidth, screenHeight, width, HEIGHT)
+        val placement = Config.splitsCurrentPlacement
+        val origin = placement.origin(screenWidth, screenHeight, width, HEIGHT)
         val radius = Surface.resolveRadius(Tokens.RADIUS_CHIP, width, HEIGHT)
-        Surface.roundedFill(
-            graphics, origin.x, origin.y, width, HEIGHT, radius,
-            Tokens.alpha(Tokens.scrim, Tokens.scrimAlpha(Config.hudScrim)),
-        )
-        Surface.roundedBorder(graphics, origin.x, origin.y, width, HEIGHT, radius, Tokens.borderSubtle)
-        Surface.topHighlight(graphics, origin.x, origin.y, width, radius, Tokens.highlight)
-        ScaledText.draw(graphics, font, text, origin.x + PAD_X, origin.y + PAD_Y, Tokens.textPrimary)
+        // Drawn from 0, 0 and placed by the pose, so the stored size costs one transform instead of a
+        // scale factor in every constant here. See Zoom.
+        Zoom.at(graphics, origin.x, origin.y, placement.scale) {
+            Surface.roundedFill(
+                graphics, 0, 0, width, HEIGHT, radius,
+                Tokens.alpha(Tokens.scrim, Tokens.scrimAlpha(Config.hudScrim)),
+            )
+            Surface.roundedBorder(graphics, 0, 0, width, HEIGHT, radius, Tokens.borderSubtle)
+            Surface.topHighlight(graphics, 0, 0, width, radius, Tokens.highlight)
+            ScaledText.draw(graphics, font, text, PAD_X, PAD_Y, Tokens.textPrimary)
+        }
     }
 
     /** How wide the chip is for [text] — what [draw] lays out from and what the editor grabs. */

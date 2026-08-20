@@ -44,6 +44,7 @@ class OverlayPlacement(
     private val anchorKey = "${key}Anchor"
     private val offsetXKey = "${key}OffsetX"
     private val offsetYKey = "${key}OffsetY"
+    private val scaleKey = "${key}Scale"
 
     var anchor = defaultAnchor
         private set
@@ -52,9 +53,60 @@ class OverlayPlacement(
     var offsetY = defaultOffsetY
         private set
 
-    /** This element's top-left corner on a [screenW]×[screenH] screen, if it is [w]×[h] in size. */
+    /**
+     * How big this element is drawn, as a percentage of the size it was designed at.
+     *
+     * ### Why a size per element and not one HUD scale
+     *
+     * Because the reason to change one is never the reason to change another. The card is a block of
+     * text somebody reads between fights and wants small enough to see the room behind it; the split
+     * clock is a number glanced at mid-swing and wants to be big. A single slider moves both and
+     * settles at whichever of the two the player cared about least. The elements are placed one at a
+     * time for that same reason, and a size belongs to the same act as a position: this is where the
+     * element is, and how big it is there.
+     *
+     * ### Why percent and not a float
+     *
+     * `config.json` is a supported thing to edit by hand - see [ConfigMigration] - and `120` is a
+     * number a person can type and mean. A float invites `1.2000000476837158` on the way back out, and
+     * [ConfigMigration.intOr] is the defensive read this file already has for ints. Integers also make
+     * the steps exact: ten points per notch of the wheel lands on round numbers forever, where
+     * repeated multiplication by 1.1 drifts and never comes home to 100.
+     *
+     * Clamped on every path in, the file included, because the clamp is what stops a hand-edited `4`
+     * or `100000` from producing an element too small or too large to grab and fix.
+     */
+    var scalePercent = DEFAULT_PERCENT
+        private set
+
+    /** [scalePercent] as the factor a pose is scaled by. */
+    val scale: Float get() = scalePercent / 100f
+
+    /** [size] in GUI pixels once drawn at [scale] - the size the screen, and a hand, actually see. */
+    fun scaled(size: Int): Int = Math.round(size * scale)
+
+    /**
+     * How much of [available] GUI pixels the element has to lay out in, inside its own scaled space.
+     *
+     * Text that is cut to fit the screen - a room name in the popup - is cut while the element is
+     * measured, which happens before the pose is scaled and therefore in a space where the screen is a
+     * different size. Floored, because a prefix half a pixel too wide is one that does not fit; the
+     * same reasoning as [sighteaddons.ui.render.ScaledText.fit].
+     */
+    fun room(available: Int): Int = (available / scale).toInt()
+
+    /**
+     * This element's top-left corner on a [screenW]×[screenH] screen, if it measures [w]×[h]
+     * **before scaling**.
+     *
+     * The scale is applied here rather than at the five call sites: an offset counts inward from an
+     * edge, so every anchor except the top left depends on how much room the element takes up, and one
+     * measured unscaled but drawn half again as big hangs off the bottom right by exactly the
+     * difference. Callers pass the size the element measures itself at and get back the corner the
+     * scaled thing belongs in.
+     */
     fun origin(screenW: Int, screenH: Int, w: Int, h: Int): HudPlacement.Origin =
-        HudPlacement.origin(anchor, offsetX, offsetY, screenW, screenH, w, h)
+        HudPlacement.origin(anchor, offsetX, offsetY, screenW, screenH, scaled(w), scaled(h))
 
     /**
      * Puts the top-left corner at ([x], [y]) and derives the anchor that position reads as.
@@ -63,13 +115,31 @@ class OverlayPlacement(
      * the result hangs off is [HudPlacement.nearest]'s answer, not a question anybody is asked.
      */
     fun place(x: Int, y: Int, screenW: Int, screenH: Int, w: Int, h: Int) =
-        set(HudPlacement.nearest(x, y, screenW, screenH, w, h))
+        set(HudPlacement.nearest(x, y, screenW, screenH, scaled(w), scaled(h)))
 
-    /** Back to where a fresh install has it. */
+    /**
+     * Bigger or smaller by [steps] notches of the wheel, clamped.
+     *
+     * Snapped onto the step grid in the direction of travel, so a hand-edited `137` becomes 140 going
+     * up and 130 going down rather than carrying an odd number forever. One notch is [STEP_PERCENT]
+     * points and not a factor - see [scalePercent] for why the arithmetic is integer.
+     */
+    fun zoom(steps: Int) {
+        if (steps == 0) return
+        val grid = if (steps > 0) {
+            Math.floorDiv(scalePercent, STEP_PERCENT) * STEP_PERCENT
+        } else {
+            -Math.floorDiv(-scalePercent, STEP_PERCENT) * STEP_PERCENT
+        }
+        scalePercent = clamp(grid + steps * STEP_PERCENT)
+    }
+
+    /** Back to where a fresh install has it - position **and** size. */
     fun reset() {
         anchor = defaultAnchor
         offsetX = defaultOffsetX
         offsetY = defaultOffsetY
+        scalePercent = DEFAULT_PERCENT
     }
 
     /**
@@ -80,7 +150,7 @@ class OverlayPlacement(
      * fields per element on the screen that does the dragging is how the card's version of this ended
      * up with a comment explaining which of two flags belonged to which mode.
      */
-    fun snapshot(): HudPlacement.Placement = HudPlacement.Placement(anchor, offsetX, offsetY)
+    fun snapshot(): Saved = Saved(anchor, offsetX, offsetY, scalePercent)
 
     fun set(placement: HudPlacement.Placement) {
         anchor = placement.anchor
@@ -88,23 +158,82 @@ class OverlayPlacement(
         offsetY = placement.offsetY
     }
 
+    /** Puts back everything [snapshot] took, which is the position and the size. */
+    fun restore(saved: Saved) {
+        anchor = saved.anchor
+        offsetX = saved.offsetX
+        offsetY = saved.offsetY
+        scalePercent = clamp(saved.scalePercent)
+    }
+
+    /**
+     * Everything the editor has to be able to undo, in one object.
+     *
+     * [HudPlacement.Placement] is what the drag arithmetic answers with and knows nothing about size:
+     * [HudPlacement.nearest] derives one from a position alone and has to keep being able to. So the
+     * escape hatch gets its own type rather than a fourth field on that one - two jobs that happen to
+     * overlap in three numbers.
+     */
+    class Saved(
+        val anchor: HudPlacement.Anchor,
+        val offsetX: Int,
+        val offsetY: Int,
+        val scalePercent: Int,
+    )
+
     /**
      * `centre · 0, -45` — the anchor first, because it is the half that decides what the offset means.
      *
      * One function for the settings row and for the label under the element being dragged: they say the
      * same thing and there is no reading in which one of them should be able to say it differently.
      */
-    fun label(): String = "${anchor.label} · $offsetX, $offsetY"
+    fun label(): String {
+        val where = "${anchor.label} · $offsetX, $offsetY"
+        // Silent at 100%, because a size nobody has changed is not news, and this same string is the
+        // settings row for five elements that mostly sit at the size they were designed at.
+        return if (scalePercent == DEFAULT_PERCENT) where else "$where · $scalePercent%"
+    }
 
     fun read(obj: JsonObject) {
         anchor = HudPlacement.Anchor.of(ConfigMigration.stringOr(obj, anchorKey, anchor.name), defaultAnchor)
         offsetX = ConfigMigration.intOr(obj, offsetXKey, offsetX)
         offsetY = ConfigMigration.intOr(obj, offsetYKey, offsetY)
+        scalePercent = clamp(ConfigMigration.intOr(obj, scaleKey, scalePercent))
     }
 
     fun write(obj: JsonObject) {
         obj.addProperty(anchorKey, anchor.name)
         obj.addProperty(offsetXKey, offsetX)
         obj.addProperty(offsetYKey, offsetY)
+        obj.addProperty(scaleKey, scalePercent)
+    }
+
+    private fun clamp(percent: Int) = percent.coerceIn(MIN_PERCENT, MAX_PERCENT)
+
+    companion object {
+
+        /** The size every element was designed at, and what a file that never mentions size means. */
+        const val DEFAULT_PERCENT = 100
+
+        /**
+         * Half size, and triple.
+         *
+         * The floor is where the 9 px bitmap font stops being a font: below half a scaled glyph drops
+         * whole rows of pixels, so the line does not get small, it gets wrong. The ceiling is where the
+         * card - the widest element there is - still fits across a GUI-scale-4 screen. Past that the
+         * thing being resized cannot be seen whole, which is also the state it could not be dragged
+         * out of.
+         */
+        const val MIN_PERCENT = 50
+        const val MAX_PERCENT = 300
+
+        /**
+         * One notch of the wheel.
+         *
+         * Ten points is about the smallest step that reads as a change at a glance - the point of the
+         * wheel is that a size is found by looking, not by counting - and it cuts the range into 26
+         * stops, which is a couple of flicks end to end.
+         */
+        const val STEP_PERCENT = 10
     }
 }

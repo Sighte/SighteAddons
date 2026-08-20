@@ -8,6 +8,7 @@ import sighteaddons.ui.motion.Easing
 import sighteaddons.ui.motion.Motion
 import sighteaddons.ui.render.ScaledText
 import sighteaddons.ui.render.Surface
+import sighteaddons.ui.render.Zoom
 import sighteaddons.ui.theme.Tokens
 
 /**
@@ -251,48 +252,55 @@ object ClearPopup {
         // Measured before it is placed, because a chip is positioned by a corner it does not own: at
         // a centre or a right-hand anchor, where its left edge goes depends on how wide it turned out
         // to be. Every piece inside it is then laid out from that edge.
-        val chip = measure(font, name, detail, pb, screenWidth)
+        val placement = Config.clearPopupPlacement
+        // Measured against the room it has inside its own scaled space: a chip drawn at 150% has
+        // two thirds of the screen to cut a long room name to, not all of it.
+        val chip = measure(font, name, detail, pb, placement.room(screenWidth))
         val width = chip.width
         val height = HEIGHT
         // Where the player left it, clamped onto the screen — the same call and the same arithmetic the
         // card and the countdown go through. It was `(screenWidth - width) / 2` and half a screen up.
-        val origin = Config.clearPopupPlacement.origin(screenWidth, screenHeight, width, height)
-        val left = origin.x
-        val top = origin.y
-        val textTop = top + PAD_Y
+        val origin = placement.origin(screenWidth, screenHeight, width, height)
+        // Laid out from the chip's own corner and put on screen by the pose, at the size the player
+        // scrolled to. See Zoom for what a scale other than 100% costs.
+        Zoom.at(graphics, origin.x, origin.y, placement.scale) {
+            val left = 0
+            val top = 0
+            val textTop = top + PAD_Y
 
-        // A chip, not a card: this is an event passing through, not a surface anything else sits on.
-        // The radius is resolved once and passed on, because `topHighlight` measures a full radius
-        // against the width — on a lozenge that resolves to half the *width* and the highlight
-        // collapses to nothing.
-        val radius = Surface.resolveRadius(Tokens.RADIUS_CHIP, width, height)
-        Surface.roundedFill(
-            graphics, left, top, width, height, radius,
-            Tokens.alpha(Tokens.scrim, Math.round(scrimAlpha() * appear)),
-        )
-        Surface.roundedBorder(
-            graphics, left, top, width, height, radius,
-            Tokens.fade(if (pb) Tokens.borderStrong else Tokens.borderSubtle, appear),
-        )
-        Surface.topHighlight(graphics, left, top, width, radius, Tokens.fade(Tokens.highlight, appear))
-
-        // Everything above is drawn in GUI space and everything below that is text enters the scaled
-        // pose one run at a time — see ScaledText for why a border must never be inside that scope.
-        var x = left + PAD_X
-        if (pb) {
-            Glyphs.chevron(
-                graphics, x, textTop + (ScaledText.HEIGHT - Glyphs.SIZE) / 2, true,
-                Tokens.fade(Tokens.textPrimary, appear),
+            // A chip, not a card: this is an event passing through, not a surface anything else sits on.
+            // The radius is resolved once and passed on, because `topHighlight` measures a full radius
+            // against the width — on a lozenge that resolves to half the *width* and the highlight
+            // collapses to nothing.
+            val radius = Surface.resolveRadius(Tokens.RADIUS_CHIP, width, height)
+            Surface.roundedFill(
+                graphics, left, top, width, height, radius,
+                Tokens.alpha(Tokens.scrim, Math.round(scrimAlpha() * appear)),
             )
-            x += chip.markWidth
-        }
+            Surface.roundedBorder(
+                graphics, left, top, width, height, radius,
+                Tokens.fade(if (pb) Tokens.borderStrong else Tokens.borderSubtle, appear),
+            )
+            Surface.topHighlight(graphics, left, top, width, radius, Tokens.fade(Tokens.highlight, appear))
 
-        ScaledText.draw(graphics, font, chip.name, x, textTop, Tokens.fade(Tokens.textPrimary, appear))
-        x += chip.nameWidth + Tokens.SPACE_8
-        ScaledText.draw(graphics, font, chip.detail, x, textTop, Tokens.fade(Tokens.textSecondary, appear))
-        if (pb) {
-            x += chip.detailWidth + Tokens.SPACE_8
-            ScaledText.draw(graphics, font, BADGE, x, textTop, Tokens.fade(Tokens.textPrimary, appear))
+            // Everything above is drawn in GUI space and everything below that is text enters the scaled
+            // pose one run at a time — see ScaledText for why a border must never be inside that scope.
+            var x = left + PAD_X
+            if (pb) {
+                Glyphs.chevron(
+                    graphics, x, textTop + (ScaledText.HEIGHT - Glyphs.SIZE) / 2, true,
+                    Tokens.fade(Tokens.textPrimary, appear),
+                )
+                x += chip.markWidth
+            }
+
+            ScaledText.draw(graphics, font, chip.name, x, textTop, Tokens.fade(Tokens.textPrimary, appear))
+            x += chip.nameWidth + Tokens.SPACE_8
+            ScaledText.draw(graphics, font, chip.detail, x, textTop, Tokens.fade(Tokens.textSecondary, appear))
+            if (pb) {
+                x += chip.detailWidth + Tokens.SPACE_8
+                ScaledText.draw(graphics, font, BADGE, x, textTop, Tokens.fade(Tokens.textPrimary, appear))
+            }
         }
     }
 

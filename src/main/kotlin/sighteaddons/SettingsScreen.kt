@@ -27,6 +27,7 @@ import sighteaddons.ui.hud.HudSnapshot
 import sighteaddons.ui.motion.Clock
 import sighteaddons.ui.motion.Easing
 import sighteaddons.ui.motion.Motion
+import sighteaddons.ui.render.Zoom
 import sighteaddons.ui.screens.Frame
 import sighteaddons.ui.screens.HudPreview
 import sighteaddons.ui.screens.OverlayPreview
@@ -155,8 +156,14 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     private var grabX = 0
     private var grabY = 0
 
-    /** Where the element was when placement started, for the escape hatch. */
-    private var placingWas: HudPlacement.Placement? = null
+    /**
+     * Where the element was, and how big, when placement started — for the escape hatch.
+     *
+     * [OverlayPlacement.Saved] and not [HudPlacement.Placement] because the editor changes four things
+     * now and escape has to undo all four: a wheel that resized an element and an escape that only put
+     * its position back would be an undo that undid half of what was done.
+     */
+    private var placingWas: OverlayPlacement.Saved? = null
 
     /**
      * The current page's scroll offset — rows on the history table, pixels everywhere else.
@@ -734,12 +741,17 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
      */
     private fun renderPlacing(graphics: GuiGraphicsExtractor, target: Target) {
         val origin = placingOrigin(target)
-        val h = placingHeight(target)
+        val h = placedHeight(target)
         // Drawn through the real files, at the position the real ones read, so this is the overlay and
         // not a picture of it. The card gets the live run when there is one; the two chips get a
         // scripted line, because a popup needs a room you just finished and a countdown needs Storm.
         when (target) {
-            Target.CARD -> previewHud.draw(graphics, font, placingSnapshot(), origin.x, origin.y)
+            // The card and the splits panel draw at an origin the editor hands them, so the size is
+            // applied here — exactly as HudRoot.render and SplitsHud.render do it for the live ones.
+            // The other three resolve their own placement and scale themselves.
+            Target.CARD -> Zoom.at(graphics, origin.x, origin.y, target.slot.scale) {
+                previewHud.draw(graphics, font, placingSnapshot(), 0, 0)
+            }
             Target.POPUP -> ClearPopup.drawAt(
                 graphics, font, width, height,
                 PLACING_POPUP.name, PLACING_POPUP.detail, PLACING_POPUP.pb, ClearPopup.PRESENT_MS,
@@ -747,7 +759,9 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             Target.TIMER -> StormHud.draw(graphics, font, width, height, StormHud.sample())
             // The scripted mid-run F7: the tallest the panel gets, and the one state that shows all
             // three of its tones at once. See Splits.sample.
-            Target.SPLITS -> SplitsHud.draw(graphics, font, Splits.sample(), origin.x, origin.y)
+            Target.SPLITS -> Zoom.at(graphics, origin.x, origin.y, target.slot.scale) {
+                SplitsHud.draw(graphics, font, Splits.sample(), 0, 0)
+            }
             Target.SPLITS_CURRENT -> SplitsCurrentHud.draw(
                 graphics, font, width, height, SplitsCurrentHud.sample(),
             )
@@ -778,7 +792,11 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         // there was anything new to say on it.
         graphics.text(
             font,
-            if (dragging) "release to place it" else "drag the ${target.what} · arrows nudge · r resets",
+            if (dragging) {
+                "release to place it · wheel resizes it"
+            } else {
+                "drag the ${target.what} · wheel resizes · arrows nudge · r resets"
+            },
             frameLeft, headerY, Tokens.textTertiary, false,
         )
         graphics.text(
@@ -817,6 +835,20 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     }
 
     /**
+     * The same two measurements at the size the element is actually drawn — the rectangle a hand
+     * grabs, the one a drag is clamped against, and the one the label hangs under.
+     *
+     * Everything the editor does about *position* goes through these rather than through the two above,
+     * for the reason [placingWidth] gives about measuring a chip its own way: an element scaled to 150%
+     * but grabbed by an unscaled rectangle can be picked up off its own bottom right corner, and a drag
+     * clamped by one can be dropped a third of the way off the screen. [OverlayPlacement.origin] applies
+     * the same factor at the other end, so the two agree by construction.
+     */
+    private fun placedWidth(target: Target): Int = target.slot.scaled(placingWidth(target))
+
+    private fun placedHeight(target: Target): Int = target.slot.scaled(placingHeight(target))
+
+    /**
      * [target]'s top-left corner on this screen, resolved from the stored anchor and offset.
      *
      * Everything in placement mode goes through this rather than through the stored numbers, so what
@@ -836,8 +868,11 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     /** Whether ([x], [y]) is on the element being placed, which is what can be grabbed. */
     private fun onPlaced(target: Target, x: Int, y: Int): Boolean {
         val origin = placingOrigin(target)
-        return x >= origin.x && x < origin.x + placingWidth(target) &&
-            y >= origin.y && y < origin.y + placingHeight(target)
+        // Never smaller than a thumb: at 50% the split clock is about 30×11 px, and an element too
+        // small to hit is one whose size cannot be scrolled back up.
+        val w = placedWidth(target).coerceAtLeast(GRAB_MIN)
+        val h = placedHeight(target).coerceAtLeast(GRAB_MIN)
+        return x >= origin.x && x < origin.x + w && y >= origin.y && y < origin.y + h
     }
 
     /**
@@ -855,6 +890,28 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
      */
     private fun dragTo(target: Target, mouseX: Int, mouseY: Int) =
         moveTo(target, mouseX - grabX, mouseY - grabY)
+
+    /**
+     * Keeps the held point under the cursor after the element changed size in the middle of a drag.
+     *
+     * The element grows from its own top-left corner, so without this the thing being dragged slides
+     * out from under the hand — one notch of the wheel on a 200 px card moves its far edge 20 px away
+     * from the cursor, and a resize that is also a move is two changes for one gesture.
+     *
+     * The offset is **scaled**, not recomputed from the cursor: what survives is the *proportion* of
+     * the element the hand is holding, so a chip grabbed by its right end is still held by its right
+     * end when it is twice as big, rather than snapping to whichever pixel the cursor is over. Then it
+     * is moved to match, because the offset and the position are two halves of one statement.
+     */
+    private fun regrab(target: Target, mouseX: Int, mouseY: Int, wasW: Int, wasH: Int) {
+        grabX = held(grabX, wasW, placedWidth(target))
+        grabY = held(grabY, wasH, placedHeight(target))
+        moveTo(target, mouseX - grabX, mouseY - grabY)
+    }
+
+    /** [grabbed] pixels into something [before] wide, expressed in something [after] wide. */
+    private fun held(grabbed: Int, before: Int, after: Int): Int =
+        if (before <= 0) 0 else Math.round(grabbed.toFloat() / before * after)
 
     /** Puts the element's top-left corner at ([x], [y]): where a drag, or a nudge, has just put it. */
     private fun moveTo(target: Target, x: Int, y: Int) = Config.place(
@@ -903,7 +960,7 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     /** Leaves placement mode, keeping [keep] or putting the element back where it was picked up. */
     private fun stopPlacing(keep: Boolean) {
         val was = placingWas
-        if (keep) Config.save() else was?.let { placing?.slot?.set(it) }
+        if (keep) Config.save() else was?.let { placing?.slot?.restore(it) }
         placing = null
         placingWas = null
         dragging = false
@@ -1529,9 +1586,27 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     }
 
     override fun mouseScrolled(mouseX: Double, mouseY: Double, scrollX: Double, scrollY: Double): Boolean {
-        // Placement mode draws none of this. Scrolling the page underneath it moves a list nobody can
-        // see, and leaves it somewhere else when the element is dropped.
-        if (placing != null) return true
+        // In placement mode the wheel is the element's size.
+        //
+        // **The same gesture as moving it, without letting go.** Size and position are one question — a
+        // thing is too big *there*, over the thing it covers — and answering it used to mean leaving the
+        // editor, finding a number, and coming back to see what that did to the position. Here it
+        // happens while the element is still under the hand, mid-drag included, which is the moment a
+        // player finds out it does not fit where they are putting it.
+        //
+        // The page underneath keeps its scroll either way: scrolling a list nobody can see is not what
+        // the wheel is for here, and it would be left somewhere else the moment the element was dropped.
+        val target = placing
+        if (target != null) {
+            val steps = Math.round(scrollY).toInt()
+            if (steps != 0) {
+                val wasW = placedWidth(target)
+                val wasH = placedHeight(target)
+                target.slot.zoom(steps)
+                if (dragging) regrab(target, mouseX.toInt(), mouseY.toInt(), wasW, wasH)
+            }
+            return true
+        }
         if (tab == Tab.RECORDS) {
             build()
             // Rows, not pixels: the table's rows are a fixed height and it has counted in them since it
@@ -1561,6 +1636,10 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             // by hand: the offset that means "exactly centred" is zero, and landing a drag on zero takes
             // more patience than anybody has. Not written here — escape still undoes it, and clicking off
             // it is still what commits.
+            //
+            // The size goes back with it. One key for "as it shipped" is the only reading of this that
+            // does not need explaining, and a reset that left an element at 240% would look like the
+            // reset having failed.
             if (event.key() == GLFW.GLFW_KEY_R) {
                 target.slot.reset()
                 return true
@@ -1743,6 +1822,15 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         const val PB = "PB"
 
         const val HISTORY_FILE = "config/sighteaddons/history.jsonl"
+
+        /**
+         * The smallest rectangle the editor lets a hand aim at, in GUI pixels.
+         *
+         * The floor exists because the wheel can make an element genuinely tiny, and the thing that has
+         * to stay possible is grabbing it again to undo that. Applied to the grab only and never to the
+         * drawing: an outline bigger than the element would be the editor lying about where it is.
+         */
+        private const val GRAB_MIN = 12
 
         /**
          * Alpha of the scrim behind placement mode, out of 255.

@@ -5,6 +5,7 @@ import net.minecraft.client.gui.GuiGraphicsExtractor
 import sighteaddons.ui.hud.Glyphs
 import sighteaddons.ui.render.ScaledText
 import sighteaddons.ui.render.Surface
+import sighteaddons.ui.render.Zoom
 import sighteaddons.ui.theme.Tokens
 
 /**
@@ -138,43 +139,47 @@ internal object StormHud {
         // on the width. Where the player left it, clamped onto the screen — the card, the popup and this
         // all go through the same arithmetic. It was `(screenWidth - width) / 2` and half a screen down.
         val origin = Config.stormPlacement.origin(screenWidth, screenHeight, width, height)
-        val left = origin.x
-        val top = origin.y
-        val textTop = top + PAD_Y
+        // The chip lays itself out from its own corner; the pose puts it on screen at the stored
+        // size. See Zoom.
+        Zoom.at(graphics, origin.x, origin.y, Config.stormPlacement.scale) {
+            val left = 0
+            val top = 0
+            val textTop = top + PAD_Y
 
-        // A chip, not a card, and the radius is resolved once: `topHighlight` measures a full radius
-        // against the width, which on a lozenge collapses the highlight to nothing.
-        val radius = Surface.resolveRadius(Tokens.RADIUS_CHIP, width, height)
-        if (now) {
-            // The inversion. No border and no highlight — both are ways of suggesting an edge on a
-            // surface that is barely there, and this one is entirely there.
-            Surface.roundedFill(graphics, left, top, width, height, radius, Tokens.accent)
-            ScaledText.draw(graphics, font, readout.text, left + PAD_X, textTop, Tokens.accentText)
-            return
-        }
-
-        Surface.roundedFill(
-            graphics, left, top, width, height, radius,
-            Tokens.alpha(Tokens.scrim, scrimAlpha()),
-        )
-        Surface.roundedBorder(graphics, left, top, width, height, radius, border(readout.urgency))
-        Surface.topHighlight(graphics, left, top, width, radius, Tokens.highlight)
-
-        // Filled against hollow, never a shade of the same mark — the pairing Glyphs exists for.
-        val filled = filled(readout.urgency)
-        val markTop = textTop + (ScaledText.HEIGHT - Glyphs.SIZE) / 2
-        for (i in 0 until MARKS) {
-            val x = left + PAD_X + i * Glyphs.SIZE
-            if (i < filled) {
-                Glyphs.dotFilled(graphics, x, markTop, Tokens.textPrimary)
-            } else {
-                Glyphs.dotHollow(graphics, x, markTop, Tokens.textTertiary)
+            // A chip, not a card, and the radius is resolved once: `topHighlight` measures a full radius
+            // against the width, which on a lozenge collapses the highlight to nothing.
+            val radius = Surface.resolveRadius(Tokens.RADIUS_CHIP, width, height)
+            if (now) {
+                // The inversion. No border and no highlight — both are ways of suggesting an edge on a
+                // surface that is barely there, and this one is entirely there.
+                Surface.roundedFill(graphics, left, top, width, height, radius, Tokens.accent)
+                ScaledText.draw(graphics, font, readout.text, left + PAD_X, textTop, Tokens.accentText)
+                return@at
             }
-        }
 
-        // Drawn last and outside every scaled scope; see ScaledText for why the chrome above is not
-        // inside one.
-        ScaledText.draw(graphics, font, readout.text, left + PAD_X + markWidth, textTop, Tokens.textPrimary)
+            Surface.roundedFill(
+                graphics, left, top, width, height, radius,
+                Tokens.alpha(Tokens.scrim, scrimAlpha()),
+            )
+            Surface.roundedBorder(graphics, left, top, width, height, radius, border(readout.urgency))
+            Surface.topHighlight(graphics, left, top, width, radius, Tokens.highlight)
+
+            // Filled against hollow, never a shade of the same mark — the pairing Glyphs exists for.
+            val filled = filled(readout.urgency)
+            val markTop = textTop + (ScaledText.HEIGHT - Glyphs.SIZE) / 2
+            for (i in 0 until MARKS) {
+                val x = left + PAD_X + i * Glyphs.SIZE
+                if (i < filled) {
+                    Glyphs.dotFilled(graphics, x, markTop, Tokens.textPrimary)
+                } else {
+                    Glyphs.dotHollow(graphics, x, markTop, Tokens.textTertiary)
+                }
+            }
+
+            // Drawn last and outside every scaled scope; see ScaledText for why the chrome above is not
+            // inside one.
+            ScaledText.draw(graphics, font, readout.text, left + PAD_X + markWidth, textTop, Tokens.textPrimary)
+        }
     }
 
     /**

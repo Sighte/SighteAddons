@@ -5,6 +5,7 @@ import net.minecraft.client.gui.GuiGraphicsExtractor
 import sighteaddons.ui.components.Labels
 import sighteaddons.ui.hud.HudRoot
 import sighteaddons.ui.render.Surface
+import sighteaddons.ui.render.Zoom
 import sighteaddons.ui.theme.Tokens
 
 /**
@@ -82,7 +83,11 @@ internal object SplitsHud {
         val readout = Splits.display(nowMs, serverTicks) ?: return
         val height = measure(readout)
         val origin = Config.splitsPlacement.origin(screenWidth, screenHeight, WIDTH, height)
-        draw(graphics, font, readout, origin.x, origin.y)
+        // The panel draws at whatever origin it is handed, so the size is the pose's job and the
+        // gallery keeps calling `draw` unchanged. See Zoom.
+        Zoom.at(graphics, origin.x, origin.y, Config.splitsPlacement.scale) {
+            draw(graphics, font, readout, 0, 0)
+        }
     }
 
     /**

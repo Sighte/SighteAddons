@@ -12,6 +12,7 @@ import sighteaddons.ui.motion.Motion
 import sighteaddons.ui.render.Effects
 import sighteaddons.ui.render.ScaledText
 import sighteaddons.ui.render.Surface
+import sighteaddons.ui.render.Zoom
 import sighteaddons.ui.theme.Density
 import sighteaddons.ui.theme.Tokens
 
@@ -96,7 +97,11 @@ internal class HudRoot {
         // makes it grow upwards out of a bottom anchor as the totals open, instead of downwards off
         // the screen.
         val origin = Config.hudOrigin(Density.guiWidth, Density.guiHeight, WIDTH, measure(snapshot))
-        draw(graphics, font, snapshot, origin.x, origin.y)
+        // The card is laid out at the size it was designed at and put on screen at the size the player
+        // left it — one transform rather than a scale factor threaded through every row. See Zoom.
+        Zoom.at(graphics, origin.x, origin.y, Config.hudPlacement.scale) {
+            draw(graphics, font, snapshot, 0, 0)
+        }
     }
 
     /**
