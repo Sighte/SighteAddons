@@ -61,7 +61,7 @@ object HudPlacement {
             /**
              * The anchor named [value], or [fallback] for anything else.
              *
-             * A hand-edited `config.json` is a supported way to set this file — see [Config.hypixelKey]
+             * A hand-edited `config.json` is a supported way to set this file — see [ConfigMigration]
              * — so a misspelt anchor has to cost the anchor and nothing else. Throwing would land in
              * [Config]'s catch-all and discard every *other* setting in the file along with it.
              *

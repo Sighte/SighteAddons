@@ -35,11 +35,11 @@ internal object SettingsPage {
     /**
      * What a line is.
      *
-     * [SECTION] and [NOTE] are the structure, [TOGGLE] to [FIELD] are the controls, and [STAT] is a
+     * [SECTION] and [NOTE] are the structure, [TOGGLE] to [SLIDER] are the controls, and [STAT] is a
      * figure with its sample beside it — the stats overview's only line kind, here rather than in its
      * own list so both pages share the loop and the scroll.
      */
-    enum class Kind { SECTION, NOTE, TOGGLE, ACTION, INFO, STEPPER, SLIDER, FIELD, STAT }
+    enum class Kind { SECTION, NOTE, TOGGLE, ACTION, INFO, STEPPER, SLIDER, STAT }
 
     /**
      * One line.
@@ -76,14 +76,13 @@ internal object SettingsPage {
             get() = when (kind) {
                 Kind.SECTION -> SECTION
                 Kind.NOTE -> NOTE
-                Kind.FIELD -> FIELD
                 Kind.STAT -> if (fraction >= 0f) ROW + BAR else ROW
                 else -> ROW
             }
 
         /** Whether a press on this line does anything, which is what earns it a hover wash. */
         val interactive: Boolean
-            get() = click != null || step != null || slide != null || kind == Kind.FIELD
+            get() = click != null || step != null || slide != null
     }
 
     /** A control row. Tall enough for a switch that is still a switch at GUI scale 4. */
@@ -91,9 +90,6 @@ internal object SettingsPage {
 
     /** An explanation under the row it explains. One line, never wrapped — see the screen's `note`. */
     const val NOTE = 11
-
-    /** A text field's row: the field itself plus the air that keeps it off its neighbours. */
-    const val FIELD = TextField.HEIGHT + Tokens.SPACE_8
 
     /**
      * A heading and the air above it.

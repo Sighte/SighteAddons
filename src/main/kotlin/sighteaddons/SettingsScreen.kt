@@ -20,7 +20,6 @@ import sighteaddons.ui.components.Slider
 import sighteaddons.ui.components.Sparkline
 import sighteaddons.ui.components.Stepper
 import sighteaddons.ui.components.Table
-import sighteaddons.ui.components.TextField
 import sighteaddons.ui.components.Tooltip
 import sighteaddons.ui.hud.HudKeys
 import sighteaddons.ui.hud.HudRoot
@@ -43,7 +42,7 @@ import sighteaddons.ui.theme.Tokens
  *
  * Built on the design system in `ui/` and, since Phase 4/5, on the components in `ui/components/` —
  * `Nav` for the rail, `Table` for the header cells and the accordion's detail lines, `Tooltip` instead
- * of vanilla's purple-bordered box, `EmptyState`, `Badge`, `Stepper`, `TextField`, `Labels` for every
+ * of vanilla's purple-bordered box, `EmptyState`, `Badge`, `Stepper`, `Labels` for every
  * tracked label. What did not change is any of the behaviour underneath: the rows, the search, the
  * sort, the accordion and every config key are the same code they were.
  *
@@ -203,25 +202,6 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     private var tooltipX = 0
     private var tooltipY = 0
 
-    /**
-     * The Hypixel key's edit state, seeded from the config and committed back on blur.
-     *
-     * [Config.hypixelKey] is not written on every keystroke: [Config.save] writes the file, and typing a
-     * 36-character key would be 36 writes of a config nobody has finished editing. Committing on blur is
-     * the same decision the placement drag makes about its own hundred frames.
-     */
-    private val keyEdit = TextField.Edit(Config.hypixelKey, KEY_MAX)
-    private var keyFocused = false
-
-    /**
-     * Whether the key is currently legible.
-     *
-     * **An act and not a setting.** It is not in [Config], it is not written anywhere, and it ends the
-     * moment focus does — which is what makes a masked field the default rather than a preference the
-     * player has to know to re-set. See [Config.hypixelKey] for the objection this answers.
-     */
-    private var keyRevealed = false
-
     private val anim = Anim()
     private val previewHud = HudRoot()
 
@@ -272,8 +252,6 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     private val valueX get() = contentLeft + content * 55 / 100
 
     /** The key field's box. Derived, so [mouseClicked] hit-tests the rectangle it is drawn in. */
-    private val fieldWidth get() = minOf(FIELD_MAX, content * 60 / 100)
-    private val fieldX get() = lastX - fieldWidth
 
     /**
      * The scrim slider's track, hard against the right edge like every other control on a row.
@@ -489,7 +467,7 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         }
 
         val textY = y + (rowHeight - Labels.CAP) / 2
-        val plain = item.kind == SettingsPage.Kind.INFO || item.kind == SettingsPage.Kind.FIELD
+        val plain = item.kind == SettingsPage.Kind.INFO
         graphics.text(
             font, item.label, contentLeft, textY,
             if (plain) Tokens.textSecondary else Tokens.textPrimary, false,
@@ -543,17 +521,6 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
                     travel.value, hover = hover, active = held,
                 )
             }
-
-            SettingsPage.Kind.FIELD -> TextField.draw(
-                graphics, font, fieldX, y + (rowHeight - TextField.HEIGHT) / 2, fieldWidth, TextField.HEIGHT,
-                keyEdit,
-                placeholder = "paste your key",
-                mask = TextField.Mask.DOTS,
-                revealed = keyRevealed,
-                focus = Controls.hover(anim.of("keyfocus"), keyFocused),
-                hover = hover,
-                caret = TextField.caretOn(keyFocused),
-            )
 
             // Plain information.
             else -> {
@@ -1165,17 +1132,6 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         // "not set" over a note saying the feature stayed inert, which was true when every player
         // needed their own key and is a lie now that the receiver holds one — see SecretApi.Source.
         // Somebody reading this row has to be able to tell "nothing to do" from "switched off".
-        section("hypixel key", if (Config.hypixelKey.isBlank()) "the box looks these up" else "your own")
-        field("your key")
-        note(
-            if (Config.hypixelKey.isBlank()) {
-                "blank is fine · teammate secrets come from the receiver"
-            } else {
-                "used instead of the receiver · never logged, never uploaded"
-            },
-        )
-        note("a key here only sends your party's uuids to hypixel rather than to the box")
-
         section("data")
         info("rooms in the database", RoomDatabase.roomCount.toString())
         // Cores and not rooms, which the previous version's single "rooms in the database" row called
@@ -1268,9 +1224,6 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
 
     private fun MutableList<SettingsPage.Item>.info(label: String, value: String) =
         add(SettingsPage.Item(SettingsPage.Kind.INFO, label, value))
-
-    private fun MutableList<SettingsPage.Item>.field(label: String) =
-        add(SettingsPage.Item(SettingsPage.Kind.FIELD, label))
 
     /**
      * A tick count, with its position in its own range under it.
@@ -1499,20 +1452,12 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             -1
         }
         val item = items.getOrNull(index)
-        val onField = item != null && item.kind == SettingsPage.Kind.FIELD &&
-            mouseX >= fieldX && mouseX < fieldX + fieldWidth
-        if (!onField) blurKey(commit = true)
 
         if (item == null || mouseX !in rowLeft..lastX) {
             return super.mouseClicked(event, doubleClick)
         }
 
         when (item.kind) {
-            SettingsPage.Kind.FIELD -> {
-                if (onField) clickField(mouseX)
-                return true
-            }
-
             SettingsPage.Kind.STEPPER -> {
                 val stepperWidth = Stepper.width(font, item.value)
                 val arm = Stepper.armAt(lastX - stepperWidth, stepperWidth, mouseX)
@@ -1550,28 +1495,6 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
             // press to reach either.
             else -> return super.mouseClicked(event, doubleClick)
         }
-    }
-
-    /**
-     * A press inside the key field: the reveal affordance, or the caret.
-     *
-     * The reveal rectangle is re-derived from [TextField.revealX] rather than remembered from the draw,
-     * which is rule 3 — and it matters here more than anywhere, because the affordance is laid out in
-     * the width of the longer of its two words so that pressing it does not move it out from under the
-     * cursor that pressed it.
-     */
-    private fun clickField(mouseX: Int) {
-        // Focused first, and for both halves of the field. The reveal is documented as ending when the
-        // focus does, and a reveal that could be taken without ever taking focus was a reveal whose
-        // stated end condition never came round — it survived until something else on the screen
-        // happened to blur a field that was not focused. No leak, and a promise that was not kept.
-        keyFocused = true
-        if (mouseX >= TextField.revealX(font, TextField.Mask.DOTS, fieldX, fieldWidth)) {
-            keyRevealed = !keyRevealed
-            return
-        }
-        val offset = TextField.offsetAt(fieldX, mouseX, keyEdit.scroll)
-        keyEdit.placeCaret(TextField.indexAt(font, keyEdit.text, TextField.Mask.DOTS, keyRevealed, offset))
     }
 
     override fun mouseDragged(event: MouseButtonEvent, dragX: Double, dragY: Double): Boolean {
@@ -1648,9 +1571,6 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
                 return true
             }
         }
-        // The focused field is a narrowing in exactly the sense rule 2 means: escape leaves the field
-        // and the screen stays where it was.
-        if (keyFocused && editKey(event)) return true
         if (tab == Tab.RECORDS) {
             if (event.key() == GLFW.GLFW_KEY_BACKSPACE && query.isNotEmpty()) {
                 query = query.dropLast(1)
@@ -1682,43 +1602,8 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
      * `config.json` or from a paste, and leaves only as a request header. Swallowing rather than
      * ignoring, so the keystroke does not fall through to something else while the field has focus.
      */
-    private fun editKey(event: KeyEvent): Boolean {
-        when {
-            event.key() == GLFW.GLFW_KEY_ESCAPE ||
-                event.key() == GLFW.GLFW_KEY_ENTER ||
-                event.key() == GLFW.GLFW_KEY_KP_ENTER ||
-                event.key() == GLFW.GLFW_KEY_TAB -> blurKey(commit = true)
-
-            event.key() == GLFW.GLFW_KEY_BACKSPACE -> keyEdit.backspace()
-            event.key() == GLFW.GLFW_KEY_DELETE -> keyEdit.delete()
-            event.isLeft -> keyEdit.move(-1, event.hasShiftDown())
-            event.isRight -> keyEdit.move(1, event.hasShiftDown())
-            event.key() == GLFW.GLFW_KEY_HOME -> keyEdit.home(event.hasShiftDown())
-            event.key() == GLFW.GLFW_KEY_END -> keyEdit.end(event.hasShiftDown())
-            event.isSelectAll -> keyEdit.selectAll()
-            event.isPaste -> keyEdit.insert(pasted())
-            event.isCopy || event.isCut -> Unit
-            else -> return false
-        }
-        return true
-    }
-
-    /**
-     * The clipboard, as one line.
-     *
-     * A key copied out of a browser routinely arrives with a newline on it, and `Edit.insert` truncates
-     * against its own maximum rather than refusing — so the newline would silently become the last
-     * character of a key that is then wrong by exactly one character, which fails identically to a key
-     * that was never entered.
-     */
-    private fun pasted(): String = minecraft.keyboardHandler.clipboard.filterNot { it.isWhitespace() }
-
     /** Type anywhere to filter. No input box: the query itself is the only thing worth showing. */
     override fun charTyped(event: CharacterEvent): Boolean {
-        if (keyFocused) {
-            if (event.isAllowedChatCharacter) keyEdit.insert(event.codepointAsString())
-            return true
-        }
         if (tab != Tab.RECORDS || !event.isAllowedChatCharacter) return super.charTyped(event)
         query += event.codepointAsString()
         scroll = 0
@@ -1728,21 +1613,8 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     // --- Zones and helpers ------------------------------------------------------------------
 
     private fun selectTab(entry: Tab) {
-        blurKey(commit = true)
         tab = entry
         scroll = 0
-    }
-
-    /**
-     * Leaves the key field, writing it if it changed.
-     *
-     * The reveal ends with the focus, unconditionally: it is an act and not a setting, so there is no
-     * state in which it should survive walking away from the field.
-     */
-    private fun blurKey(commit: Boolean) {
-        keyRevealed = false
-        keyFocused = false
-        if (commit) commitKey()
     }
 
     /**
@@ -1760,13 +1632,6 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         return true
     }
 
-    /** Writes the key only when it actually changed, so leaving a tab is not a file write. */
-    private fun commitKey() {
-        if (keyEdit.text == Config.hypixelKey) return
-        Config.hypixelKey = keyEdit.text
-        Config.save()
-    }
-
     private fun fit(text: String, room: Int): String = font.plainSubstrByWidth(text, room.coerceAtLeast(0))
 
     /** Owes this frame a tooltip. Anything a column cut off says so the same way. */
@@ -1777,7 +1642,6 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
     }
 
     private fun footer(): String = when {
-        keyFocused -> "enter saves the key · esc leaves the field"
         tab == Tab.STATS -> "everything here comes from history.jsonl"
         tab != Tab.RECORDS -> "click a row to change it"
         query.isNotEmpty() -> "esc clears the search"
@@ -1842,7 +1706,6 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
      * leaving includes every way out that this screen never hears about.
      */
     override fun removed() {
-        blurKey(commit = true)
         releaseSlider()
         HudRoot.editing = false
         super.removed()
@@ -1859,9 +1722,6 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
         /** A switch on a 20-pixel row, with air above and below it. */
         const val TOGGLE_HEIGHT = 16
 
-        /** The key field's widest form. Beyond this it is a very long box for a 36-character string. */
-        const val FIELD_MAX = 220
-
         /**
          * The scrim slider's track.
          *
@@ -1875,15 +1735,6 @@ class SettingsScreen(private var tab: Tab = Tab.HUD) : Screen(Component.literal(
          * readout is what makes it repeatable.
          */
         const val SLIDER_WIDTH = 120
-
-        /**
-         * The longest key the field will hold.
-         *
-         * A Hypixel key is a 36-character UUID. The cap is generous rather than exact because a format
-         * this file does not own is not a format this file should enforce — what it is for is the paste
-         * of a whole web page into a field that would otherwise try to lay out a megabyte.
-         */
-        const val KEY_MAX = 128
 
         const val SPARK_MIN = 40
         const val SPARK_MAX = 72

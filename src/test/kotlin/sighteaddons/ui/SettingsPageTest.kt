@@ -12,9 +12,7 @@ import sighteaddons.ui.screens.SettingsPage
  *
  * All three are invisible when they are wrong. A page clamped one unit too generously scrolls into
  * blank space, which reads as the settings having disappeared; one clamped too tightly hides its last
- * row, which reads as a setting that was never written. And a caret placed a padding away from the
- * mark that was pressed cannot be seen at all on a masked field — every mark looks like every other
- * one, so the only symptom is a key that comes out wrong three keystrokes later.
+ * row, which reads as a setting that was never written.
  */
 class SettingsPageTest {
 
@@ -26,7 +24,7 @@ class SettingsPageTest {
         item(SettingsPage.Kind.TOGGLE),
         item(SettingsPage.Kind.NOTE),
         item(SettingsPage.Kind.STAT, "bar", fraction = 0.5f),
-        item(SettingsPage.Kind.FIELD),
+        item(SettingsPage.Kind.SLIDER),
         item(SettingsPage.Kind.INFO),
     )
 

@@ -9,14 +9,15 @@ import sighteaddons.ui.render.Surface
 import sighteaddons.ui.theme.Tokens
 
 /**
- * A single-line text field, with the masked variant the Hypixel key needs.
+ * A single-line text field, with a masked variant for a secret.
  *
- * The mod has exactly one string a player must be able to type — `Config.hypixelKey` — and today it
- * has no UI at all, so `SecretApi` and the whole secret audit have never run once. `Config` states
- * the reason it was left out: *"a text field that echoes a credential on screen is a worse default
- * than one more step"*. That objection is to an **echoing** field, not to a field, so this one does
- * not echo: [Mask.DOTS] is the default for a secret and the reveal is an explicit, momentary act with
- * a word on it, never a persisted "show password" setting.
+ * **Nothing in the mod uses this today, and the reason is worth keeping written down.** It was built
+ * for `Config.hypixelKey` — the one string a player ever had to type — and that setting is gone: the
+ * Hypixel key moved onto the receiver, where one value serves every install and no player is asked for
+ * one (see `SecretApi`). Kept rather than deleted because it is a finished, tested part of the design
+ * system with a page in the gallery, and because the argument it embodies outlives its first consumer:
+ * a field for a secret does not **echo**. [Mask.DOTS] is the default and the reveal is an explicit,
+ * momentary act with a word on it, never a persisted "show password" setting.
  *
  * ### Where the state lives
  *

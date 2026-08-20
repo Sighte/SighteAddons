@@ -150,9 +150,9 @@ class ConfigMigrationTest {
     /**
      * A hand-broken `config.json` costs the key it is in and nothing else — above all not the identity.
      *
-     * This is the expensive one, and it is not a hypothetical: `Config.hypixelKey` has no UI at all and
-     * its own documentation tells the player to edit it into the file by hand, so somebody typing in
-     * this file is a supported path and a misplaced quote is what happens on it. `Config.read` calls
+     * This is the expensive one, and it is not a hypothetical: the placement keys and `installId` are
+     * documented as hand-editable, so somebody typing in this file is a supported path and a misplaced
+     * quote is what happens on it. `Config.read` calls
      * `migrate` as its very first statement, and `asInt` throws on a string, on a null and on an
      * object — so one bad `version` used to take the *whole* read down into the catch-all. `installId`
      * would then be blank, `Config.load` would mint a new UUID and save it, and every run this install
@@ -200,13 +200,13 @@ class ConfigMigrationTest {
     @Test
     fun `a value of the wrong type reads as unset`() {
         val obj = JsonParser.parseString(
-            """{"hud":"yes","stormCountdownTicks":{},"hypixelKey":[],"installId":null}""",
+            """{"hud":"yes","stormCountdownTicks":{},"hudAnchor":[],"installId":null}""",
         ).asJsonObject
 
         assertTrue(ConfigMigration.boolOr(obj, "hud", true), "a string is not a switch anybody set")
         assertFalse(ConfigMigration.boolOr(obj, "hud", false), "and the fallback is what wins, either way")
         assertEquals(138, ConfigMigration.intOr(obj, "stormCountdownTicks", 138))
-        assertEquals("", ConfigMigration.stringOr(obj, "hypixelKey", ""))
+        assertEquals("", ConfigMigration.stringOr(obj, "hudAnchor", ""))
         assertEquals("keep-me", ConfigMigration.stringOr(obj, "installId", "keep-me"))
 
         val good = JsonParser.parseString("""{"hud":false,"stormCountdownTicks":90,"installId":"id"}""").asJsonObject

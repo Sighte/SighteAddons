@@ -2,7 +2,7 @@
 
 ## Stand — 2026-08-19
 
-`main` = **458 Tests / 40 Klassen / grün**, `mod_version` 0.16.0 released (`v0.16.0`, Modrinth
+`main` = **444 Tests / 40 Klassen / grün**, `mod_version` 0.16.0 released (`v0.16.0`, Modrinth
 `kIbj76Z4`, SHA1 `931b1152…` auf beiden Seiten). `dist/sighteaddons-0.16.0.jar` ist die committete
 Datei. `RunReport.SCHEMA` 6, der Receiver akzeptiert `idleTicks`/`navTicks` als optional und ist
 deployt — **dem Receiver ist nichts geschuldet.**
@@ -218,9 +218,23 @@ in einem *released* Build entstehen.
 
 ## secrets-001 — Team-Secrets brauchen keinen Key mehr (20.08., ohne Versionsänderung)
 
-`SecretApi` fragt jetzt **die Box** statt Hypixel: `GET /v1/secrets/<uuid>` mit dem Upload-Token, das
-jede Installation schon hat. `Config.hypixelKey` bleibt als Override für jemanden, dessen Party-UUIDs
-nicht über die Box laufen sollen — `SecretApi.Source` ist die Entscheidung, `Box` gewinnt.
+`SecretApi` fragt **die Box** statt Hypixel: `GET /v1/secrets/<uuid>` mit dem Upload-Token, das jede
+Installation schon hat. **Es gibt keinen Key mehr in der Mod und keinen Weg, einen einzutragen** —
+`Config.hypixelKey`, das `/sa`-Feld, `Kind.FIELD` und der direkte Hypixel-Pfad sind alle weg.
+
+Die erste Fassung behielt das Feld als „Override". Das war ein halber Schritt: wer noch einen Wert
+drinstehen hatte, blieb genau auf dem ablaufenden Key, dessen Unsichtbarkeit der Anlass war. Und ein
+Config-Key, den niemand mehr setzen kann, ist toter Code hinter einer toten Einstellung.
+
+Mitgegangen sind damit `SecretApi.parse` (Hypixels Dokumentform — das parst jetzt `secret_from_body`
+auf der Box, wo `SecretBody` es hält), `HOST`, und in `SettingsScreen` die ganze Feld-Mechanik:
+`keyEdit`/`keyFocused`/`keyRevealed`, `clickField`, `editKey`, `pasted`, `blurKey`, `commitKey`,
+`FIELD_MAX`, `KEY_MAX`. `TextField` bleibt — fertige, getestete Komponente mit Gallery-Seite, und das
+Argument darin (ein Feld für ein Geheimnis **echot** nicht) überlebt seinen ersten Verbraucher.
+
+Ein `config.json` von vorher trägt sein `hypixelKey` noch; nichts liest es und der nächste Save wirft
+es raus. Das ist die richtige Richtung: ein Credential, das die Mod nicht mehr benutzt, soll nicht in
+einer Config liegen bleiben.
 
 **Genau so machen es die anderen Dungeon-Mods, nachgesehen statt vermutet.** Odins `SecretsCounter`
 rechnet dieselbe Baseline-minus-Delta und holt den Wert von `api.odtheking.com/hypixel/secrets/<uuid>`

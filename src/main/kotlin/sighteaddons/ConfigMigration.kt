@@ -50,8 +50,9 @@ object ConfigMigration {
      * player's upload identity and orphan every run already filed under it on the receiver. Reading a
      * broken version as 0 costs at worst one redundant migration pass, which is idempotent.
      *
-     * Hand-editing is a supported way to set this file — see [Config.hypixelKey], which has no UI at
-     * all — so a typo has to cost the key it was in and nothing else. Same call
+     * Hand-editing is a supported way to set this file — the placement anchors and offsets are plain
+     * enough to set by hand, and `installId` is read by anybody comparing an upload against the
+     * receiver — so a typo has to cost the key it was in and nothing else. Same call
      * [HudPlacement.Anchor.of] already makes.
      */
     fun versionOf(obj: JsonObject): Int = intOr(obj, "version", 0)

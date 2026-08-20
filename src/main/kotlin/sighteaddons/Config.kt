@@ -281,28 +281,15 @@ object Config {
      */
     var soloClearMinScore = 300
 
-    /**
-     * A Hypixel API key, the player's own, for the true per-player secret counts in the run summary.
-     *
-     * **Blank by default and there is no bundled fallback.** A key in the jar would be public on the
-     * first Modrinth upload, which is the same lesson the upload token already taught here.
-     *
-     * **There is a field for it now**, in `/sa` → debug, and the objection this comment used to raise —
-     * *"a text field that echoes a credential on screen is a worse default than one more step"* — is
-     * answered rather than overruled, because it was an objection to a field that **echoes** and not to
-     * a field. The one on that screen is masked by default; revealing it is a momentary act with a word
-     * on it and not a setting anything remembers; and it refuses copy and cut, so it takes a key and
-     * never hands one back. Hand-editing `config.json` still works and is still what
-     * [HudPlacement.Anchor.of] means by a supported way to set this file.
-     *
-     * The key is never logged, never written into a run report and never mirrored into a tooltip:
-     * [SecretApi] sends it as a request header and nothing else in the mod reads it. What the field
-     * makes visible is *whether* one is set, which is the fact a player needs and not the value.
-     *
-     * Blank means [SecretApi] never runs and the summary reads exactly as it did before the feature
-     * existed. Nothing about this key or the counts it fetches is ever uploaded — see [SecretApi].
-     */
-    var hypixelKey = ""
+    // No Hypixel key setting, and that is deliberate rather than pending. Two versions of the secret
+    // lookup asked the player for one and both were traps: the dashboard hands out keys that expire in
+    // days, and the refusal is a 403 that from inside a client is indistinguishable from no key at all.
+    // The key lives on the receiver now (`SIGHTE_HYPIXEL_KEY`), where it is one value to rotate and its
+    // refusal is a line in a journal somebody reads. See SecretApi.
+    //
+    // A file written by an older version still has its `hypixelKey`; nothing reads it and the next save
+    // drops it, which is the one direction worth having — a credential this mod no longer uses should
+    // not keep sitting in a config file.
 
     /**
      * Who the uploaded run reports belong to. Generated once on first launch and then never again.
@@ -448,7 +435,6 @@ object Config {
             uploadNoticeShown = obj.bool("uploadNoticeShown", uploadNoticeShown)
             soloClears = obj.bool("soloClears", soloClears)
             soloClearMinScore = obj.int("soloClearMinScore", soloClearMinScore)
-            hypixelKey = obj.str("hypixelKey", hypixelKey)
         } catch (e: Exception) {
             // A broken config must never cost the run — the defaults above are already in place.
             SighteAddons.LOGGER.error("Could not read {}, keeping defaults", FILE, e)
@@ -502,7 +488,6 @@ object Config {
         obj.addProperty("uploadNoticeShown", uploadNoticeShown)
         obj.addProperty("soloClears", soloClears)
         obj.addProperty("soloClearMinScore", soloClearMinScore)
-        obj.addProperty("hypixelKey", hypixelKey)
         obj.addProperty("installId", installId)
         try {
             Files.createDirectories(FILE.parent)

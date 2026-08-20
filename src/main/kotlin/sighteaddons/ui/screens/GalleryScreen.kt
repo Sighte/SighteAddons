@@ -599,9 +599,10 @@ class GalleryScreen : Screen(Component.literal("Sighte Addons — UI Gallery")) 
             )
         }
 
-        // The masked variant, which is the only reason this component exists at all: `Config.hypixelKey`
-        // has no UI today, so `SecretApi` has never run once in the game.
-        graphics.label("MASKED  ·  THE HYPIXEL KEY", right, top, Tokens.textSecondary)
+        // The masked variant, which is the reason this component was built. Its one consumer is gone —
+        // the Hypixel key lives on the receiver now and no player is asked for one — so this page is
+        // where the component and its argument are kept. See TextField.
+        graphics.label("MASKED  ·  A SECRET, NOT ECHOED", right, top, Tokens.textSecondary)
         var my = top + Tokens.SPACE_16
         TextField.draw(
             graphics, font, right, my, fieldWidth + Tokens.SPACE_32, TextField.HEIGHT, secret,

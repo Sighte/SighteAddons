@@ -34,11 +34,12 @@ import java.util.concurrent.ConcurrentHashMap
  * here reaches `history.jsonl`, `RunReport` or the receiver: `RunReport.SCHEMA` is untouched and no
  * teammate's name leaves this machine, which is the rule `RunReport`'s header states and this keeps.
  *
- * ## Where the key lives, and why not here
+ * ## There is no key in this mod, and no way to put one in it
  *
- * **Since `secrets-001` the lookup goes through the receiver and no player needs a key at all.** See
- * [Source]: the box holds one, `GET /v1/secrets/<uuid>` answers with it, and [Config.hypixelKey] is
- * left as an override for somebody who would rather their party's uuids did not pass through it.
+ * The lookup goes through the receiver, always: `GET /v1/secrets/<uuid>`, opened with the upload token
+ * every install already carries, answered with the one Hypixel key that lives in
+ * `/etc/sighte-ingest.env`. **No setting, no field, no config value** — a player installs the jar and
+ * teammate secrets work.
  *
  * That is what the other dungeon mods do, and it was worth checking rather than assuming: Odin's
  * `SecretsCounter` performs this same baseline-and-delta and fetches it from
@@ -47,15 +48,16 @@ import java.util.concurrent.ConcurrentHashMap
  * window in the length of a run would answer the closing read out of the opening one and make every
  * delta zero.
  *
- * The version before this asked each player for their own key, and the reason it had to change is not
- * convenience. Hypixel's dashboard hands out development keys that expire in days; the refusal is a
- * `403` that from inside a client is indistinguishable from no key, a private profile and a timeout,
- * so the failure was invisible and each player rediscovered it alone. One key on one box is one key to
- * rotate, and its refusal is a named line in that box's journal.
+ * **Two versions of this feature asked the player for a key, and both were wrong.** Hypixel's dashboard
+ * hands out development keys that expire in days; the refusal is a `403` that from inside a client is
+ * indistinguishable from no key, a private profile and a timeout. So the failure was invisible, each
+ * player rediscovered it alone, and the second version — which kept the field as an "override" — kept
+ * exactly that trap for anyone who still had a value in it. One key, on one box, whose refusal is a
+ * named line in that box's journal.
  *
- * **Still no key compiled into the jar**, which is the part that has not changed and cannot: it would
- * be public on the first Modrinth upload, as the mod already learned with its upload token. What the
- * jar carries is the upload token, which reaches this receiver and nothing else.
+ * **No key compiled into the jar either**, which was never possible and still is not: it would be
+ * public on the first Modrinth upload, as the mod already learned with its upload token. What the jar
+ * carries is that upload token, which reaches this receiver and nothing else.
  *
  * ## What it costs, measured against the live API on 2026-08-16
  *
@@ -76,15 +78,17 @@ import java.util.concurrent.ConcurrentHashMap
  *   every refusal shape lands in the same place and nothing depends on the number — it is recorded
  *   because a reader checking this against Hypixel's docs will otherwise think it is wrong.
  *
- * Every failure — no key, no network, a revoked key, a `429`, a player whose profile is private —
- * means [settle] never calls back and the summary reads exactly as it did without this feature. That
- * fallback is the path most installs will be on, so it is the one that has to be right.
+ * Every failure — no network, a receiver without the route, a key refused *on the box*, a `429` at
+ * either end, a player whose profile is private — means [settle] never calls back and the summary reads
+ * exactly as it did without this feature. That fallback is the path an install with an old receiver is
+ * on, so it is the one that has to be right.
  */
 object SecretApi {
-    /** Hypixel's lifetime dungeon-secret achievement. The only per-player secret figure that exists. */
-    internal const val ACHIEVEMENT = "skyblock_treasure_hunter"
 
-    internal const val HOST = "https://api.hypixel.net"
+    // Neither the achievement's name nor Hypixel's host appears in this mod any more: the receiver reads
+    // `player.achievements.skyblock_treasure_hunter` and hands back a number, so the only shape this side
+    // has to know is the receiver's own — see [parseProxy]. `ingest.py`'s `secret_from_body` is where the
+    // Hypixel document is parsed, and `SecretBody` in `test_ingest.py` is where that is held.
 
     private val CONNECT_TIMEOUT: Duration = Duration.ofSeconds(5)
     private val REQUEST_TIMEOUT: Duration = Duration.ofSeconds(10)
@@ -118,69 +122,45 @@ object SecretApi {
     private enum class State { IDLE, BASELINE, SETTLED }
 
     /**
-     * Where a lookup goes, and the whole of what changed when this stopped needing a key per player.
+     * The receiver's route and the token that opens it.
      *
-     * **[Box] is the default and [Own] is the escape hatch**, which is the opposite of how this feature
-     * shipped. The receiver holds one key for every client ([TelemetryUpload.endpoint] is the same
-     * `(base, token)` pair `SoloClear` announces through), so nobody has to obtain one, nobody has one
-     * expire in their config, and there is one place to rotate. That is how the other dungeon mods
-     * manage not to ask: Odin's `SecretsCounter` performs the identical baseline-and-delta against
-     * `api.odtheking.com/hypixel/secrets/<uuid>` — its author's proxy, holding its author's key.
-     *
-     * [Own] stays for the player who would rather their party's uuids did not pass through the box, and
-     * as the fallback for a receiver too old to have the route.
+     * [base] is a field rather than a constant because it already was one: the private tier reads its
+     * own URL out of `upload.properties` ([TelemetryUpload.endpoint] is the same `(base, token)` pair
+     * `SoloClear` announces through), and it is what lets `SecretApiTest` point every failure case at a
+     * loopback stub. [token] is the upload token — this mod holds no Hypixel key of any kind.
      */
-    internal sealed interface Source {
-        /** The receiver's `GET /v1/secrets/<uuid>`. [token] is the upload token, not a Hypixel key. */
-        data class Box(val base: String, val token: String) : Source
-
-        /**
-         * Hypixel directly, with the player's own key.
-         *
-         * [base] is a parameter with the real host as its default, and that is not ceremony: it is the
-         * only way `SecretApiTest` can point a refused key, a rate limit and a truncated body at a
-         * loopback stub. Baking [HOST] into the request builder took that away once and the suite said so.
-         */
-        data class Own(val key: String, val base: String = HOST) : Source
-
-        /** What the debug log calls this, so a session says which half answered. */
-        val via: String get() = if (this is Box) "box" else "key"
-    }
+    internal data class Box(val base: String, val token: String)
 
     /**
      * Set once the box has answered `404` for this route.
      *
-     * A receiver that predates the route answers 404 for every uuid, and retrying four more times per
-     * snapshot to be told the same thing is four wasted requests a run. Latched for the session rather
-     * than remembered anywhere: a receiver gains the route by being deployed, and a deploy is a restart
-     * of the game away from being noticed. Never set by a `502`/`503` — those mean the route is there
-     * and today's answer is no, which is a different thing and must not disable the box until relaunch.
+     * A receiver that predates `secrets-001` answers 404 for every uuid, and retrying four more times
+     * per snapshot to be told the same thing is four wasted requests a run. Latched for the session
+     * rather than remembered anywhere: a receiver gains the route by being deployed, and a deploy is a
+     * restart of the game away from being noticed. Never set by a `502`/`503` — those mean the route is
+     * there and today's answer is no, which must not stop the mod asking until relaunch.
      */
     @Volatile
     private var boxRouteMissing = false
 
     /**
-     * Where lookups should go right now, or null when neither half is available.
+     * Where lookups go, or null when there is nowhere to send them.
      *
-     * An explicit key wins only after the box has proved it cannot serve the route. The order matters
-     * for exactly one install — the author's, which still has a key in its config from before this
-     * existed — and getting it backwards would leave that install on the expiring-key path it is the
-     * point of this change to leave.
+     * Null covers an install whose receiver does not serve the route and one with no endpoint at all —
+     * both of which read exactly as this feature did before it existed: the local player's own count,
+     * and nothing claimed about anybody else.
      */
-    internal fun source(
-        key: String = Config.hypixelKey,
+    internal fun box(
         endpoint: Pair<String, String>? = TelemetryUpload.endpoint(),
-        boxMissing: Boolean = boxRouteMissing,
-    ): Source? {
-        if (!boxMissing && endpoint != null) return Source.Box(endpoint.first, endpoint.second)
-        if (key.isNotBlank()) return Source.Own(key)
-        // Neither half. Nothing is asked and the summary reads exactly as it did before this feature,
-        // which is the path an install with no key and an old receiver has always been on.
-        return null
+        routeMissing: Boolean = boxRouteMissing,
+    ): Box? {
+        if (routeMissing) return null
+        val (base, token) = endpoint ?: return null
+        return Box(base, token)
     }
 
     /** True when a lookup has somewhere to go. Everything here is a no-op otherwise. */
-    val enabled: Boolean get() = source() != null
+    val enabled: Boolean get() = box() != null
 
     fun reset() {
         baseline = emptyMap()
@@ -199,17 +179,12 @@ object SecretApi {
      */
     fun observe(players: Map<String, UUID>) {
         if (state != State.IDLE || players.isEmpty()) return
-        val from = source() ?: return
+        val from = box() ?: return
         state = State.BASELINE
         thread("sighteaddons-secrets-start") {
             val taken = snapshot(newClient(), from, players)
             baseline = taken
-            // `via` since `secrets-001`: a session with `got: 0` used to be four different faults
-            // wearing one face. Now it at least says which half was asked.
-            DebugLog.event(
-                "secret_api_baseline",
-                "asked" to players.size, "got" to taken.size, "via" to from.via,
-            )
+            DebugLog.event("secret_api_baseline", "asked" to players.size, "got" to taken.size)
         }
     }
 
@@ -223,7 +198,7 @@ object SecretApi {
      */
     fun settle(players: Map<String, UUID>, then: (Map<String, Int>) -> Unit): Boolean {
         if (state != State.BASELINE || players.isEmpty()) return false
-        val from = source() ?: return false
+        val from = box() ?: return false
         state = State.SETTLED
         val before = baseline
         thread("sighteaddons-secrets-end") {
@@ -238,7 +213,6 @@ object SecretApi {
                 DebugLog.event(
                     "secret_api_settle",
                     "before" to before.size, "after" to after.size, "got" to next.size,
-                    "via" to from.via,
                 )
                 fallbackResult(next, lastCounts)
             } catch (e: Exception) {
@@ -284,7 +258,7 @@ object SecretApi {
      */
     internal fun snapshot(
         client: HttpClient,
-        from: Source,
+        from: Box,
         players: Map<String, UUID>,
     ): Map<String, Int> {
         if (players.isEmpty()) return emptyMap()
@@ -306,49 +280,38 @@ object SecretApi {
     /**
      * One player's lifetime count, or null for every way this can fail.
      *
-     * Null covers a refused key, a rate limit, a private profile, a receiver that does not serve the
-     * route, a body that is not the JSON this expects and a connection that never answers. The caller
-     * treats all of them the same way, which is the same way it treats having nowhere to ask at all.
+     * Null covers a receiver that does not serve the route, one whose own key is refused or unconfigured,
+     * a rate limit at either end, a player Hypixel has no figure for, a body that is not the JSON this
+     * expects and a connection that never answers. The caller treats all of them the same way, which is
+     * the same way it treats having nowhere to ask at all.
      *
-     * **One `404` from the box latches [boxRouteMissing]** and nothing else does. A receiver older than
-     * `secrets-001` answers 404 for every uuid, and a snapshot would otherwise spend five requests
-     * learning that five times per run; a `502` or `503`, by contrast, means the route is there and
-     * today's answer is no, which must not take the box out until the next launch. The latch is checked
-     * by [source], so the *next* snapshot falls to a configured key if there is one.
+     * **One `404` latches [boxRouteMissing]** and nothing else does. A receiver older than `secrets-001`
+     * answers 404 for every uuid, and a snapshot would otherwise spend one request per player learning
+     * that once per player; a `502` or `503`, by contrast, means the route is there and today's answer
+     * is no, which must not stop the mod asking until the next launch.
+     *
+     * The header is this mod's upload token, which every install already holds and which reaches nothing
+     * but this box. There is no Hypixel key on this side of the wire.
      */
-    internal fun fetch(client: HttpClient, from: Source, uuid: UUID): Int? = try {
-        val response = client.send(request(from, uuid), HttpResponse.BodyHandlers.ofInputStream())
+    internal fun fetch(client: HttpClient, from: Box, uuid: UUID): Int? = try {
+        val request = HttpRequest.newBuilder(URI.create("${from.base}/v1/secrets/$uuid"))
+            .timeout(REQUEST_TIMEOUT)
+            .header("Authorization", "Bearer ${from.token}")
+            .GET()
+            .build()
+        val response = client.send(request, HttpResponse.BodyHandlers.ofInputStream())
         if (response.statusCode() != 200) {
             response.body().close()
-            if (from is Source.Box && response.statusCode() == 404) {
+            if (response.statusCode() == 404) {
                 boxRouteMissing = true
                 DebugLog.event("secret_api_route_absent", "status" to 404)
             }
             null
         } else {
-            body(response.body(), MAX_BYTES)?.let { if (from is Source.Box) parseProxy(it) else parse(it) }
+            body(response.body(), MAX_BYTES)?.let(::parseProxy)
         }
     } catch (e: Exception) {
         null
-    }
-
-    /** The one request, either shape. Split out so [fetch] reads as the error handling it mostly is. */
-    private fun request(from: Source, uuid: UUID): HttpRequest = when (from) {
-        // The receiver's route. The header is this mod's upload token, which every install already
-        // holds and which reaches nothing but this box — not a Hypixel key, and nothing here has one.
-        is Source.Box -> HttpRequest.newBuilder(URI.create("${from.base}/v1/secrets/$uuid"))
-            .timeout(REQUEST_TIMEOUT)
-            .header("Authorization", "Bearer ${from.token}")
-            .GET()
-            .build()
-
-        // Hypixel v2 takes the key as a header. Never a query parameter: that lands in proxy logs and
-        // in any error page that echoes the URL back.
-        is Source.Own -> HttpRequest.newBuilder(URI.create("${from.base}/v2/player?uuid=$uuid"))
-            .timeout(REQUEST_TIMEOUT)
-            .header("API-Key", from.key)
-            .GET()
-            .build()
     }
 
     /**
@@ -362,23 +325,6 @@ object SecretApi {
     internal fun parseProxy(body: String): Int? = try {
         val root = JsonParser.parseString(body).asJsonObject
         wholeNumber(root.get("secrets"))
-    } catch (e: Exception) {
-        null
-    }
-
-    /**
-     * The achievement out of a Hypixel player object, or null if it is not there.
-     *
-     * Every level of this is optional in practice: `success` can be false, `player` is null for a
-     * name Hypixel has never seen, `achievements` is absent for an account that never played
-     * SkyBlock, and the field itself is absent until the first secret. Absent is not zero — a player
-     * this cannot read is left out of the summary rather than shown as having found nothing.
-     */
-    internal fun parse(body: String): Int? = try {
-        val root = JsonParser.parseString(body).asJsonObject
-        val player = root.getAsJsonObject("player")
-        val achievements = player?.getAsJsonObject("achievements")
-        wholeNumber(achievements?.get(ACHIEVEMENT))
     } catch (e: Exception) {
         null
     }
