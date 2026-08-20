@@ -49,3 +49,13 @@ hs_err_*.log
 replay_*.log
 *.hprof
 *.jfr
+
+# local-only prose
+#
+# Untracked, not deleted: all three stay on disk for whoever is working in this tree. CLAUDE.md is
+# the process doc and TODO.md the board — neither says anything to somebody who clones this, and both
+# churn every session. docs/ is the annotated screenshot sheet, a 0.16.0-era artefact that ages faster
+# than the code it shows. Git history keeps the versions that were tracked until 1.0.0.
+CLAUDE.md
+TODO.md
+docs/

@@ -3,208 +3,74 @@
 Client-side Fabric mod for Hypixel SkyBlock Catacombs that answers a question Hypixel does not:
 **who in the party actually cleared which rooms.**
 
-Hypixel only exposes party totals (secrets, deaths, cleared %) — never per-player values, except on
-the end-of-run Extra Stats screen. The dungeon item map, however, shows every party member's position
-(even outside render distance) *and* every room's clear checkmark. Sampling both every tick gives full
-per-player attribution with no party sync.
+Hypixel exposes party totals only — secrets, deaths, cleared %, never per-player values. The dungeon
+item map, however, shows every party member's position (even outside render distance) *and* every
+room's clear checkmark. Sampling both every tick gives full per-player attribution with no party sync.
 
-Minecraft **26.1.2**, Fabric, client only.
+Minecraft **26.1.2** · Fabric · client only
 
-## Modules
+## Install
 
-| Module | File | What it does |
-|---|---|---|
-| Grid math | `DungeonGrid.kt` | 32-block grid ↔ map pixel conversions, time formatting, point split |
-| Map reader | `DungeonMapReader.kt` | map from hotbar slot 9, room types, room segments, clear checkmarks |
-| State machine | `DungeonSession.kt` | floor detection, entrance calibration, boss check, run clock |
-| Room database | `RoomDatabase.kt` | room name + secret count from a block-column core hash, per loaded chunk |
-| Party | `PartyTracker.kt` | tab-list roster, map decoration → player → room |
-| Attribution | `ContributionTracker.kt` | per-room presence, clear/secret timeline, point split |
-| Secrets | `SecretTracker.kt` | per-room secret count, which of them were provably yours, secret-run timer |
-| Teammate secrets | `SecretApi.kt` | each player's count for the run, as the rise in their lifetime total — looked up through the receiver, so there is no key to enter and no setting for one |
-| History | `RoomHistory.kt` | append-only permanent room times, chat announcements, run summary |
-| Splits | `Splits.kt`, `DungeonSplits.kt` | the run in spans: blood, portal, every boss phase, and the total |
-| Split records | `SplitPbs.kt` | best seconds per split per floor, on Odin's own keys |
-| Run records | `RunPbs.kt`, `PbTable.kt` | best time for a whole run, per floor and per party size |
-| Solo clears | `SoloClear.kt` | one announcement per solo run: the clear, or the moment a score gate is reached |
-| Server ticks | `ServerTicks.kt` | Hypixel's tick beat, counted off its keep-alive packets |
-| Telemetry | `DebugLog.kt` | JSONL event log for diagnosing a real run |
-| Pseudonyms | `Pseudonym.kt` | replaces party member names on their way into that log |
-| Run report | `RunReport.kt` | permanent per-run record: every room and what it cost the party |
-| Upload | `TelemetryUpload.kt` | ships session logs and run reports to the analysis server |
-| UI | `ui/` | design tokens, components, the HUD, and the `/sa` screens |
-| Config | `Config.kt` | the settings those screens write, plus the upload id, as one JSON object |
+Fabric Loader `>=0.19.3`, Fabric API, fabric-language-kotlin `>=1.13.13`, Java 25 or newer. Drop the
+jar into `mods/`. Nothing is bundled, so both dependencies have to be there too.
 
-## In game
+## What it does
 
-The HUD draws the dungeon map with every party member on it, the run clock, and the current room with
-how long *you* have been in it. Map, clear popup, storm countdown, splits panel and split clock are
-each placed by anchor + offset and dragged in an editor (arrow keys nudge, the scroll wheel scales the
-element under the cursor, `r` resets). Run totals —
-idle/nav time and the standings — live in a panel behind a keybind that ships **unbound**; the `/sa`
-screen says so and links to Vanilla's key screen.
+- **Per-player room attribution** — who was in the room, for how long, and who cleared it. A record is
+  yours only when the work was: you were there from the start and you found every secret in it.
+- **Room times and personal bests**, appended permanently and announced in chat. `/sa pbs` shows them.
+- **Splits** — the run as spans (blood, portal, every boss phase, total), each with a wall clock and
+  the same span in Hypixel's server ticks, which is the number two players can compare. Records per
+  split per floor, on Odin's own keys, so `/sa import` folds an existing Odin install's in.
+- **Run records** — best time for a whole run, per floor *and* per party size.
+- **Solo clears, announced** — one line per solo run, or the moment a run reaches a score you set.
+- **Teammate secrets** — each player's count for the run, as the rise in their lifetime total. Looked
+  up through this project's own receiver, so there is no key to enter and no setting for one.
+- **A HUD you place** — map, clear popup, storm countdown, splits panel and split clock, each by anchor
+  and offset. Drag to move, arrow keys to nudge, scroll wheel to scale, `r` to reset.
 
-The **splits panel** is the run as spans, ported from Odin: Mort's line opens `blood open`, and every
-row after it is the time from the line that names it to the next one — `blood clear`, `portal entry`,
-then the floor's own boss phases, with an optional `boss entry` row summing the first three. Each row
-carries two times: the wall clock, and the same span in Hypixel's **server ticks**, which is the one
-two players can compare because it does not include whatever the server was doing at the time. The
-panel keeps drawing through the boss phase, where the map card deliberately fades out.
+`/sa` opens the settings. Every change is written to `config/sighteaddons/config.json` at once — there
+is no save button that could be forgotten.
 
-Best times are kept per split per floor, in `config.json`, **on Odin's own record keys** — so
-`/sa import` — or `/sa` → debug → *import from odin* — folds an existing Odin install's records in,
-taking the faster of the two, and running it twice does nothing. Master mode keeps its records apart from the F floors even
-though the two share their chat lines.
+## What leaves your machine
 
-Two numbers that never change meaning: `cleared` is run-relative, the tick the room's checkmark
-appeared. `secrets` is the **secret run** — a stopwatch that starts on the room's first secret and
-stops on its last, not a timestamp. The Blood Room is measured as Odin's door-to-pass span instead,
-and is its own record kind.
+**Run reports do, by default** — one anonymous JSON per run, uploaded at the *next* game start, so a
+crash or an early leave cannot lose it. They carry the floor, the rooms and what they cost, and an
+install id that nothing on the server can turn back into a player. Teammates appear in aggregate only:
+party size, classes, player-ticks, never a name. `/sa` → **debug** turns it off.
 
-`/sa` opens the settings, `/sa pbs` the room history. Every change is written to
-`config/sighteaddons/config.json` immediately — there is no save button that could be forgotten.
+**Three switches are off until you turn them on**, and each is its own decision:
 
-## Debug telemetry
+| Switch | What it sends |
+|---|---|
+| *send my name* | your name on your own run reports, and nobody else's |
+| *announce in discord* | one line per solo clear into the team's channel |
+| *send new bests* | a standing leaderboard row for a run record |
 
-**Off for an ordinary install**, on in the development environment. Turn it on in `/sa` → **debug** →
-*JSONL telemetry*. The log goes into the game directory, so it stays with the instance:
+The JSONL debug log is off for an ordinary install. When it is on, everyone in it — teammates and you
+— appears as a pseudonym derived from a salt made fresh every launch and never written down.
 
-```
-<instance>/.minecraft/config/sighteaddons/debug/session-<millis>.jsonl
-```
-
-One JSON object per line, flushed immediately, so a crash keeps everything up to the last event. Only
-*changes* are written and the file stops at 20 000 events with an explicit `truncated` record. The
-events target exactly what cannot be verified by compiling: whether the two calibration anchors
-resolved, whether the tab regex still matches, which decoration became which player, which rooms the
-chunk scan named, and — for a cell with a room but no database match — the full block column, which
-separates "hashed the wrong blocks" from "room not in the database".
-
-### Upload
-
-> **This mod uploads by default.** When a dungeon run ends — finished or left early — a report of it is
-> sent to the mod's analysis server: rooms, times, party size and classes, filed under a random id
-> generated on your machine. **Your Minecraft name and UUID are not part of it** — not unless you switch
-> the name on yourself — **and nobody else's ever is.** Switch it off in `/sa` → **debug** → *upload run
-> reports*. The mod says this once in chat the first time it runs. The transport is HTTPS.
-
-Two tiers, and what separates them is what may leave the machine:
-
-| | who | what goes up |
-|---|---|---|
-| **Public** | every install, on by default | run reports only |
-| **Private** | whoever has `upload.properties` | run reports **and** debug sessions |
-
-The public token is compiled into the jar and readable by anyone who unzips the mod, so it is a filter
-against drive-by noise and **not** a secret — the server validates every field rather than believing
-the bearer. Debug sessions are deliberately not in the public tier: they name every party member,
-pseudonymously but still, people who installed nothing and agreed to nothing. A run report is about
-its own uploader and nobody else, which is what makes it fair to send by default.
-
-The private tier is opt-in by existing — `config/sighteaddons/upload.properties`, base URL only, the
-mod appends `/ingest` and `/runs`:
-
-```properties
-url=https://<host>
-token=<shared secret>
-```
-
-A file that is present but missing a key switches uploading **off** rather than quietly falling back to
-the public tier, so a typo cannot look like it worked.
-
-**Your upload id** is shown in `/sa` → **debug**: random, generated once, stored in `config.json`.
-Nothing on the server can turn it back into a player. Deleting `config.json` starts a new id and
-orphans the history under the old one.
-
-**Sending your name is off unless you switch it on** (`/sa` → **debug** → *send my name*), and it names
-you and nobody else — teammates never appear by name in a run report at all. The row shows the name
-itself instead of the word *on*, so what would leave the machine is legible before the click. The
-switch reaches back as far as the queue and no further: reports still waiting in
-`config/sighteaddons/runs/` are rewritten in both directions, but once a report has moved to
-`runs/uploaded/` it stays exactly as it left.
-
-**Two switches send something with your name on it, and both are off until you turn them on.** *solo
-clears* → *announce in discord* puts one line per solo run into the team's channel through the same
-receiver — your name, the floor, Hypixel's own clear time, secrets, deaths. With a score gate set it
-announces the moment the run reaches that score instead, on F7 and M7 only, and only for a run whose
-boss actually died. *run records* → *send new bests* keeps a standing leaderboard row: the best time
-for a whole run, per floor and per party size. Off, both still record locally — nothing leaves the
-machine.
-
-Three independent consents and not one setting with sub-options, because they are three different
-things: a run report is anonymous and read by an analysis agent, an announcement is one line in a
-channel, and a leaderboard row is standing and public.
-
-Uploads happen **at game start, for what previous sessions left behind** — not at `run_end`, which
-never fires when the game crashes or the run is left early, losing exactly the material worth looking
-at. Handed-over files move to `uploaded/` rather than being deleted, so a server-side mistake cannot
-destroy the only copy. A refusal the server will repeat (`400`, `413`) moves the file to `rejected/`,
-because otherwise one bad report sits in front of every newer one at every launch, for good.
-
-**No party member names in a session log.** Everyone — teammates and you — appears as a pseudonym like
-`p-3f8a1c04`, derived from a salt generated fresh every launch and never written down. Stable within a
-session so "who was in which room" reads normally; different across sessions, so the server never
-accumulates a history of somebody who never agreed to any of this.
-
-## Run reports
-
-What has to survive the 20 000-event bound goes into `config/sighteaddons/runs/run-<millis>-<uuid>.json`,
-one closed file per run, which the server files under that player's permanent profile. Room difficulty
-is derived there by `roomstats.py`, which averages clear time and secret time **separately** — the mod
-does no scoring of its own.
-
-Per run, not per *finished* run: leaving a floor early is the most ordinary thing a party does, and the
-rooms cleared on the way are as valid as anybody's. A run that was left carries `complete: false`.
-
-Per run: floor, completion, duration, party size, classes present, own class and level, rooms cleared,
-unattributed remainder, deaths, mod and Minecraft version, and a `v` schema number. Per room: name,
-type, shape, secret and crypt counts, segment count, entry/clear/all-secrets tick, whether it was
-already green on arrival, secrets found, own secrets, deaths, and the effort numbers — `playerTicks`,
-`playersInRoom`, `ownTicks`. One player for 60 seconds and four players for 15 are the same clear time
-and very different rooms, which is what a difficulty estimate needs to see.
-
-Those ticks are run timestamps, not durations, and only say anything in pairs: `enterTick` to
-`clearTick` is how long the room took, `clearTick` to `secretsTick` how long the secrets took after
-that. Keeping them apart is the point — one combined number hides whether a room was a long fight with
-trivial secrets or the other way round.
-
-Teammates appear in aggregate only — party size, classes without names, player-ticks. Installing the
-mod is consent for your own data; the four strangers from party finder never gave any.
-
-The server side is its own repository: [Sighte/skyblock-server](https://github.com/Sighte/skyblock-server)
-— the receiver, the per-room fold, the analysis agent's prompt, and the whole box's setup.
+The server side is its own repository:
+[Sighte/skyblock-server](https://github.com/Sighte/skyblock-server).
 
 ## Build
-
-Needs JDK 25 or newer. Bytecode targets 25 (what Minecraft 26.1.2 requires) via `--release`, so a JDK
-26 works too — no toolchain is pinned.
 
 ```bash
 ./gradlew build     # jar + copy to dist/
 ./gradlew test
 ```
 
-`dist/sighteaddons-<version>.jar` is the committed build; `build` copies it there and deletes the
-previous one, so `dist/` holds exactly one jar and git history holds the older ones.
-`build/libs/…-sources.jar` is for IDE navigation only — it carries a `fabric.mod.json` but no classes,
-so putting it in `mods/` produces a duplicate mod id and the game will not start.
-
-Runtime dependencies are not bundled: Fabric API `0.155.2+26.1.2` and fabric-language-kotlin
-`1.13.13+kotlin.2.4.10`.
-
-**Mappings:** Loom 1.17 defaults to official Mojang mappings for 26.x — Yarn stops at 1.21.11, and
-there is no `mappings` line in `build.gradle` on purpose. Class names are Mojmap: `MapItemSavedData`
-(not `MapState`), `Minecraft` (not `MinecraftClient`), `DataComponents` (not `DataComponentTypes`).
+`dist/sighteaddons-<version>.jar` is the committed build, and `dist/` holds exactly one — git history
+holds the rest. Loom 1.17 defaults to official Mojang mappings for 26.x, so class names are Mojmap
+(`MapItemSavedData`, not `MapState`); there is no `mappings` line in `build.gradle` on purpose.
 
 ## Known limits
 
-- **Room names need a loaded chunk.** The core hash reads a block column, so a room is only named once
-  Hypixel has sent its chunk. Every dungeon chunk is hashed as it streams in and a dungeon is only
-  12x12 chunks, so most of the map gets named without walking there — but whatever Hypixel does not
-  send stays unnamed, and rooms cleared there are scored without a record.
-- **The room database is version-coupled.** Core hashes are built from `Block.toString()` output in a
-  specific order. If Hypixel changes a room or Mojang changes that representation, names break and
-  `RoomDatabase.coreAt` must be re-verified against the data source.
+Room names need a loaded chunk: the core hash reads a block column, so whatever Hypixel has not sent
+stays unnamed, and rooms cleared there are scored without a record. And the room database is
+version-coupled — core hashes come from `Block.toString()` in a fixed order, so if Hypixel changes a
+room or Mojang changes that representation, `RoomDatabase.coreAt` has to be re-verified against the
+data source.
 
 ## Credits
 
@@ -225,3 +91,5 @@ Room-detection maths, map colour IDs and API shapes were verified against three 
   means no checkmark" rule, tab-list regex, and the Blood Room clear split. See `LICENSE-Odin`.
 - [NoammAddons](https://github.com/Noamm9/NoammAddons) (CC0-1.0) — decoration map keys carry a
   player-slot digit (noted as the upgrade path in `PartyTracker.kt`), run-end chat regex.
+
+MIT, except where the above says otherwise. See `LICENSE`.
