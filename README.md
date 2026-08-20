@@ -89,6 +89,14 @@ Room-detection maths, map colour IDs and API shapes were verified against three 
   data, and `ConnectionMixin.java` counts Hypixel's tick beat off `ClientboundPingPacket` the way Odin's
   mixin of the same name does. Also: per-floor boss-room bounds, the "centre pixel equals room colour
   means no checkmark" rule, tab-list regex, and the Blood Room clear split. See `LICENSE-Odin`.
+- [BlackAddons](https://github.com/BlackAddons/mod) (MIT, (c) 2026 BLACKUM) - **the solo-clear
+  announcement and the score calculator are derivative works.** `DungeonScore.kt` is a port of its
+  legacy dungeon score calculator, and `LiveScore.kt` follows its sampling: every ten ticks, the clock
+  started at the first reading inside a dungeon, its rule for rooms the tab list has not counted yet,
+  and its hardcoded mimic floors. `SoloClear.kt` follows `SoloClearsTracker`: the `Solo` / `Party (1)`
+  test for a solo run, the `Team Score:` and `Clear Time:` patterns, the bonus-score line for the
+  prince, the floors a score gate applies to, and the rule that Hypixel's own score may only *raise* a
+  computed one and only when it clears the gate by itself. See `LICENSE-BlackAddons`.
 - [NoammAddons](https://github.com/Noamm9/NoammAddons) (CC0-1.0) — decoration map keys carry a
   player-slot digit (noted as the upgrade path in `PartyTracker.kt`), run-end chat regex.
 
