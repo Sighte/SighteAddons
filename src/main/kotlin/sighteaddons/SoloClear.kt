@@ -30,14 +30,17 @@ import java.time.Duration
  * `inDungeons()`), and copying it closely is deliberate: the two numbers that can satisfy the gate arrive
  * at opposite ends of the run.
  *
- *  - **[LiveScore]** is read every tick and can cross the threshold mid-clear.
- *  - **Hypixel's own `Team Score:`** arrives with the summary block, after the boss, and is the number
- *    that actually confirms an S+ on most runs. Upstream feeds it into the same comparison and takes
- *    whichever is higher; so does [tryAnnounce].
+ *  - **[LiveScore.computedScore]**, the score the run is *on track* for, recomputed as the run goes.
+ *  - **Hypixel's own `Team Score:`**, which arrives with the summary block and states the run's real
+ *    score outright. It may only *raise* the projection, and only when it clears the gate by itself —
+ *    upstream's rule verbatim, and [gateScore] is that rule.
  *
- * **A gate that only looked at the live score would refuse runs that qualified**, which is what an earlier
- * version of this file did — and it cost a real solo M7 to notice, because the announcement's absence
- * looks the same either way.
+ * **The number it must not read is the one on the screen.** [LiveScore.score] is Hypixel's live score,
+ * exact and identified, and it cannot reach 300 before the boss dies because the boss room is part of a
+ * floor's score. Two solo F7s on 2026-08-20 stopped at 265 and 242 at the blood door, five solo runs are
+ * on record and none ever read 270, and the whole visible symptom was a switch that was on and a channel
+ * that stayed empty. A gate on that number is not strict, it is unreachable; see [LiveScore]'s header for
+ * the measurement.
  *
  * **Without a gate** ([Config.soloClearMinScore] `0`) the run-end headline announces every solo clear
  * instead: [onRunEnd] arms and [release] sends.
@@ -129,6 +132,35 @@ object SoloClear {
     private var princeSeen = false
 
     /**
+     * Did the boss actually die this run.
+     *
+     * **Because a failed run prints the same summary block as a cleared one.** The headline matches, a
+     * `Clear Time:` arrives, a `Team Score:` arrives — Hypixel writes the block when the floor kills you
+     * too, and that is how `soloclears.jsonl` came to hold a ten-second M7 with one death in it,
+     * announced to the channel as a clear. `☠ Defeated <boss> in <time>` is the one line only a kill
+     * produces, and [DungeonSplits.DEFEATED] is already the single definition of it.
+     *
+     * **It arrives after `Team Score:`, not before** — measured on a real M7, all three on the same tick,
+     * in the order headline, score, defeated. So this cannot be a check made at the headline or at the
+     * score line: the defeated line has to be a release trigger of its own, which is why [onChatLine]
+     * calls [release] on it.
+     */
+    private var cleared = false
+
+    /**
+     * Has the run-end headline been seen this run.
+     *
+     * **Because the projection keeps moving after the run is over.** Hypixel rewrites the sidebar as it
+     * tears a finished run down — the same rewrite that took the live score from 242 to 174 on the F7 of
+     * 2026-08-20 — and `completed / cleared%` fed with those numbers can climb. A gate that fired on it
+     * would announce a clear-phase time for a clear phase that had already ended, possibly badly.
+     *
+     * So from the headline on, only Hypixel's own `Team Score:` may satisfy the gate. That number is a
+     * statement about the run that ended; the projection is no longer about anything.
+     */
+    private var runOver = false
+
+    /**
      * Already announced this run, whichever path did it. One run is one message: the score gate is
      * crossed once but read every tick after that, so without this the channel would get a line per tick
      * for the rest of the floor.
@@ -169,7 +201,12 @@ object SoloClear {
         // saw a `Team Score:` line, so the pattern is wrong or Hypixel stopped printing it. Without
         // this line the symptom is an announcement that silently never happens.
         if (pending != null) {
-            DebugLog.event("solo_clear_unreleased", "gate" to Config.soloClearMinScore, "score" to (score ?: -1))
+            DebugLog.event(
+                "solo_clear_unreleased", "gate" to Config.soloClearMinScore, "score" to (score ?: -1),
+                // Which half was missing. `cleared: false` on an ungated run is the failed-run case
+                // working as intended; `true` with a gate set is the live path having been in charge.
+                "cleared" to cleared,
+            )
         }
         // The line that was missing. Written whenever the feature was on and said nothing, with how close
         // the run got: `high` against `gate` is the whole diagnosis, and `why` names the refusal that
@@ -180,9 +217,13 @@ object SoloClear {
         if (Config.soloClears && !announced && refusal != "not in a run") {
             DebugLog.event(
                 "solo_clear_missed",
-                "why" to refusal, "gate" to Config.soloClearMinScore, "high" to LiveScore.high,
-                "short" to (Config.soloClearMinScore - LiveScore.high).coerceAtLeast(0),
-                "solo" to solo, "floor" to refusalFloor, "computed" to (LiveScore.computedScore ?: -1),
+                // `projected` first, because it is the number the gate refused: `short` is measured off
+                // it and off nothing else. `high` rides along as Hypixel's own maximum — the two of them
+                // 30 apart on a solo run is the fact that put the gate on the projection.
+                "why" to refusal, "gate" to Config.soloClearMinScore,
+                "projected" to LiveScore.projectedHigh, "high" to LiveScore.high,
+                "short" to (Config.soloClearMinScore - LiveScore.projectedHigh).coerceAtLeast(0),
+                "solo" to solo, "floor" to refusalFloor, "cleared" to cleared,
             )
         }
         refusal = "not in a run"
@@ -193,6 +234,8 @@ object SoloClear {
         score = null
         clearTime = null
         princeSeen = false
+        cleared = false
+        runOver = false
         announced = false
     }
 
@@ -221,6 +264,13 @@ object SoloClear {
     fun onChatLine(text: String) {
         if (PRINCE.matchEntire(text) != null) princeSeen = true
         CLEAR_TIME.matchEntire(text)?.let { clearTime = it.groupValues[1] }
+        // The proof of a clear, and therefore a release trigger: it is the last of the three lines to
+        // arrive, so an armed run that is waiting on it is waiting here. Reused rather than re-written —
+        // one definition of each Hypixel line, the same rule [RunPbs] follows for [CLEAR_TIME].
+        if (DungeonSplits.DEFEATED.matchEntire(text) != null) {
+            cleared = true
+            release()
+        }
         SCORE.matchEntire(text)?.let {
             score = it.groupValues[1].toIntOrNull()
             // **The calibration line.** Hypixel's own final score next to the last one [LiveScore] read,
@@ -322,10 +372,18 @@ object SoloClear {
      * `complete = true` for [RunReport]. The paths that write a report on the way out of a floor
      * (`JOIN`, `DISCONNECT`) deliberately do not reach here: a run that was left is not a clear.
      *
+     * **The headline is not proof of a clear, only of an ending**, which is why this arms and [release]
+     * decides. A floor that kills you prints the same block; [cleared] is the half that can tell them
+     * apart, and it arrives two lines later.
+     *
      * Releases immediately when the gate needs no score, so switching the gate off keeps the old
      * behaviour rather than making every announcement wait for a line it does not need.
      */
     fun onRunEnd() {
+        // First, and above every early return: [runOver] is about the headline having arrived, not about
+        // this run qualifying for anything. Setting it after a return is how the gate would go on reading
+        // the projection through the teardown.
+        runOver = true
         if (!Config.soloClears || !solo) return
         val ticks = DungeonSession.runTicks
         if (ticks <= 0) return
@@ -367,15 +425,18 @@ object SoloClear {
      * the boss playing no part. It cannot come from the end-of-run `Team Score:` line, which arrives after
      * the boss and can no longer say *when*.
      *
-     * Four refusals before anything is sent, and each is a case where firing would be a claim rather than
-     * a measurement:
+     * Three refusals before anything is sent, and each is a case where firing would be a claim rather
+     * than a measurement:
      *
-     *  - **in the boss** - the question is about the clear phase. A run that only reaches the score during
-     *    the fight has not answered it.
      *  - **a floor outside [GATED_FLOORS]** - 300 on F1 is every run.
-     *  - **no score** - [LiveScore] could not read or compute one, so the threshold is not evaluable, and
-     *    an unevaluable threshold is not met ([passes]).
+     *  - **no score** - the rows never parsed, so [LiveScore.computedScore] is null, the threshold is not
+     *    evaluable, and an unevaluable threshold is not met ([passes]).
      *  - **already announced** - the score is crossed once and read for the rest of the floor.
+     *
+     * **There is deliberately no boss refusal**, though an earlier version of this comment claimed one
+     * the code never had. The projection keeps climbing into the fight, the gate is about the run rather
+     * than about one phase of it, and refusing there is how the 300 stop would go quiet again on the
+     * runs that only cross it late. Upstream checks the phase no more closely.
      *
      * The time comes from the same instant as the score: the sidebar carries both, which is what keeps
      * them from describing two different moments.
@@ -389,12 +450,17 @@ object SoloClear {
         val floor = floorTag(DungeonSession.floor)
         if (floor !in GATED_FLOORS) return refuse("floor $floor is not gated")
 
-        // **Whichever of the two is higher, exactly as upstream decides it.** `DungeonScore.getScore()`
-        // versus its `chatScore`, and the reason it matters is not tidiness: on most runs the live score
-        // only crosses the threshold in the last rooms or not at all, and Hypixel's own `Team Score:` is
-        // what confirms an S+. A gate that ignored it would refuse runs that qualified.
-        val best = best(LiveScore.score, score)
-        if (best == null) return refuse("no score could be read")
+        // **The projection while the run is live, Hypixel's own word for it after** — [gateScore] and
+        // [runOver]. What is deliberately absent from both branches is the sidebar's live score: it is
+        // the score earned so far, it cannot reach 300 before the boss dies, and reading it here is what
+        // kept the channel empty through five solo runs.
+        val best = when {
+            runOver -> score?.takeIf { passes(it, gate) }
+            else -> gateScore(LiveScore.computedScore, score, gate)
+        }
+        if (best == null) {
+            return refuse(if (runOver) "the run ended below the gate" else "no score could be computed")
+        }
         if (!passes(best, gate)) return refuse("score $best below the gate")
         val player = PartyTracker.localName ?: return refuse("no name captured")
 
@@ -424,6 +490,19 @@ object SoloClear {
      */
     internal fun best(live: Int?, chat: Int?): Int? = listOfNotNull(live, chat).maxOrNull()
 
+    /**
+     * The number the gate is judged on: the projection, which Hypixel's own score may raise but never
+     * lower — **and only when that score clears the gate on its own.**
+     *
+     * Upstream's rule, transcribed: `if (chatScore >= 300 && chatScore > finalScore) finalScore =
+     * chatScore`. The asymmetry is the point of it. `Team Score:` is the truth about the run, so a run
+     * Hypixel calls S+ is announced whatever the formula estimated — but a chat score *below* the gate
+     * must not be able to combine with an estimate that also fell short and drag the run over the line,
+     * and it must never pull a qualifying projection back down into a refusal.
+     */
+    internal fun gateScore(projected: Int?, chat: Int?, gate: Int): Int? =
+        best(projected, chat?.takeIf { passes(it, gate) })
+
     /** Records why this tick did not announce. Returns Unit so a refusal is one line at the call site. */
     private fun refuse(why: String) {
         refusal = why
@@ -445,6 +524,11 @@ object SoloClear {
         }
         // Not a refusal worth logging as one: with a gate set, the live path is simply the one in charge.
         if (Config.soloClearMinScore > 0) return
+        // **The run has to have been won.** See [cleared]: the summary block is printed for a defeat as
+        // well, so the headline alone cannot tell one from the other, and the one announcement this
+        // feature ever made was a death. Staying armed rather than clearing [pending] is what puts the
+        // case in the log as `solo_clear_unreleased` with `cleared: false`.
+        if (!cleared) return
         pending = null
         send(
             player = run.player,

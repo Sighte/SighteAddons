@@ -2,10 +2,50 @@
 
 ## Stand — 2026-08-20
 
-`main` = **458 Tests / 42 Klassen / grün**, `mod_version` 0.16.0 released (`v0.16.0`, Modrinth
+`main` = **460 Tests / 42 Klassen / grün**, `mod_version` 0.16.0 released (`v0.16.0`, Modrinth
 `kIbj76Z4`, SHA1 `931b1152…` auf beiden Seiten). `dist/sighteaddons-0.16.0.jar` ist die committete
 Datei. `RunReport.SCHEMA` 6, der Receiver akzeptiert `idleTicks`/`navTicks` als optional und ist
 deployt — **dem Receiver ist nichts geschuldet.**
+
+**Seit 20.08. abends: der Solo-Gate liest die eigene Rechnung, nicht die Sidebar.** Zwei Solo-F7 mit
+`soloClears` an und Gate 270 haben nichts gemeldet, und das war kein kaputter Pfad — der Gate las
+`LiveScore.score`, Hypixels Live-Zahl, und die ist der *bisher verdiente* Score. Der Boss-Raum
+gehört zum Score eines Floors, also kann sie vor dem Boss-Tod keine 300 sein: die zwei Runs standen
+am Blood-Door bei 265 und 242, und in fünf protokollierten Solo-Runs hat sie nie 270 erreicht. Eine
+Schwelle über allem, was die Eingabe annehmen kann, ist kein strenger Gate, sondern ein
+unerreichbarer — und das Symptom ist von "Feature aus" nicht zu unterscheiden.
+
+Jetzt entscheidet `LiveScore.computedScore`, die Projektion auf das, was der Run *wird*; Hypixels
+`Team Score:` darf sie nur anheben, und nur wenn sie den Gate allein packt (`gateScore`, Upstreams
+Regel wörtlich: `if (chatScore >= 300 && chatScore > finalScore)`). **Beide offenen Fragen in
+`LiveScore` sind mit denselben Logs beantwortet:** auf sechs Party-Runs stimmt die letzte
+Sidebar-Lesung *exakt* mit `Team Score:` (308/308, 303/303, 302/302, 302/302, 300/300, 292/292) — die
+Sidebar ist damit identifiziert und bleibt die Kalibrierung —, und die Projektion liegt gegen
+dieselbe Zahl 4 bis 8 Punkte zu tief, also feuert sie spät und nie auf einen Run, der es nicht war.
+Der F7 von 16:47 hätte bei t=6263 gemeldet (Projektion 270, Sidebar 228), 3:20 vor dem Blood-Door.
+
+Nach der Headline zählt nur noch Hypixels Zahl (`runOver`): Hypixel schreibt die Sidebar beim Abbau
+des Runs um — dieselbe Umschreibung, die den Live-Score von 242 auf 174 zog —, und `completed /
+cleared%` daraus kann steigen. Eine Clear-Phase-Zeit für eine Clear-Phase, die schon vorbei ist,
+wäre die eine Ankündigung, die man nicht zurücknehmen kann.
+
+**Und: ein Fail-Run wird nicht mehr als Clear gemeldet.** Genau eine Zeile stand je in
+`soloclears.jsonl` — M7, 10 s, ein Tod, `pb: true` —, weil Hypixel den Summary-Block auch druckt,
+wenn der Floor einen umbringt: Headline, `Clear Time:`, `Team Score:`, alles da. `☠ Defeated <boss>
+in <zeit>` ist die einzige Zeile, die nur ein Kill erzeugt, und `DungeonSplits.DEFEATED` war schon
+ihre eine Definition. Sie kommt **nach** `Team Score:` (gemessen, gleicher Tick: Headline → Score →
+Defeated), also ist sie ein eigener Release-Trigger und kein Check am Score — als Check wäre sie ein
+Guard, der jeden echten Clear ablehnt.
+
+**Bewusst nicht gebaut:** eine Ankündigung, die auf den Clear wartet, wenn der Gate mitten im Run
+kreuzt. Wer 270 passiert und danach im Boss stirbt, steht trotzdem im Kanal — der Moment *ist* das
+Feature, so wie der User es beschrieben hat, und Upstream prüft die Phase auch nicht. Falls das
+stört, ist der Fix klein: das Gekreuzte parken und auf `cleared` warten, die gemessene Zeit bleibt
+dabei dieselbe, nur die Meldung kommt später.
+
+**Nie im Spiel gesehen.** Das ist Arithmetik gegen aufgezeichnete Runs; `runClient` ist verboten,
+also ist der Dev-Jar der erste Blick. Was ein Auge klären muss: ob auf einem echten Solo-M7 die
+Projektion 300 überhaupt kreuzt, oder ob nur die 270-Stufe benutzbar ist.
 
 **Seit 20.08.: `/sa import` holt die Split-PBs aus Odin.** Den Import gab es schon, aber nur als
 Zeile auf der Debug-Seite — und eine Aktion, die man am Tag der Installation einmal macht, findet

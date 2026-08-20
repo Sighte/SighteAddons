@@ -132,12 +132,8 @@ class SoloClearTest {
     }
 
     /**
-     * **The rule an earlier version of this file got wrong, at the cost of a real solo M7.**
-     *
-     * The live score usually crosses the threshold in the last rooms or never; Hypixel's `Team Score:`
-     * states the S+ outright once the run is over. Judging on the live number alone refuses runs that
-     * qualified, and the refusal looks exactly like a feature that is switched off. Upstream feeds both
-     * into one comparison and takes the higher.
+     * The plain maximum, which is all [SoloClear.best] is. Which two numbers are handed to it is
+     * [SoloClear.gateScore]'s decision, and the test below is the one that pins that.
      */
     @Test
     fun `the gate is judged on whichever score is higher`() {
@@ -152,9 +148,46 @@ class SoloClearTest {
     }
 
     /**
-     * Hypixel states the score outright a few lines under the run-end headline. That is where the 300
-     * comes from — [DungeonScore] computes a live estimate for a screen, and a channel is not gated on
-     * an estimate.
+     * **The gate reads the projection, and Hypixel's own line may only raise it.**
+     *
+     * This is the rule that was inverted for five solo runs, and the cost was total silence: the gate
+     * judged [LiveScore.score], Hypixel's live number, which is the score *earned so far*. The boss room
+     * is part of a floor's score, so that number cannot read 300 before the boss is dead — two solo F7s
+     * on 2026-08-20 stopped at 265 and 242 at the blood door while the projection stood at 285 and 275.
+     * A threshold above every value its input can take is not a strict gate, it is a broken one.
+     *
+     * The asymmetry on the chat score is upstream's, verbatim (`if (chatScore >= 300 && chatScore >
+     * finalScore)`): `Team Score:` is the truth about the run, so a run Hypixel calls S+ is announced
+     * whatever the formula estimated — but a number that fell short may neither combine with an estimate
+     * that also fell short, nor pull a qualifying projection back down.
+     */
+    @Test
+    fun `the gate reads the projection, and hypixel's own score may only raise it`() {
+        // What the fix buys: the F7 of 2026-08-20 crossed 270 in projection at 5:13, with Hypixel's
+        // live number still on 228 and no chat score in existence yet.
+        assertEquals(270, SoloClear.gateScore(270, null, 270))
+        assertTrue(SoloClear.passes(SoloClear.gateScore(270, null, 270), 270))
+
+        // Hypixel's own number raises a projection that fell short, because it outranks an estimate.
+        assertEquals(304, SoloClear.gateScore(268, 304, 300))
+        assertTrue(SoloClear.passes(SoloClear.gateScore(268, 304, 300), 300))
+
+        // And is ignored when it does not clear the gate by itself: two short numbers do not add up to
+        // a qualifying one, whichever of them is bigger.
+        assertEquals(268, SoloClear.gateScore(268, 291, 300))
+        assertFalse(SoloClear.passes(SoloClear.gateScore(268, 291, 300), 300))
+        assertEquals(275, SoloClear.gateScore(275, 170, 270), "and it never lowers one that passed")
+
+        // Nothing computed and nothing stated is not a score of anything.
+        assertNull(SoloClear.gateScore(null, null, 300))
+        // With no gate at all the run end owns the announcement; the projection is nobody's evidence.
+        assertEquals(280, SoloClear.gateScore(280, 170, 0), "a gate of 0 lets every number through")
+    }
+
+    /**
+     * Hypixel states the score outright a few lines under the run-end headline. It is the number that
+     * settles the run, and after the headline the only one the gate will still accept — see
+     * [SoloClear] on `runOver`.
      */
     @Test
     fun `the official score is read off the summary line, grade and all`() {

@@ -1,36 +1,44 @@
 package sighteaddons
 
 /**
- * The run's score while it is still running, which is what a gate in the clear phase needs.
+ * The run's score while it is still running — as **two different numbers**, and the difference between
+ * them is the whole reason the gate in [SoloClear] has the form it does.
  *
- * Hypixel's `Team Score:` chat line is no use for that: it arrives after the boss, and by then the
- * question — *when* did this run reach 300 — is already unanswerable.
+ *  - **[score] is what Hypixel is showing right now**, read off the sidebar's `Cleared: 68% (152)` (or
+ *    the tab footer's `Score: 287`). Exact by construction, and the calibration this file is judged by.
+ *  - **[computedScore] is what the run is on track to score**, [DungeonScore] over the current rows. An
+ *    estimate, with the error bar spelled out below.
  *
- * **Three sources, and the two that are read beat the one that is computed.** The upstream mod has the
- * same order of preference (`getExtractedScore()` before `calculateScore()`); it simply never wired the
- * first of them:
+ * **Both questions were open until 2026-08-20; the session logs of that day closed both.**
  *
- *  1. **The sidebar.** `Cleared: 68% (152)` — the number in brackets is the score, published by Hypixel
- *     every tick. The upstream mod has the regex for it (`SCOREBOARD_CLEARED_PATTERN`) and **never uses
- *     it**, while its own sampler ships that number next to its computed one for comparison. 152 at 68 %
- *     cleared cannot be a room count; floors have twenty to thirty rooms.
- *  2. **The tab footer.** `Score: 287`, which is what the upstream mod does read first.
- *  3. **[DungeonScore].** The ported formula, as the last resort.
+ * **The read number is identified.** On six party runs Hypixel's `Team Score:` and the last sidebar
+ * reading agree *exactly* — 308/308, 303/303, 302/302, 302/302, 300/300, 292/292 (`run_score`). The
+ * bracket on the `Cleared:` line is Hypixel's score, and nothing else. The upstream mod has that regex
+ * (`SCOREBOARD_CLEARED_PATTERN`) and never uses it; preferring it is not the mistake, and [score] still
+ * does.
  *
- * **Why the order matters more than the formula.** A read score is exact by construction. The computed
- * one carries offsets that no amount of care removes:
+ * **It is the wrong number for a clear-phase gate, because of what it measures.** It is the score earned
+ * *so far*, and the boss room is part of a floor's score, so it cannot read 300 before the boss is dead.
+ * Measured the same day: on the party runs it climbed 92 → 303 **during** the fight; on two solo F7s it
+ * stopped at 265 and 242 at the blood door. Five solo runs are on record and not one of them ever read
+ * 270. A 270 gate on this number is not a strict gate, it is an unreachable one — which is exactly what
+ * it was, with `soloClears` on and nothing ever announced.
  *
- *  - **Mayor Paul is +10 to the real score** and cannot be seen from inside a dungeon. A computed score
- *    is therefore up to ten low in a Paul term, and a 300 gate fires late or never.
+ * So the gate reads [computedScore], as every mod carrying this feature does and as upstream does
+ * exclusively (`SoloClearsTracker`: `finalScore = DungeonScore.getScore()`, with its `chatScore` allowed
+ * only to raise it). The error bar, measured against Hypixel's own final number on those same six runs,
+ * is **4 to 8 points low** — and every term of it leans that way on purpose:
+ *
+ *  - **Mayor Paul is +10 to the real score** and cannot be seen from inside a dungeon.
  *  - `totalRooms` is derived from a percentage Hypixel rounds to whole numbers, so it can be off by one
  *    room, which moves both the explore and the skill halves.
  *  - The upstream `isQuizCompleted()` awards +5 for the word "Quiz" appearing in the tab list at all.
  *    [DungeonStats.PUZZLE_ROW] fixes that here by requiring the solved mark, which trades a five-point
- *    overstatement for a five-point understatement on an unsolved Oruo — the direction that cannot
- *    announce a run that did not qualify.
+ *    overstatement for a five-point understatement on an unsolved Oruo.
  *
- * So [source] travels with every score and reaches the debug log. A `computed` gate firing is a result
- * with an error bar; a `sidebar` one is a measurement.
+ * Understating is the only tolerable direction: it fires late, never on a run that did not qualify. And
+ * [source] travels with every score into the debug log, so the calibration above is a measurement every
+ * new run repeats rather than a claim made once.
  */
 object LiveScore {
     /** Where the current [score] came from. `none` means no source could answer at all. */
@@ -64,18 +72,28 @@ object LiveScore {
         private set
 
     /**
-     * The formula's answer, kept **beside** the read one rather than instead of it.
+     * The score this run is on track for, [DungeonScore] over the current rows — **and the number the
+     * gate is judged on.** The header says why it beats the read one there and nowhere else.
      *
-     * **Because the sidebar's number is not identified.** It tracked 25 → 266 over a solo M7 on
-     * 2026-08-19 while the player put the run at 300, and on a two-room failed run it read 35 where
-     * Hypixel's own `Team Score:` said 24. Close, wrong, or a different quantity altogether — no
-     * reasoning from here can settle which, and a gate is exactly the wrong place to find out.
+     * The two disagreeing is not a fault to be fixed: on a solo run this sits 30-odd points *above*
+     * [score] for the whole clear phase, because it counts the run the player is completing while the
+     * sidebar counts the rooms already done. On a finished run they converge, this side low — 296
+     * against 303 is the measured shape.
      *
-     * So both travel to the log on every step and at every run end, next to Hypixel's final number.
-     * One ordinary run — a party one will do — says which of the two the `Team Score:` line agrees
-     * with, and then this becomes either the source or a deleted field.
+     * **Sampled every ten ticks**, as upstream samples it, which is below the resolution of the thing it
+     * dates: the announced time comes off Hypixel's own clock, and that clock counts whole seconds.
      */
     var computedScore: Int? = null
+        private set
+
+    /**
+     * The highest [computedScore] this run reached — [high]'s twin, for the number that actually decides.
+     *
+     * Kept separately rather than folded into [high] because the two are different quantities, and the
+     * one thing the diagnosis must not do is merge them: `solo_clear_missed` carries both, and a run
+     * where they read 275 and 242 is the run that moved the gate onto this one.
+     */
+    var projectedHigh = 0
         private set
 
     /** The step [high] is logged at. Twelve lines over a full run, which is the price of seeing the curve. */
@@ -90,7 +108,9 @@ object LiveScore {
         if (startedAtMs != 0L) {
             DebugLog.event(
                 "score_high", "high" to high, "source" to source.name.lowercase(),
-                "computed" to (computedScore ?: -1),
+                // The gate's own high water mark, next to Hypixel's. The gap between them on a solo run
+                // is the measurement this file's header rests on, so every run re-measures it.
+                "projectedHigh" to projectedHigh, "computed" to (computedScore ?: -1),
             )
         }
         score = null
@@ -99,6 +119,7 @@ object LiveScore {
         bloodDone = false
         high = 0
         computedScore = null
+        projectedHigh = 0
         loggedStep = 0
     }
 
@@ -205,6 +226,10 @@ object LiveScore {
                 floor, DungeonStats.read(rows), clearedFraction, secretsPercent,
                 inBoss, bloodDone, startedAtMs, nowMs,
             )
+            // Here and not in [set], which only ever sees the read score. The projection needs its own
+            // maximum because it is the number a refusal is measured against, and a refusal has to be
+            // able to say how close *that* one came.
+            computedScore?.let { if (it > projectedHigh) projectedHigh = it }
         }
 
         sidebarScore?.let {

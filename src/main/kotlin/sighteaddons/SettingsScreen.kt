@@ -1493,7 +1493,7 @@ class SettingsScreen(
         // Moved up onto the switch it is about. It used to be the last line of the section, which is
         // where a line can sit and a tooltip cannot: nobody hovers the score row to find out where a
         // solo clear is written down.
-        note("kept in soloclears.jsonl, the boss never counts")
+        note("kept in soloclears.jsonl, scored by this mod's own reckoning")
         // Three stops rather than a free number: S+ and S are the two thresholds anybody means, and 0
         // is "announce everything". A stepper over 0..300 would offer 298 as if it meant something.
         action("minimum score", scoreGate()) {
@@ -2140,9 +2140,13 @@ class SettingsScreen(
     /**
      * The gate as a label, with the grade it corresponds to — the number alone does not say why 300.
      *
-     * **Hypixel's score, not [DungeonScore]'s.** Above 0 an unknown score fails the gate, so this row
-     * also says what a run costs when the line cannot be read: nothing is announced. See
-     * [SoloClear.passes].
+     * **[DungeonScore]'s reckoning, not the number on the sidebar.** Hypixel's live score is the score
+     * earned so far and cannot reach 300 before the boss dies, so a gate on it never fires solo; the
+     * projection is what crosses a threshold while the run is on, and Hypixel's own `Team Score:` may
+     * raise it at the end. See [SoloClear.gateScore], and [LiveScore] for the measurement.
+     *
+     * Above 0 a score that cannot be worked out at all fails the gate, so this row also says what a run
+     * costs when the rows never parse: nothing is announced. See [SoloClear.passes].
      */
     private fun scoreGate(): String = when (val gate = Config.soloClearMinScore) {
         0 -> "any solo clear"
@@ -2160,10 +2164,10 @@ class SettingsScreen(
     private fun soloClears(): String = when {
         !Config.soloClears -> "off: nothing is sent and nothing is recorded"
         Config.soloClearMinScore <= 0 -> "${minecraft.user.name} and your clear time, every solo floor"
-        // The gated case is a different measurement, not a filtered one: the time at which the clear
-        // phase reached the score, on the two floors where that is a result. Saying "from 300 up" would
-        // read as the same message with a threshold on it.
-        else -> "${minecraft.user.name}, F7 and M7, the moment the clear hits ${Config.soloClearMinScore}"
+        // The gated case is a different measurement, not a filtered one: the time at which the run
+        // reached the score, on the two floors where that is a result. Saying "from 300 up" would read
+        // as the same message with a threshold on it.
+        else -> "${minecraft.user.name}, F7 and M7, the moment the run reaches ${Config.soloClearMinScore}"
     }
 
     private fun uploadName(): String = when {

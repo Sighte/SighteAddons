@@ -116,7 +116,7 @@ internal object DungeonSplits {
      * are unused here (the span is measured, not read out of the sentence) but the shape has to still
      * match a run that set a record, which is exactly the run somebody cares about.
      */
-    private val DEFEATED = Regex("""$LEAD☠ Defeated (.+) in 0?([\dhms ]+?)\s*(\(NEW RECORD!\))?$""")
+    internal val DEFEATED = Regex("""$LEAD☠ Defeated (.+) in 0?([\dhms ]+?)\s*(\(NEW RECORD!\))?$""")
 
     /**
      * The boss's first line on each floor, F1 through F7 — Odin's `entryRegexes`, in his order.
