@@ -25,6 +25,8 @@ Minecraft **26.1.2**, Fabric, client only.
 | History | `RoomHistory.kt` | append-only permanent room times, chat announcements, run summary |
 | Splits | `Splits.kt`, `DungeonSplits.kt` | the run in spans: blood, portal, every boss phase, and the total |
 | Split records | `SplitPbs.kt` | best seconds per split per floor, on Odin's own keys |
+| Run records | `RunPbs.kt`, `PbTable.kt` | best time for a whole run, per floor and per party size |
+| Solo clears | `SoloClear.kt` | one announcement per solo run: the clear, or the moment a score gate is reached |
 | Server ticks | `ServerTicks.kt` | Hypixel's tick beat, counted off its keep-alive packets |
 | Telemetry | `DebugLog.kt` | JSONL event log for diagnosing a real run |
 | Pseudonyms | `Pseudonym.kt` | replaces party member names on their way into that log |
@@ -37,7 +39,8 @@ Minecraft **26.1.2**, Fabric, client only.
 
 The HUD draws the dungeon map with every party member on it, the run clock, and the current room with
 how long *you* have been in it. Map, clear popup, storm countdown, splits panel and split clock are
-each placed by anchor + offset and dragged in an editor (arrow keys nudge, `r` resets). Run totals —
+each placed by anchor + offset and dragged in an editor (arrow keys nudge, the scroll wheel scales the
+element under the cursor, `r` resets). Run totals —
 idle/nav time and the standings — live in a panel behind a keybind that ships **unbound**; the `/sa`
 screen says so and links to Vanilla's key screen.
 
@@ -49,8 +52,8 @@ two players can compare because it does not include whatever the server was doin
 panel keeps drawing through the boss phase, where the map card deliberately fades out.
 
 Best times are kept per split per floor, in `config.json`, **on Odin's own record keys** — so
-`/sa` → debug → *import from odin* folds an existing Odin install's records in, taking the faster of
-the two, and running it twice does nothing. Master mode keeps its records apart from the F floors even
+`/sa import` — or `/sa` → debug → *import from odin* — folds an existing Odin install's records in,
+taking the faster of the two, and running it twice does nothing. Master mode keeps its records apart from the F floors even
 though the two share their chat lines.
 
 Two numbers that never change meaning: `cleared` is run-relative, the tick the room's checkmark
@@ -119,6 +122,18 @@ itself instead of the word *on*, so what would leave the machine is legible befo
 switch reaches back as far as the queue and no further: reports still waiting in
 `config/sighteaddons/runs/` are rewritten in both directions, but once a report has moved to
 `runs/uploaded/` it stays exactly as it left.
+
+**Two switches send something with your name on it, and both are off until you turn them on.** *solo
+clears* → *announce in discord* puts one line per solo run into the team's channel through the same
+receiver — your name, the floor, Hypixel's own clear time, secrets, deaths. With a score gate set it
+announces the moment the run reaches that score instead, on F7 and M7 only, and only for a run whose
+boss actually died. *run records* → *send new bests* keeps a standing leaderboard row: the best time
+for a whole run, per floor and per party size. Off, both still record locally — nothing leaves the
+machine.
+
+Three independent consents and not one setting with sub-options, because they are three different
+things: a run report is anonymous and read by an analysis agent, an announcement is one line in a
+channel, and a leaderboard row is standing and public.
 
 Uploads happen **at game start, for what previous sessions left behind** — not at `run_end`, which
 never fires when the game crashes or the run is left early, losing exactly the material worth looking
