@@ -1,8 +1,7 @@
 package sighteaddons.ui.components
 
-import net.minecraft.client.gui.Font
-import net.minecraft.client.gui.GuiGraphicsExtractor
-import sighteaddons.ui.render.Surface
+import sighteaddons.ui.sk.Sk
+import sighteaddons.ui.sk.Type
 import sighteaddons.ui.theme.Tokens
 
 /**
@@ -16,10 +15,10 @@ import sighteaddons.ui.theme.Tokens
  * ### Why the state colours are public functions
  *
  * [fill] and [labelColour] are the whole of what each state looks like, and they are pure functions of
- * `(variant, hover, press, enabled)`. That is deliberate: it lets `UiComponentsTest` measure the
- * label against its own background across the entire state space, including the halfway point of a
- * hover fade, rather than trusting that a wash which passed at rest still passes at 0.6. A colour
- * decision that only exists inside a draw call is a colour decision nobody can check.
+ * `(variant, hover, press, enabled)`. That is deliberate: it lets `UiComponentsTest` measure the label
+ * against its own background across the entire state space, including the halfway point of a hover
+ * fade, rather than trusting that a wash which passed at rest still passes at 0.6. A colour decision
+ * that only exists inside a draw call is a colour decision nobody can check.
  *
  * ### No state is carried by luminance alone
  *
@@ -27,6 +26,9 @@ import sighteaddons.ui.theme.Tokens
  * asked to read. Hover adds a ring, press moves the label down a pixel, focus adds an outer ring, and
  * disabled dashes the border. Each of those survives a greyscale screenshot and a reader who cannot
  * separate two greys; the luminance change only ever confirms what a shape already said.
+ *
+ * The primary now also carries [Type.MEDIUM], which is the one thing this component gained from the
+ * new renderer: "the thing this panel wants you to do" was previously said by an inverted fill alone.
  */
 internal object Button {
 
@@ -41,26 +43,33 @@ internal object Button {
     /**
      * Nothing narrower than this, however short the label.
      *
-     * "ok" is 11 pixels wide and a button that size is a target you have to aim at. The minimum is
-     * what makes a row of buttons read as a row of buttons rather than as text with boxes round it.
+     * "ok" is 11 pixels wide and a button that size is a target you have to aim at. The minimum is what
+     * makes a row of buttons read as a row of buttons rather than as text with boxes round it.
      */
     const val MIN_WIDTH = 48
 
     /** How far the label moves down while held. One pixel, which is all a press needs to be. */
-    const val PRESS_TRAVEL = 1
+    const val PRESS_TRAVEL = 1f
 
     /** How far outside the button the focus ring sits. */
-    const val FOCUS_OFFSET = 2
+    const val FOCUS_OFFSET = 2f
+
+    /** The label's size. */
+    val SIZE = Tokens.TEXT_12.toFloat()
+
+    /** The face a variant's label is set in. */
+    fun family(variant: Variant): String =
+        if (variant == Variant.PRIMARY) Type.MEDIUM else Type.REGULAR
 
     /**
      * The width a button needs for [label].
      *
-     * Derived rather than returned from [draw], for the reason `Controls.chipWidth` states: a caller
-     * has to lay out the next button and hit-test the cursor against the same rectangle this one
-     * occupies, and a width that only exists after the draw forces either a guess or a frame of lag.
+     * Derived rather than returned from [draw], for the reason [Controls.chipWidth] states: a caller has
+     * to lay out the next button and hit-test the cursor against the same rectangle this one occupies,
+     * and a width that only exists after the draw forces either a guess or a frame of lag.
      */
-    fun width(font: Font, label: String): Int =
-        maxOf(MIN_WIDTH, font.width(label) + PADDING * 2)
+    fun width(label: String, measure: (String) -> Float): Int =
+        maxOf(MIN_WIDTH, Math.ceil(measure(label).toDouble()).toInt() + PADDING * 2)
 
     /**
      * The surface under the label, as it will actually be drawn.
@@ -78,9 +87,9 @@ internal object Button {
             // nowhere to go. Pressing therefore moves it the only direction available, back toward its
             // own text colour, and hover is carried by the ring in `draw` instead.
             Variant.PRIMARY -> Controls.blend(Tokens.accent, Tokens.accentText, p * PRESS_MIX)
-            // `0` and not a fully transparent token: a caller measuring contrast has to be able to
-            // tell "no wash" from "a wash at zero", and `roundedFill` would otherwise spend seven
-            // draws painting nothing at all under every idle button on the screen.
+            // `0` and not a fully transparent token: a caller measuring contrast has to be able to tell
+            // "no wash" from "a wash at zero", and the fill would otherwise be a draw call painting
+            // nothing at all under every idle button on the screen.
             Variant.SECONDARY, Variant.GHOST -> when {
                 p > 0f -> Tokens.fade(Tokens.surfaceActive, p)
                 h > 0f -> Tokens.fade(Tokens.surfaceHover, h)
@@ -96,66 +105,66 @@ internal object Button {
         return when (variant) {
             Variant.PRIMARY -> Tokens.accentText
             Variant.SECONDARY -> Tokens.textPrimary
-            // The only variant whose label moves, because it is the only one with no border and no
-            // fill at rest: without the lift there would be nothing at all to say it is a control.
+            // The only variant whose label moves, because it is the only one with no border and no fill
+            // at rest: without the lift there would be nothing at all to say it is a control.
             Variant.GHOST -> Controls.blend(Tokens.textSecondary, Tokens.textPrimary, lift)
         }
     }
 
     /**
-     * One button. [hover], [press] and [focus] are already-resolved `0f..1f`, so every state of this
-     * is reachable at a frozen frame.
+     * One button. [hover], [press] and [focus] are already-resolved `0f..1f`, so every state of this is
+     * reachable at a frozen frame.
      */
     fun draw(
-        graphics: GuiGraphicsExtractor, font: Font,
-        x: Int, y: Int, width: Int, height: Int,
+        x: Float, y: Float, width: Float, height: Float,
         label: String,
         variant: Variant = Variant.SECONDARY,
         hover: Float = 0f, press: Float = 0f, focus: Float = 0f,
         enabled: Boolean = true,
     ) {
-        if (width <= 0 || height <= 0) return
-        val radius = Tokens.RADIUS_SM
+        if (width <= 0f || height <= 0f) return
+        val radius = Tokens.RADIUS_SM.toFloat()
 
         val background = fill(variant, hover, press, enabled)
-        if (background != 0) Surface.roundedFill(graphics, x, y, width, height, radius, background)
+        if (background != 0) Sk.fill(x, y, width, height, background, radius)
 
         val border = border(variant, hover, enabled)
         if (enabled) {
-            if (border != 0) Surface.roundedBorder(graphics, x, y, width, height, radius, border)
+            if (border != 0) Sk.border(x, y, width, height, border, radius)
         } else {
             // Dashed, so "you cannot press this" is a pattern rather than a shade — and drawn on every
             // variant including the ghost, which has no border at rest and would otherwise say it was
             // disabled only by being a slightly dimmer word.
-            Controls.dashedBorder(graphics, x, y, width, height, border)
+            Controls.dashedBorder(x, y, width, height, border)
         }
 
         // Hover on a primary has nowhere to go in luminance, so it arrives as a ring just outside the
         // fill. On the quiet variants the ring doubles the border it already has, which reads as the
         // outline thickening — the same gesture at both weights.
         if (enabled && hover > 0f) {
-            Surface.roundedBorder(
-                graphics, x - 1, y - 1, width + 2, height + 2, radius + 1,
-                Tokens.fade(Tokens.borderStrong, hover),
+            Sk.border(
+                x - 1f, y - 1f, width + 2f, height + 2f,
+                Tokens.fade(Tokens.borderStrong, hover), radius + 1f,
             )
         }
 
         if (focus > 0f) {
             // Outside the hover ring and in the accent: a focus ring that shares a colour with hover
             // cannot say which of the two a keyboard user is looking at.
-            Surface.roundedBorder(
-                graphics,
+            Sk.border(
                 x - FOCUS_OFFSET, y - FOCUS_OFFSET,
-                width + FOCUS_OFFSET * 2, height + FOCUS_OFFSET * 2,
-                radius + FOCUS_OFFSET,
-                Tokens.fade(Tokens.accent, focus),
+                width + FOCUS_OFFSET * 2f, height + FOCUS_OFFSET * 2f,
+                Tokens.fade(Tokens.accent, focus), radius + FOCUS_OFFSET,
             )
         }
 
-        val text = font.plainSubstrByWidth(label, width - PADDING)
-        val textX = x + (width - font.width(text)) / 2
-        val textY = y + (height - Labels.CAP) / 2 + Math.round(press.coerceIn(0f, 1f) * PRESS_TRAVEL)
-        graphics.text(font, text, textX, textY, labelColour(variant, hover, press, enabled), false)
+        val family = family(variant)
+        val text = Sk.fit(label, width - PADDING, SIZE, family)
+        Sk.textCenter(
+            text, x + width / 2f,
+            Sk.centreY(y, height, SIZE, family) + press.coerceIn(0f, 1f) * PRESS_TRAVEL,
+            SIZE, labelColour(variant, hover, press, enabled), family,
+        )
     }
 
     /** The outline for a state. Disabled is dashed at the draw site; see [draw]. */

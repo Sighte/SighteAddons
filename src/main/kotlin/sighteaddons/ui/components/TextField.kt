@@ -1,11 +1,10 @@
 package sighteaddons.ui.components
 
-import net.minecraft.client.gui.Font
-import net.minecraft.client.gui.GuiGraphicsExtractor
 import sighteaddons.ui.motion.Clock
 import sighteaddons.ui.motion.Motion
-import sighteaddons.ui.render.DevicePixels
-import sighteaddons.ui.render.Surface
+import sighteaddons.ui.sk.Chrome
+import sighteaddons.ui.sk.Sk
+import sighteaddons.ui.sk.Type
 import sighteaddons.ui.theme.Tokens
 
 /**
@@ -67,9 +66,13 @@ internal object TextField {
         else -> 0f
     }
 
+    /** The value's text size. */
+    val SIZE = Tokens.TEXT_12.toFloat()
+
     /** How wide the reveal affordance is, or `0` when the field is not masked. */
-    fun revealWidth(font: Font, mask: Mask): Int =
-        if (mask == Mask.NONE) 0 else maxOf(font.width(SHOW), font.width(HIDE)) + Tokens.SPACE_12
+    fun revealWidth(mask: Mask, measure: (String) -> Float): Int =
+        if (mask == Mask.NONE) 0
+        else Math.ceil(maxOf(measure(SHOW), measure(HIDE)).toDouble()).toInt() + Tokens.SPACE_12
 
     /**
      * The reveal affordance's left edge, so a caller can hit-test the same rectangle it is drawn in.
@@ -77,12 +80,12 @@ internal object TextField {
      * Both words are laid out in the width of the longer one — a control that changes width when you
      * press it moves out from under the cursor that pressed it.
      */
-    fun revealX(font: Font, mask: Mask, x: Int, width: Int): Int =
-        x + width - revealWidth(font, mask)
+    fun revealX(mask: Mask, x: Int, width: Int, measure: (String) -> Float): Int =
+        x + width - revealWidth(mask, measure)
 
     /** How much room the text itself has, once padding and any reveal affordance are taken out. */
-    fun innerWidth(font: Font, mask: Mask, width: Int): Int =
-        width - PADDING * 2 - revealWidth(font, mask)
+    fun innerWidth(mask: Mask, width: Int, measure: (String) -> Float): Int =
+        width - PADDING * 2 - revealWidth(mask, measure)
 
     /**
      * The width of [count] mask marks.
@@ -111,13 +114,15 @@ internal object TextField {
     fun offsetAt(x: Int, mouseX: Int, scroll: Int): Int = mouseX - x - PADDING + scroll
 
     /** The drawn width of [value] under [mask]. */
-    fun contentWidth(font: Font, value: String, mask: Mask, revealed: Boolean): Int =
-        if (mask == Mask.NONE || revealed) font.width(value) else maskedWidth(value.length)
+    fun contentWidth(value: String, mask: Mask, revealed: Boolean, measure: (String) -> Float): Int =
+        if (mask == Mask.NONE || revealed) Math.ceil(measure(value).toDouble()).toInt()
+        else maskedWidth(value.length)
 
     /** How far into the content the caret sits, in pixels from the start of the text. */
-    fun caretOffset(font: Font, value: String, caret: Int, mask: Mask, revealed: Boolean): Int {
+    fun caretOffset(value: String, caret: Int, mask: Mask, revealed: Boolean, measure: (String) -> Float): Int {
         val index = caret.coerceIn(0, value.length)
-        return if (mask == Mask.NONE || revealed) font.width(value.substring(0, index)) else maskedWidth(index)
+        return if (mask == Mask.NONE || revealed) Math.ceil(measure(value.substring(0, index)).toDouble()).toInt()
+        else maskedWidth(index)
     }
 
     /**
@@ -146,14 +151,18 @@ internal object TextField {
      * of a letter must put the caret after it, which is what everything else that takes text input
      * does and what makes a click feel like it landed where it was aimed.
      */
-    fun indexAt(font: Font, value: String, mask: Mask, revealed: Boolean, offsetX: Int): Int {
+    fun indexAt(value: String, mask: Mask, revealed: Boolean, offsetX: Int, measure: (String) -> Float): Int {
         if (offsetX <= 0) return 0
         if (mask != Mask.NONE && !revealed) return maskedIndexAt(value.length, offsetX)
-        var cursor = 0
+        // Walks the prefixes rather than summing per-character advances. With a proportional face those
+        // are not the same number — kerning and shaping mean the width of a string is not the sum of
+        // its glyphs — and the prefix is what `caretOffset` measures, so this is the arithmetic that has
+        // to agree with where the caret is actually drawn.
+        var previous = 0f
         for (i in value.indices) {
-            val advance = font.width(value.substring(i, i + 1))
-            if (offsetX < cursor + advance / 2) return i
-            cursor += advance
+            val upto = measure(value.substring(0, i + 1))
+            if (offsetX < (previous + upto) / 2f) return i
+            previous = upto
         }
         return value.length
     }
@@ -166,8 +175,7 @@ internal object TextField {
      * reviewer to catch one of them going past.
      */
     fun draw(
-        graphics: GuiGraphicsExtractor, font: Font,
-        x: Int, y: Int, width: Int, height: Int,
+        x: Float, y: Float, width: Float, height: Float,
         edit: Edit,
         placeholder: String = "",
         mask: Mask = Mask.NONE,
@@ -175,127 +183,129 @@ internal object TextField {
         focus: Float = 0f, hover: Float = 0f, caret: Float = 0f,
         enabled: Boolean = true,
     ) {
-        if (width <= 0 || height <= 0) return
-        val radius = Tokens.RADIUS_SM
+        if (width <= 0f || height <= 0f) return
+        val radius = Tokens.RADIUS_SM.toFloat()
+        val measure: (String) -> Float = { Sk.width(it, SIZE) }
 
-        Surface.roundedFill(graphics, x, y, width, height, radius, Tokens.surfaceRaised)
+        Sk.fill(x, y, width, height, Tokens.surfaceRaised, radius)
         if (enabled && hover > 0f && focus < 1f) {
-            Surface.roundedFill(graphics, x, y, width, height, radius, Tokens.fade(Tokens.surfaceHover, hover))
+            Sk.fill(x, y, width, height, Tokens.fade(Tokens.surfaceHover, hover), radius)
         }
         if (enabled) {
-            Surface.roundedBorder(
-                graphics, x, y, width, height, radius,
-                Controls.blend(Tokens.borderDefault, Tokens.borderStrong, focus.coerceIn(0f, 1f)),
+            Sk.border(
+                x, y, width, height,
+                Controls.blend(Tokens.borderDefault, Tokens.borderStrong, focus.coerceIn(0f, 1f)), radius,
             )
         } else {
-            // The same dashed outline every disabled control in this UI wears. A field that said it
-            // was uneditable only by dimming its own text would be saying it in the one register this
+            // The same dashed outline every disabled control in this UI wears. A field that said it was
+            // uneditable only by dimming its own text would be saying it in the one register this
             // palette cannot afford.
-            Controls.dashedBorder(graphics, x, y, width, height, Tokens.borderSubtle)
+            Controls.dashedBorder(x, y, width, height, Tokens.borderSubtle)
         }
         // Focus is a rule along the bottom edge, growing from the middle out. A brighter border alone
         // would be the only signal, and this UI does not let a state be a shade.
         if (focus > 0f) {
-            val grown = Math.round((width - 2) * focus.coerceIn(0f, 1f))
-            DevicePixels.hairlineH(
-                graphics, x + 1 + (width - 2 - grown) / 2, y + height - 1, grown,
+            val grown = (width - 2f) * focus.coerceIn(0f, 1f)
+            Sk.fill(
+                x + 1f + (width - 2f - grown) / 2f, y + height - Chrome.HAIRLINE, grown, Chrome.HAIRLINE,
                 Tokens.fade(Tokens.accent, focus),
             )
         }
 
-        val inner = innerWidth(font, mask, width)
-        val textY = y + (height - Labels.CAP) / 2
+        val inner = innerWidth(mask, Math.round(width), measure)
+        val textY = Sk.centreY(y, height, SIZE)
         val left = x + PADDING
 
         if (mask != Mask.NONE) {
-            graphics.text(
-                font, if (revealed) HIDE else SHOW,
-                revealX(font, mask, x, width) + Tokens.SPACE_6, textY,
-                if (enabled) Tokens.textTertiary else Tokens.textDisabled, false,
+            Sk.text(
+                if (revealed) HIDE else SHOW,
+                revealX(mask, Math.round(x), Math.round(width), measure) + Tokens.SPACE_6.toFloat(), textY, SIZE,
+                if (enabled) Tokens.textTertiary else Tokens.textDisabled,
             )
         }
 
         if (edit.text.isEmpty()) {
             if (placeholder.isNotEmpty()) {
-                graphics.text(
-                    font, font.plainSubstrByWidth(placeholder, inner), left, textY,
-                    if (enabled) Tokens.textTertiary else Tokens.textDisabled, false,
+                Sk.text(
+                    Sk.fit(placeholder, inner.toFloat(), SIZE), left, textY, SIZE,
+                    if (enabled) Tokens.textTertiary else Tokens.textDisabled,
                 )
             }
-            if (caret > 0f) caret(graphics, left, y, height, caret)
+            if (caret > 0f) caret(left, y, height, caret)
             return
         }
 
-        val offset = caretOffset(font, edit.text, edit.caret, mask, revealed)
-        val scroll = scrollFor(contentWidth(font, edit.text, mask, revealed), offset, inner, edit.scroll)
+        val offset = caretOffset(edit.text, edit.caret, mask, revealed, measure)
+        val scroll = scrollFor(contentWidth(edit.text, mask, revealed, measure), offset, inner, edit.scroll)
         edit.scroll = scroll
 
-        // Scissored rather than truncated: a truncated string moves its own characters as the caret
+        // Clipped rather than truncated: a truncated string moves its own characters as the caret
         // travels, and the field would appear to retype itself on every arrow key.
-        graphics.enableScissor(left, y, left + inner, y + height)
+        Sk.clip(left, y, inner.toFloat(), height)
         val contentX = left - scroll
         if (mask == Mask.NONE || revealed) {
-            drawText(graphics, font, edit, contentX, textY, enabled)
+            drawText(edit, contentX, textY, enabled, measure)
         } else {
-            drawMask(graphics, edit, contentX, y + (height - MASK_SIZE) / 2, enabled)
+            drawMask(edit, contentX, y + (height - MASK_SIZE) / 2f, enabled)
         }
-        if (caret > 0f) caret(graphics, contentX + offset, y, height, caret)
-        graphics.disableScissor()
+        if (caret > 0f) caret(contentX + offset, y, height, caret)
+        Sk.unclip()
     }
 
     /** The value, in three runs, so the selected one can be inverted rather than merely tinted. */
-    private fun drawText(
-        graphics: GuiGraphicsExtractor, font: Font, edit: Edit,
-        x: Int, y: Int, enabled: Boolean,
-    ) {
+    private fun drawText(edit: Edit, x: Float, y: Float, enabled: Boolean, measure: (String) -> Float) {
         val colour = if (enabled) Tokens.textPrimary else Tokens.textDisabled
         if (!edit.hasSelection) {
-            graphics.text(font, edit.text, x, y, colour, false)
+            Sk.text(edit.text, x, y, SIZE, colour)
             return
         }
         val head = edit.text.substring(0, edit.selectionStart)
         val body = edit.text.substring(edit.selectionStart, edit.selectionEnd)
         val tail = edit.text.substring(edit.selectionEnd)
-        val headWidth = font.width(head)
-        val bodyWidth = font.width(body)
+        val headWidth = measure(head)
+        val bodyWidth = measure(body)
 
-        graphics.text(font, head, x, y, colour, false)
-        // Solid accent with the opposite extreme written on it — the same pair an active chip uses, so
-        // a selection cannot be mistaken for a highlight that means something else.
-        graphics.fill(x + headWidth, y - 1, x + headWidth + bodyWidth, y + Labels.CAP + 2, Tokens.accent)
-        graphics.text(font, body, x + headWidth, y, Tokens.accentText, false)
-        graphics.text(font, tail, x + headWidth + bodyWidth, y, colour, false)
+        Sk.text(head, x, y, SIZE, colour)
+        // Solid accent with the opposite extreme written on it, the same pair an active chip uses, so a
+        // selection cannot be mistaken for a highlight that means something else. Sized to the real
+        // line rather than to a cap height plus guesswork, which is what `lineHeight` is for.
+        Sk.fill(x + headWidth, y, bodyWidth, Sk.lineHeight(SIZE), Tokens.accent)
+        Sk.text(body, x + headWidth, y, SIZE, Tokens.accentText)
+        Sk.text(tail, x + headWidth + bodyWidth, y, SIZE, colour)
     }
 
     /**
-     * The masked value: one square per character, drawn as rectangles.
+     * The masked value: one square per character.
      *
-     * Not `•`. The vanilla bitmap font has no bullet, so it would fall through to the Unifont fallback
-     * and arrive at a different weight and baseline than the placeholder beside it — the same reason
-     * `Glyphs` draws its marks rather than typing them.
+     * Not the bullet character. The reason has shifted but not gone: the bitmap font had no bullet and
+     * would have fallen through to Unifont at a different weight and baseline, whereas JetBrains Mono
+     * does have one. It is simply that a drawn square is the same mark at every size the field is drawn
+     * at, while a glyph carries the type's own weight into a place that is not type.
      */
-    private fun drawMask(graphics: GuiGraphicsExtractor, edit: Edit, x: Int, y: Int, enabled: Boolean) {
+    private fun drawMask(edit: Edit, x: Float, y: Float, enabled: Boolean) {
         val colour = if (enabled) Tokens.textPrimary else Tokens.textDisabled
         for (i in edit.text.indices) {
             val dotX = x + i * MASK_ADVANCE
             val selected = edit.hasSelection && i >= edit.selectionStart && i < edit.selectionEnd
             if (selected) {
-                graphics.fill(dotX - 1, y - 3, dotX + MASK_ADVANCE - 1, y + MASK_SIZE + 3, Tokens.accent)
+                Sk.fill(dotX - 1f, y - 3f, MASK_ADVANCE.toFloat(), MASK_SIZE + 6f, Tokens.accent)
             }
-            graphics.fill(
-                dotX, y, dotX + MASK_SIZE, y + MASK_SIZE,
+            Sk.fill(
+                dotX, y, MASK_SIZE.toFloat(), MASK_SIZE.toFloat(),
                 if (selected) Tokens.accentText else colour,
             )
         }
     }
 
-    /** One device pixel, full height of the text, in the accent so it cannot be read as a letter. */
-    private fun caret(graphics: GuiGraphicsExtractor, x: Int, y: Int, height: Int, alpha: Float) {
-        val top = y + (height - CARET_HEIGHT) / 2
-        DevicePixels.hairlineV(graphics, x, top, CARET_HEIGHT, Tokens.fade(Tokens.accent, alpha))
+    /** One hairline, full height of the text, in the accent so it cannot be read as a letter. */
+    private fun caret(x: Float, y: Float, height: Float, alpha: Float) {
+        Sk.fill(
+            x, y + (height - CARET_HEIGHT) / 2f, Chrome.HAIRLINE, CARET_HEIGHT,
+            Tokens.fade(Tokens.accent, alpha),
+        )
     }
 
-    private const val CARET_HEIGHT = 11
+    private const val CARET_HEIGHT = 11f
 
     /**
      * The caret and selection arithmetic. No drawing, no `Font`, no Minecraft.

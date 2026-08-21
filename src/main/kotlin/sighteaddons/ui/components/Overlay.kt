@@ -1,8 +1,7 @@
 package sighteaddons.ui.components
 
-import net.minecraft.client.gui.Font
-import net.minecraft.client.gui.GuiGraphicsExtractor
-import sighteaddons.ui.render.Surface
+import sighteaddons.ui.sk.Sk
+import sighteaddons.ui.sk.Type
 import sighteaddons.ui.theme.Tokens
 
 /**
@@ -10,8 +9,9 @@ import sighteaddons.ui.theme.Tokens
  * page rather than in it.
  *
  * One primitive under both a tooltip and a menu, because they are the same object with different
- * contents — and because [Tokens.Elevation.E2] costs nine draws for the shadow, which is a decision
- * worth making once rather than per popover.
+ * contents. The old note here said [Tokens.Elevation.E2] "costs nine draws for the shadow, which is a
+ * decision worth making once rather than per popover" — the nine draws are now one real Gaussian, so
+ * the cost argument has gone, but the reason to have one primitive has not.
  */
 internal object Popover {
 
@@ -24,22 +24,24 @@ internal object Popover {
      * Elevated because a floating surface with no shadow is indistinguishable from a card on a screen
      * with no hue: the shadow is the only thing saying it is *above* rather than *on*.
      */
-    fun frame(graphics: GuiGraphicsExtractor, x: Int, y: Int, width: Int, height: Int) {
-        Surface.card(
-            graphics, x, y, width, height,
-            radius = Tokens.RADIUS_MD,
-            fill = Tokens.surfaceOverlay,
-            border = Tokens.borderStrong,
-            elevation = Tokens.Elevation.E2,
+    fun frame(x: Float, y: Float, width: Float, height: Float) {
+        val e = Tokens.Elevation.E2
+        val radius = Tokens.RADIUS_MD.toFloat()
+        Sk.shadow(
+            x, y, width, height,
+            Tokens.alpha(Tokens.shadow, e.shadowAlpha), radius,
+            blur = e.shadowSpread.toFloat(), dy = e.shadowOffset.toFloat(),
         )
+        Sk.fill(x, y, width, height, Tokens.surfaceOverlay, radius)
+        Sk.border(x, y, width, height, Tokens.borderStrong, radius)
     }
 }
 
 /**
  * A tooltip, in this design system rather than vanilla's.
  *
- * The reason this exists is on screen today: `SettingsScreen` hands a truncated room name to
- * `setTooltipForNextFrame`, and vanilla answers with its own box — a purple-gradient border on a
+ * The reason this exists was on screen: `SettingsScreen` handed a truncated room name to
+ * `setTooltipForNextFrame`, and vanilla answered with its own box — a purple-gradient border on a
  * dark-blue fill, the one thing on the entire screen carrying a hue in a UI that has spent four files
  * establishing it has none. A tooltip is not a big enough element to be worth an exception.
  *
@@ -58,22 +60,38 @@ internal object Tooltip {
     /** How close to the screen edge it may come. */
     const val MARGIN = Tokens.SPACE_4
 
-    fun width(font: Font, lines: List<String>): Int {
-        var widest = 0
-        for (line in lines) widest = maxOf(widest, font.width(line))
-        return widest + Popover.PADDING * 2
+    /** The body size. */
+    val SIZE = Tokens.TEXT_11.toFloat()
+
+    fun width(lines: List<String>, measure: (String) -> Float): Int {
+        var widest = 0f
+        for (line in lines) widest = maxOf(widest, measure(line))
+        return Math.ceil(widest.toDouble()).toInt() + PADDING_2
     }
 
-    fun height(lines: List<String>): Int =
-        Popover.PADDING * 2 + lines.size * LINE - (LINE - Labels.CAP)
+    /**
+     * How tall the box is for [lines].
+     *
+     * The trailing term used to subtract the difference between the line pitch and the bitmap font's
+     * cap height, so the box did not carry a line's worth of leading below the last line. The same
+     * correction, now against the real line height: the last line contributes its own height rather
+     * than a full pitch.
+     */
+    fun height(lines: List<String>, lineHeight: Float): Int {
+        if (lines.isEmpty()) return 0
+        val body = (lines.size - 1) * LINE + Math.ceil(lineHeight.toDouble()).toInt()
+        return PADDING_2 + body
+    }
+
+    private const val PADDING_2 = Popover.PADDING * 2
 
     /**
      * Where the box's left edge goes.
      *
-     * Prefers the right of the cursor, flips to the left when it would not fit, and clamps when
-     * neither side fits — which happens on a narrow window at GUI scale 4, where the box can be wider
-     * than the gap on either side. Clamping puts it under the cursor rather than off the screen; a
-     * tooltip half outside the window is worse than one the cursor is sitting on.
+     * Prefers the right of the cursor, flips to the left when it would not fit, and clamps when neither
+     * side fits — which happens on a narrow window at GUI scale 4, where the box can be wider than the
+     * gap on either side. Clamping puts it under the cursor rather than off the screen; a tooltip half
+     * outside the window is worse than one the cursor is sitting on.
      */
     fun placeX(anchorX: Int, width: Int, screenWidth: Int): Int {
         val right = anchorX + OFFSET
@@ -96,25 +114,23 @@ internal object Tooltip {
      * The whole thing, placed against the cursor.
      *
      * The first line is the subject and the rest are detail, which is the only hierarchy a tooltip
-     * needs; a tooltip with two equal lines is two tooltips.
+     * needs; a tooltip with two equal lines is two tooltips. The subject now also carries the weight,
+     * which is what lets the detail lines sit at a readable tone instead of having to be dim enough to
+     * lose the comparison.
      */
-    fun draw(
-        graphics: GuiGraphicsExtractor, font: Font,
-        anchorX: Int, anchorY: Int,
-        screenWidth: Int, screenHeight: Int,
-        lines: List<String>,
-    ) {
+    fun draw(anchorX: Int, anchorY: Int, screenWidth: Int, screenHeight: Int, lines: List<String>) {
         if (lines.isEmpty()) return
-        val boxWidth = width(font, lines)
-        val boxHeight = height(lines)
-        val x = placeX(anchorX, boxWidth, screenWidth)
-        val y = placeY(anchorY, boxHeight, screenHeight)
+        val boxWidth = width(lines) { Sk.width(it, SIZE) }
+        val boxHeight = height(lines, Sk.lineHeight(SIZE))
+        val x = placeX(anchorX, boxWidth, screenWidth).toFloat()
+        val y = placeY(anchorY, boxHeight, screenHeight).toFloat()
 
-        Popover.frame(graphics, x, y, boxWidth, boxHeight)
+        Popover.frame(x, y, boxWidth.toFloat(), boxHeight.toFloat())
         for (i in lines.indices) {
-            graphics.text(
-                font, lines[i], x + Popover.PADDING, y + Popover.PADDING + i * LINE,
-                if (i == 0) Tokens.textPrimary else Tokens.textTertiary, false,
+            val family = if (i == 0) Type.MEDIUM else Type.REGULAR
+            Sk.text(
+                lines[i], x + Popover.PADDING, y + Popover.PADDING + i * LINE, SIZE,
+                if (i == 0) Tokens.textPrimary else Tokens.textSecondary, family,
             )
         }
     }

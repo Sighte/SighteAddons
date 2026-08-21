@@ -1,8 +1,7 @@
 package sighteaddons.ui.components
 
-import net.minecraft.client.gui.Font
-import net.minecraft.client.gui.GuiGraphicsExtractor
-import sighteaddons.ui.render.Surface
+import sighteaddons.ui.sk.Sk
+import sighteaddons.ui.sk.Type
 import sighteaddons.ui.theme.Tokens
 
 /**
@@ -31,31 +30,35 @@ internal object Badge {
     /** Padding either side of the label, inside the pill. */
     const val PADDING = Tokens.SPACE_6
 
+    /** The label's size. Small, and the smallest thing on the screen that is still all capitals. */
+    val SIZE = Tokens.TEXT_10.toFloat()
+
     /**
      * The width [draw] will occupy for [text].
      *
-     * Measured through [Labels], because a badge's label is tracked like every other 11px label in
-     * this UI — measuring it with `font.width` alone leaves the last letter sitting on the pill's
-     * right edge.
+     * It used to measure through `Labels`, because a badge's label was tracked like every other small
+     * label here and `font.width` alone left the last letter on the pill's right edge. There is no
+     * tracking any more — the bundled face is monospaced and does not need it — so this is a plain
+     * measurement again, and the failure it used to guard against cannot recur.
      */
-    fun width(font: Font, text: String): Int = Labels.width(font, text) + PADDING * 2
+    fun width(text: String, measure: (String) -> Float): Float = measure(text) + PADDING * 2
 
-    /**
-     * One badge. [text] is drawn as given — callers uppercase, for the reason [Labels.draw] states.
-     */
-    fun draw(
-        graphics: GuiGraphicsExtractor, font: Font,
-        x: Int, y: Int, text: String,
-        style: Style = Style.SOLID,
-        enabled: Boolean = true,
-    ) {
-        val boxWidth = width(font, text)
+    /** One badge. [text] is drawn as given — callers uppercase, so a mixed-case badge stays possible. */
+    fun draw(x: Float, y: Float, text: String, style: Style = Style.SOLID, enabled: Boolean = true) {
+        val boxWidth = width(text) { Sk.width(it, SIZE, Type.MEDIUM) }
+        val radius = HEIGHT / 2f
         when {
-            !enabled -> Surface.roundedBorder(graphics, x, y, boxWidth, HEIGHT, Tokens.RADIUS_FULL, Tokens.borderSubtle)
-            style == Style.SOLID -> Surface.roundedFill(graphics, x, y, boxWidth, HEIGHT, Tokens.RADIUS_FULL, Tokens.accent)
-            else -> Surface.roundedBorder(graphics, x, y, boxWidth, HEIGHT, Tokens.RADIUS_FULL, Tokens.borderStrong)
+            !enabled -> Sk.border(x, y, boxWidth, HEIGHT.toFloat(), Tokens.borderSubtle, radius)
+            style == Style.SOLID -> Sk.fill(x, y, boxWidth, HEIGHT.toFloat(), Tokens.accent, radius)
+            else -> Sk.border(x, y, boxWidth, HEIGHT.toFloat(), Tokens.borderStrong, radius)
         }
-        Labels.draw(graphics, font, text, x + PADDING, y + (HEIGHT - Labels.CAP) / 2, labelColour(style, enabled))
+        // Medium, always. A badge is three or four capitals at ten pixels sitting on a fill that may be
+        // solid accent — the one place on this screen where the weight is not a nicety but what keeps
+        // the letters from dissolving into their own background.
+        Sk.text(
+            text, x + PADDING, Sk.centreY(y, HEIGHT.toFloat(), SIZE, Type.MEDIUM), SIZE,
+            labelColour(style, enabled), Type.MEDIUM,
+        )
     }
 
     /** The label colour for a style, public so a contrast test can measure it against [fill]. */

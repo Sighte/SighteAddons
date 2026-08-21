@@ -1,13 +1,12 @@
 package sighteaddons.ui.components
 
-import net.minecraft.client.gui.Font
-import net.minecraft.client.gui.GuiGraphicsExtractor
 import sighteaddons.ui.motion.Animatable
 import sighteaddons.ui.motion.Easing
 import sighteaddons.ui.motion.Motion
 import sighteaddons.ui.motion.Spring
-import sighteaddons.ui.render.DevicePixels
-import sighteaddons.ui.render.Surface
+import sighteaddons.ui.sk.Chrome
+import sighteaddons.ui.sk.Sk
+import sighteaddons.ui.sk.Type
 import sighteaddons.ui.theme.Tokens
 
 /**
@@ -35,9 +34,14 @@ internal class Anim {
 /**
  * The controls the settings screen is built from.
  *
- * All of them are `(graphics, geometry, value)` in and pixels out, with any animation passed in as an
+ * All of them are geometry-and-value in, pixels out, with any animation passed in as an
  * already-resolved `0f..1f`. That keeps every one of them checkable at a single frozen frame, which is
  * the only way to review an animation without being able to drive the game.
+ *
+ * Coordinates are floats now. Not cosmetic: a switch whose knob travels across 22 pixels in integer
+ * steps has 22 positions, and the spring driving it has hundreds — so the old version quantised its
+ * own animation and the overshoot at the end of the travel was often invisible. Anti-aliased
+ * sub-pixel placement is what makes the motion that was always being computed actually visible.
  */
 internal object Controls {
 
@@ -61,29 +65,39 @@ internal object Controls {
      * pressed-surface wash with a hairline. Readable with no colour and no motion: the knob's
      * *position* is the state, and the fill only confirms it.
      */
-    fun toggle(graphics: GuiGraphicsExtractor, x: Int, y: Int, height: Int, travel: Float, enabled: Boolean) {
-        val width = toggleWidth(height)
-        val knob = Math.round(height * 0.8f).coerceAtLeast(4)
+    fun toggle(x: Float, y: Float, height: Float, travel: Float, enabled: Boolean) {
+        val width = height * TOGGLE_WIDTH / TOGGLE_HEIGHT
+        val knob = (height * 0.8f).coerceAtLeast(4f)
         val clamped = travel.coerceIn(0f, 1f)
+        val radius = height / 2f
 
         val base = if (enabled) Tokens.textPrimary else Tokens.textDisabled
-        Surface.roundedFill(graphics, x, y, width, height, Tokens.RADIUS_FULL, Tokens.surfaceActive)
+        Sk.fill(x, y, width, height, Tokens.surfaceActive, radius)
         if (clamped > 0f) {
             // Fades in rather than sliding in: the knob is the thing that travels, and a second moving
             // element on a 36px control reads as a glitch.
-            Surface.roundedFill(
-                graphics, x, y, width, height, Tokens.RADIUS_FULL,
-                Tokens.fade(Tokens.accent, clamped * (if (enabled) 1f else 0.4f)),
-            )
+            Sk.fill(x, y, width, height, Tokens.fade(Tokens.accent, clamped * (if (enabled) 1f else 0.4f)), radius)
         }
-        Surface.roundedBorder(graphics, x, y, width, height, Tokens.RADIUS_FULL, Tokens.borderDefault)
+        Sk.border(x, y, width, height, Tokens.borderDefault, radius)
 
-        val inset = (height - knob) / 2
-        val range = width - knob - inset * 2
-        val knobX = x + inset + Math.round(travel.coerceIn(-0.08f, 1.08f) * range).coerceIn(0, range)
+        val inset = (height - knob) / 2f
+        val range = width - knob - inset * 2f
+        val knobX = x + inset + (travel.coerceIn(-0.08f, 1.08f) * range).coerceIn(0f, range)
         val knobColour = if (clamped > 0.5f) Tokens.accentText else base
-        Surface.roundedFill(graphics, knobX, y + inset, knob, knob, Tokens.RADIUS_FULL, knobColour)
+        Sk.fill(knobX, y + inset, knob, knob, knobColour, knob / 2f)
     }
+
+    /**
+     * A chip's width, derived rather than returned from [chip].
+     *
+     * Callers need this *before* drawing — to lay the next chip out, and to hit-test the cursor against
+     * the same rectangle the chip occupies. A width that only exists after the draw forces either a
+     * guess or a frame of lag, and both show up as a chip highlighting when the cursor is beside it.
+     *
+     * Takes a measurement rather than a font, so the layout that depends on it is not tied to a client.
+     */
+    fun chipWidth(label: String, count: Int, measure: (String) -> Float): Float =
+        measure(if (count >= 0) "$label $count" else label) + Tokens.SPACE_16
 
     /**
      * A filter chip: hairline outline when idle, solid accent with inverted text when active.
@@ -91,51 +105,33 @@ internal object Controls {
      * [count] rides along in tertiary because a chip should advertise the number of rows a click on it
      * produces — that is what makes it possible to choose without trying.
      */
-    /**
-     * A chip's width, derived rather than returned from [chip].
-     *
-     * Callers need this *before* drawing — to lay the next chip out, and to hit-test the cursor
-     * against the same rectangle the chip occupies. A width that only exists after the draw forces
-     * either a guess or a frame of lag, and both show up as a chip highlighting when the cursor is
-     * beside it.
-     */
-    fun chipWidth(font: Font, label: String, count: Int): Int =
-        font.width(if (count >= 0) "$label $count" else label) + Tokens.SPACE_16
-
     fun chip(
-        graphics: GuiGraphicsExtractor, font: Font,
-        x: Int, y: Int, height: Int,
+        x: Float, y: Float, height: Float,
         label: String, count: Int,
         active: Float, hover: Float,
     ) {
-        val width = chipWidth(font, label, count)
+        val size = Tokens.TEXT_11.toFloat()
+        val width = chipWidth(label, count) { Sk.width(it, size) }
+        val radius = height / 2f
 
         if (hover > 0f && active < 1f) {
-            Surface.roundedFill(
-                graphics, x, y, width, height, Tokens.RADIUS_FULL,
-                Tokens.fade(Tokens.surfaceHover, hover),
-            )
+            Sk.fill(x, y, width, height, Tokens.fade(Tokens.surfaceHover, hover), radius)
         }
         if (active > 0f) {
-            Surface.roundedFill(
-                graphics, x, y, width, height, Tokens.RADIUS_FULL,
-                Tokens.fade(Tokens.accent, active),
-            )
+            Sk.fill(x, y, width, height, Tokens.fade(Tokens.accent, active), radius)
         }
-        Surface.roundedBorder(
-            graphics, x, y, width, height, Tokens.RADIUS_FULL,
-            if (active > 0.5f) 0 else Tokens.borderDefault,
-        )
+        if (active <= 0.5f) Sk.border(x, y, width, height, Tokens.borderDefault, radius)
 
+        val family = if (active > 0.5f) Type.MEDIUM else Type.REGULAR
         val labelColour = blend(Tokens.textSecondary, Tokens.accentText, active)
-        val countColour = blend(Tokens.textTertiary, Tokens.accentText, active)
-        val textY = y + (height - 8) / 2
-        graphics.text(font, label, x + Tokens.SPACE_8, textY, labelColour, false)
+        val textY = Sk.centreY(y, height, size, family)
+        Sk.text(label, x + Tokens.SPACE_8, textY, size, labelColour, family)
         if (count >= 0) {
-            graphics.text(
-                font, count.toString(),
-                x + Tokens.SPACE_8 + font.width("$label "), textY,
-                if (active > 0.5f) countColour else Tokens.textTertiary, false,
+            val countColour =
+                if (active > 0.5f) blend(Tokens.textTertiary, Tokens.accentText, active) else Tokens.textTertiary
+            Sk.text(
+                count.toString(),
+                x + Tokens.SPACE_8 + Sk.width("$label ", size, family), textY, size, countColour, family,
             )
         }
     }
@@ -146,18 +142,17 @@ internal object Controls {
      * Drawn only when there is something to scroll. A permanently visible bar that never moves is a
      * control that lies about being one.
      */
-    fun scrollbar(
-        graphics: GuiGraphicsExtractor,
-        x: Int, top: Int, bottom: Int,
-        total: Int, visible: Int, offset: Int,
-    ) {
+    fun scrollbar(x: Float, top: Float, bottom: Float, total: Int, visible: Int, offset: Int) {
         if (total <= visible) return
         val track = bottom - top
-        DevicePixels.hairlineV(graphics, x, top, track, Tokens.borderSubtle)
-        val thumb = (track * visible / total).coerceAtLeast(Tokens.SPACE_16)
-        val travel = ((track - thumb).toLong() * offset / (total - visible)).toInt()
-        Surface.roundedFill(graphics, x, top + travel, 3, thumb, Tokens.RADIUS_XS, Tokens.borderStrong)
+        if (track <= 0f) return
+        Sk.fill(x, top, Chrome.HAIRLINE, track, Tokens.borderSubtle)
+        val thumb = (track * visible / total).coerceAtLeast(Tokens.SPACE_16.toFloat())
+        val travel = (track - thumb) * offset / (total - visible)
+        Sk.fill(x, top + travel, THUMB, thumb, Tokens.borderStrong, THUMB / 2f)
     }
+
+    private const val THUMB = 3f
 
     /**
      * The 2px indicator that scales in from a row's vertical centre on hover.
@@ -165,34 +160,28 @@ internal object Controls {
      * Growing from the middle rather than sliding in from the top is what makes a list of them read as
      * one element responding rather than as several arriving.
      */
-    fun indicator(graphics: GuiGraphicsExtractor, x: Int, y: Int, height: Int, progress: Float, argb: Int) {
+    fun indicator(x: Float, y: Float, height: Float, progress: Float, argb: Int) {
         if (progress <= 0f) return
-        val grown = Math.round(height * progress.coerceIn(0f, 1f))
-        if (grown <= 0) return
-        val top = y + (height - grown) / 2
-        Surface.roundedFill(graphics, x, top, 2, grown, Tokens.RADIUS_XS, argb)
+        val grown = height * progress.coerceIn(0f, 1f)
+        if (grown <= 0f) return
+        Sk.fill(x, y + (height - grown) / 2f, INDICATOR, grown, argb, INDICATOR / 2f)
     }
+
+    private const val INDICATOR = 2f
 
     /**
      * A row's hover wash plus its indicator.
      *
-     * Returns nothing and draws nothing when [hover] is zero, so an unhovered row in a hundred-row list
-     * costs one comparison.
+     * Draws nothing when [hover] is zero and the row is not selected, so an unhovered row in a
+     * hundred-row list costs one comparison.
      */
-    fun rowHighlight(
-        graphics: GuiGraphicsExtractor,
-        x: Int, y: Int, width: Int, height: Int,
-        hover: Float, selected: Boolean,
-    ) {
+    fun rowHighlight(x: Float, y: Float, width: Float, height: Float, hover: Float, selected: Boolean) {
         if (selected) {
-            Surface.roundedFill(graphics, x, y, width, height, Tokens.RADIUS_ROW, Tokens.surfaceActive)
+            Sk.fill(x, y, width, height, Tokens.surfaceActive, Tokens.RADIUS_ROW.toFloat())
         } else if (hover > 0f) {
-            Surface.roundedFill(
-                graphics, x, y, width, height, Tokens.RADIUS_ROW,
-                Tokens.fade(Tokens.surfaceHover, hover),
-            )
+            Sk.fill(x, y, width, height, Tokens.fade(Tokens.surfaceHover, hover), Tokens.RADIUS_ROW.toFloat())
         }
-        indicator(graphics, x, y, height, if (selected) 1f else hover, Tokens.accent)
+        indicator(x, y, height, if (selected) 1f else hover, Tokens.accent)
     }
 
     /**
@@ -200,32 +189,33 @@ internal object Controls {
      *
      * Shared by every control that can be switched off, because "unavailable" has to be one mark
      * everywhere or it is not a mark at all. It is a *pattern* rather than a fainter grey for the
-     * reason the palette states: `textSecondary` and `textTertiary` sit 1.27:1 apart, so a control
-     * that says it is disabled by being slightly dimmer is not saying it to everyone.
+     * reason the palette states: `textSecondary` and `textTertiary` sit 1.27:1 apart, so a control that
+     * says it is disabled by being slightly dimmer is not saying it to everyone.
      *
-     * Square corners on purpose. The sheet's corner sprites are solid arcs and cannot be dashed, so a
-     * rounded version would have four solid corners and read as a broken border rather than a
-     * deliberate one.
+     * Still square-cornered, but the reason changed. It used to be that the sprite sheet's corners were
+     * solid arcs that could not be dashed; now it is simply that Skija exposes no dash effect here, so
+     * the dashes are still walked by hand — and a hand-walked dash around a curve is arc-length
+     * arithmetic for a border nobody will measure.
      */
-    fun dashedBorder(graphics: GuiGraphicsExtractor, x: Int, y: Int, width: Int, height: Int, argb: Int) {
-        var cursor = 0
+    fun dashedBorder(x: Float, y: Float, width: Float, height: Float, argb: Int) {
+        var cursor = 0f
         while (cursor < width) {
             val run = minOf(DASH, width - cursor)
-            graphics.fill(x + cursor, y, x + cursor + run, y + 1, argb)
-            graphics.fill(x + cursor, y + height - 1, x + cursor + run, y + height, argb)
+            Sk.fill(x + cursor, y, run, Chrome.HAIRLINE, argb)
+            Sk.fill(x + cursor, y + height - Chrome.HAIRLINE, run, Chrome.HAIRLINE, argb)
             cursor += DASH + DASH_GAP
         }
-        cursor = 0
+        cursor = 0f
         while (cursor < height) {
             val run = minOf(DASH, height - cursor)
-            graphics.fill(x, y + cursor, x + 1, y + cursor + run, argb)
-            graphics.fill(x + width - 1, y + cursor, x + width, y + cursor + run, argb)
+            Sk.fill(x, y + cursor, Chrome.HAIRLINE, run, argb)
+            Sk.fill(x + width - Chrome.HAIRLINE, y + cursor, Chrome.HAIRLINE, run, argb)
             cursor += DASH + DASH_GAP
         }
     }
 
-    private const val DASH = 3
-    private const val DASH_GAP = 2
+    private const val DASH = 3f
+    private const val DASH_GAP = 2f
 
     /** Linear interpolation between two packed ARGB colours, per channel including alpha. */
     fun blend(from: Int, to: Int, amount: Float): Int {

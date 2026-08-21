@@ -1,9 +1,8 @@
 package sighteaddons.ui.components
 
-import net.minecraft.client.gui.Font
-import net.minecraft.client.gui.GuiGraphicsExtractor
-import sighteaddons.ui.render.DevicePixels
-import sighteaddons.ui.render.Surface
+import sighteaddons.ui.sk.Chrome
+import sighteaddons.ui.sk.Sk
+import sighteaddons.ui.sk.Type
 import sighteaddons.ui.theme.Tokens
 
 /**
@@ -29,8 +28,12 @@ internal object Stepper {
     /** Gap between an arm and the value. */
     const val GAP = Tokens.SPACE_8
 
+    /** The value's text size. */
+    val SIZE = Tokens.TEXT_11.toFloat()
+
     /** The full width for [text], derived so hit testing and layout use the number this is drawn at. */
-    fun width(font: Font, text: String): Int = ARM * 2 + GAP * 2 + font.width(text)
+    fun width(text: String, measure: (String) -> Float): Int =
+        ARM * 2 + GAP * 2 + Math.ceil(measure(text).toDouble()).toInt()
 
     /** The decrement arm's left edge. */
     fun minusX(x: Int): Int = x
@@ -41,9 +44,9 @@ internal object Stepper {
     /**
      * Which arm a click at [mouseX] hit: `-1` for decrement, `+1` for increment, `0` for neither.
      *
-     * Pure, and the caller's only way to find out — the value between the arms is not a target,
-     * because a click that lands on the number would otherwise step it in whichever direction the
-     * layout happened to put nearest.
+     * Pure, and the caller's only way to find out — the value between the arms is not a target, because
+     * a click that lands on the number would otherwise step it in whichever direction the layout
+     * happened to put nearest.
      */
     fun armAt(x: Int, width: Int, mouseX: Int): Int = when {
         mouseX >= x && mouseX < x + ARM -> -1
@@ -54,79 +57,80 @@ internal object Stepper {
     /**
      * One stepper. [fraction] is where the value sits in its range, `0f..1f`.
      *
-     * The two hovers are separate because the two arms are separate targets, and one shared hover
-     * would light the arm that is not about to be pressed.
+     * The two hovers are separate because the two arms are separate targets, and one shared hover would
+     * light the arm that is not about to be pressed.
      */
     fun draw(
-        graphics: GuiGraphicsExtractor, font: Font,
-        x: Int, y: Int, width: Int, height: Int,
+        x: Float, y: Float, width: Float, height: Float,
         text: String, fraction: Float,
         minusHover: Float = 0f, plusHover: Float = 0f,
         enabled: Boolean = true,
     ) {
-        if (width <= ARM * 2 || height <= 0) return
+        if (width <= ARM * 2 || height <= 0f) return
         val tone = if (enabled) Tokens.textPrimary else Tokens.textDisabled
 
-        arm(graphics, x, y, height, minus = true, hover = minusHover, tone = tone, enabled = enabled)
-        arm(graphics, plusX(x, width), y, height, minus = false, hover = plusHover, tone = tone, enabled = enabled)
+        arm(x, y, height, minus = true, hover = minusHover, tone = tone, enabled = enabled)
+        arm(x + width - ARM, y, height, minus = false, hover = plusHover, tone = tone, enabled = enabled)
 
-        val textY = y + (height - Labels.CAP) / 2
         val valueLeft = x + ARM + GAP
         val valueRoom = width - (ARM + GAP) * 2
-        val shown = font.plainSubstrByWidth(text, valueRoom)
-        graphics.text(font, shown, valueLeft + (valueRoom - font.width(shown)) / 2, textY, tone, false)
+        // Medium on the value. It is the only number in the control and the whole reason the control
+        // exists, and the arms beside it are geometry rather than type — so nothing competes with it.
+        val shown = Sk.fit(text, valueRoom, SIZE, Type.MEDIUM)
+        Sk.textCenter(
+            shown, valueLeft + valueRoom / 2f,
+            Sk.centreY(y, height - MARK_LANE, SIZE, Type.MEDIUM), SIZE, tone, Type.MEDIUM,
+        )
 
-        // The range track. Two device pixels of mark on a hairline, positioned rather than shaded —
-        // this is the only part of the control that says how far there is left to go.
-        val trackY = y + height - 1
-        DevicePixels.hairlineH(graphics, valueLeft, trackY, valueRoom, Tokens.borderSubtle)
-        val markX = valueLeft + Math.round(fraction.coerceIn(0f, 1f) * (valueRoom - MARK))
-        graphics.fill(
-            markX, trackY - 1, markX + MARK, trackY + 1,
-            if (enabled) Tokens.accent else Tokens.textDisabled,
+        // The range track. A mark positioned rather than shaded — this is the only part of the control
+        // that says how far there is left to go.
+        val trackY = y + height - Chrome.HAIRLINE
+        Sk.fill(valueLeft, trackY, valueRoom, Chrome.HAIRLINE, Tokens.borderSubtle)
+        val markX = valueLeft + fraction.coerceIn(0f, 1f) * (valueRoom - MARK)
+        Sk.fill(
+            markX, trackY - 1f, MARK, MARK_LANE,
+            if (enabled) Tokens.accent else Tokens.textDisabled, MARK / 2f,
         )
     }
 
     /**
      * One arm: a bordered square with a bar in it, and a second bar crossing for the increment.
      *
-     * Rectangles rather than the font's `-` and `+`. The bitmap font's hyphen is two pixels tall and
-     * sits at x-height, so a `[-]` and a `[+]` drawn as text are different weights at different
-     * heights — the same argument `Glyphs` makes for every other mark in this UI.
+     * Rectangles rather than the font's `-` and `+`, and the reason outlived the bitmap font that
+     * prompted it. JetBrains Mono's hyphen and plus are properly aligned, but they are also *glyphs* —
+     * they scale with the type and carry its weight, while these two arms want to be the same mark at
+     * every size the control is drawn at.
      */
-    private fun arm(
-        graphics: GuiGraphicsExtractor,
-        x: Int, y: Int, height: Int,
-        minus: Boolean, hover: Float, tone: Int, enabled: Boolean,
-    ) {
+    private fun arm(x: Float, y: Float, height: Float, minus: Boolean, hover: Float, tone: Int, enabled: Boolean) {
+        val radius = Tokens.RADIUS_XS.toFloat()
         if (enabled && hover > 0f) {
-            Surface.roundedFill(
-                graphics, x, y, ARM, height, Tokens.RADIUS_XS,
-                Tokens.fade(Tokens.surfaceHover, hover),
-            )
+            Sk.fill(x, y, ARM.toFloat(), height, Tokens.fade(Tokens.surfaceHover, hover), radius)
         }
         if (enabled) {
-            Surface.roundedBorder(
-                graphics, x, y, ARM, height, Tokens.RADIUS_XS,
-                Controls.blend(Tokens.borderDefault, Tokens.borderStrong, hover.coerceIn(0f, 1f)),
+            Sk.border(
+                x, y, ARM.toFloat(), height,
+                Controls.blend(Tokens.borderDefault, Tokens.borderStrong, hover.coerceIn(0f, 1f)), radius,
             )
         } else {
-            // Dashed, like every other disabled control here — an arm that cannot be clicked has to
-            // say so with something other than a slightly quieter grey.
-            Controls.dashedBorder(graphics, x, y, ARM, height, Tokens.borderSubtle)
+            // Dashed, like every other disabled control here — an arm that cannot be clicked has to say
+            // so with something other than a slightly quieter grey.
+            Controls.dashedBorder(x, y, ARM.toFloat(), height, Tokens.borderSubtle)
         }
 
-        val cx = x + ARM / 2
-        val cy = y + height / 2
-        graphics.fill(cx - BAR, cy, cx + BAR, cy + 1, tone)
-        if (!minus) graphics.fill(cx, cy - BAR, cx + 1, cy + BAR + 1, tone)
+        val cx = x + ARM / 2f
+        val cy = y + height / 2f
+        Sk.fill(cx - BAR, cy - Chrome.HAIRLINE / 2f, BAR * 2f, Chrome.HAIRLINE, tone)
+        if (!minus) Sk.fill(cx - Chrome.HAIRLINE / 2f, cy - BAR, Chrome.HAIRLINE, BAR * 2f, tone)
     }
 
     /** Half the length of an arm's bar. */
-    private const val BAR = 3
+    private const val BAR = 3f
 
     /** Width of the range mark. */
-    private const val MARK = 3
+    private const val MARK = 3f
+
+    /** The strip at the bottom the track and its mark own, kept clear of the value's descenders. */
+    private const val MARK_LANE = 3f
 }
 
 /**
@@ -135,13 +139,11 @@ internal object Stepper {
  *
  * The two are not interchangeable and the split is the point. A [Stepper] is for a correction of a few
  * units to a number somebody has a reason to believe is wrong; a slider is for sweeping a value until
- * it looks right, which is exactly what the HUD's scrim opacity is — `HudRoot` already says out loud
- * that *"how much of the dungeon a player wants to see through it is genuinely personal"* while
- * hard-coding 160, because there was no control to put it behind. Ten clicks of a stepper to cross a
+ * it looks right, which is exactly what the HUD's scrim opacity is. Ten clicks of a stepper to cross a
  * percentage is not a control anybody uses twice.
  *
- * The slider does **not** print its own value. On a settings row the number already exists in the
- * row's value column, and a slider that prints it again prints it twice.
+ * The slider does **not** print its own value. On a settings row the number already exists in the row's
+ * value column, and a slider that prints it again prints it twice.
  */
 internal object Slider {
 
@@ -183,51 +185,52 @@ internal object Slider {
     }
 
     /**
-     * One slider. [travel] is the knob's animated position and may overshoot slightly — it comes from
-     * a [sighteaddons.ui.motion.Spring], so the knob is clamped to the track rather than the value,
-     * the same way `Controls.toggle` clamps its own.
+     * One slider. [travel] is the knob's animated position and may overshoot slightly — it comes from a
+     * [sighteaddons.ui.motion.Spring], so the knob is clamped to the track rather than the value, the
+     * same way [Controls.toggle] clamps its own.
      */
     fun draw(
-        graphics: GuiGraphicsExtractor,
-        x: Int, y: Int, width: Int, height: Int,
+        x: Float, y: Float, width: Float, height: Float,
         travel: Float,
         hover: Float = 0f, active: Boolean = false, enabled: Boolean = true,
     ) {
-        if (width <= KNOB || height <= 0) return
+        if (width <= KNOB || height <= 0f) return
         val clamped = travel.coerceIn(0f, 1f)
-        val trackY = y + (height - TRACK) / 2
-        val filled = Math.round(clamped * (width - KNOB)) + KNOB / 2
+        val trackY = y + (height - TRACK) / 2f
+        val knobSpan = width - KNOB
+        val filled = clamped * knobSpan + KNOB / 2f
 
-        Surface.roundedFill(graphics, x, trackY, width, TRACK, Tokens.RADIUS_FULL, Tokens.surfaceActive)
-        Surface.roundedFill(
-            graphics, x, trackY, filled, TRACK, Tokens.RADIUS_FULL,
-            if (enabled) Tokens.accent else Tokens.textDisabled,
+        Sk.fill(x, trackY, width, TRACK.toFloat(), Tokens.surfaceActive, TRACK / 2f)
+        Sk.fill(
+            x, trackY, filled, TRACK.toFloat(),
+            if (enabled) Tokens.accent else Tokens.textDisabled, TRACK / 2f,
         )
 
-        val knobLeft = knobX(x, width, travel)
-        val knobY = y + (height - KNOB) / 2
+        // Sub-pixel, unlike the integer `knobX` the hit test uses. The knob is grabbed by its middle
+        // and released to a value, so where it *rests* has to agree with the maths; where it is during
+        // the spring's flight only has to be smooth, and rounding that to whole pixels is what made the
+        // overshoot invisible before.
+        val knobLeft = x + travel.coerceIn(-0.08f, 1.08f) * knobSpan
+        val knobY = y + (height - KNOB) / 2f
+        val centreX = knobLeft + KNOB / 2f
+        val centreY = knobY + KNOB / 2f
+
         if (enabled && hover > 0f) {
             // The halo is the hover, and it is a size change rather than a shade: the knob is already
             // the accent and has nowhere brighter to go.
-            Surface.roundedFill(
-                graphics, knobLeft - 2, knobY - 2, KNOB + 4, KNOB + 4, Tokens.RADIUS_FULL,
-                Tokens.fade(Tokens.surfaceHover, hover),
-            )
+            Sk.circle(centreX, centreY, KNOB / 2f + 2f, Tokens.fade(Tokens.surfaceHover, hover))
         }
-        Surface.roundedFill(
-            graphics, knobLeft, knobY, KNOB, KNOB, Tokens.RADIUS_FULL,
-            if (enabled) Tokens.accent else Tokens.textDisabled,
-        )
+        Sk.circle(centreX, centreY, KNOB / 2f, if (enabled) Tokens.accent else Tokens.textDisabled)
         // Held is a ring inside the knob — the knob cannot get brighter and must not get bigger, or a
         // drag would appear to move the thing being dragged.
         if (active) {
-            Surface.roundedBorder(
-                graphics, knobLeft + 2, knobY + 2, KNOB - 4, KNOB - 4, Tokens.RADIUS_FULL,
-                Tokens.accentText,
+            Sk.border(
+                knobLeft + 2f, knobY + 2f, KNOB - 4f, KNOB - 4f,
+                Tokens.accentText, (KNOB - 4f) / 2f,
             )
         }
         if (!enabled) {
-            Surface.roundedBorder(graphics, knobLeft, knobY, KNOB, KNOB, Tokens.RADIUS_FULL, Tokens.borderSubtle)
+            Sk.border(knobLeft, knobY, KNOB.toFloat(), KNOB.toFloat(), Tokens.borderSubtle, KNOB / 2f)
         }
     }
 }
