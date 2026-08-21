@@ -37,6 +37,28 @@ internal object Tokens {
     val textDisabled get() = palette.textDisabled
     val accent get() = palette.accent
     val accentText get() = palette.accentText
+    val accentSoft get() = palette.accentSoft
+    val invert get() = palette.invert
+    val invertText get() = palette.invertText
+    val positive get() = palette.positive
+
+    /**
+     * The faint accent wash behind a selected row.
+     *
+     * Derived rather than a ramp entry, so there is one accent and not two that can drift apart. The
+     * alpha is low enough that the wash is a tint on whatever surface it lands on rather than a colour
+     * of its own — the same property the translucent hover and pressed tokens have.
+     */
+    const val ACCENT_WASH_ALPHA = 38
+
+    /**
+     * The accent's alpha where it outlines a wash rather than fills it.
+     *
+     * Higher than [ACCENT_WASH_ALPHA], because a border is one pixel and a fill is a whole box: at the
+     * wash's own alpha the outline is invisible, and a tinted box with no edge reads as a rendering
+     * artefact rather than as a deliberate pill.
+     */
+    const val BORDER_WASH_ALPHA = 90
     val shadow get() = palette.shadow
     val scrim get() = palette.scrim
     val highlight get() = palette.highlight

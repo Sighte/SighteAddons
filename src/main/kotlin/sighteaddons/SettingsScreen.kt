@@ -379,6 +379,15 @@ internal class SettingsScreen(
      * on a nine-pixel bitmap. [Type.MEDIUM] is spent only on values, because with an achromatic palette
      * the weight is the whole of what separates a figure from the word that names it.
      */
+    /**
+     * What separates an ACTION row's reading from the verb at the end of it.
+     *
+     * A constant because two places depend on it agreeing: the builders that compose these values, and
+     * the draw that tints only the last field. Split on the *last* one, so a value with several fields
+     * still gives up only its verb.
+     */
+    private val VERB_SEPARATOR = " · "
+
     private val rowText get() = Tokens.TEXT_12.toFloat()
     private val noteText get() = Tokens.TEXT_11.toFloat()
     private val labelText get() = Tokens.TEXT_10.toFloat()
@@ -517,9 +526,26 @@ internal class SettingsScreen(
         // Only the search readout earns the brighter tone and the weight, and only the rooms view has a
         // search. Everything else up here is a fact about the build, not a state you are in.
         val searching = tab == Tab.RECORDS && view == View.ROOMS && query.isNotEmpty()
-        val tone = if (searching) Tokens.textPrimary else Tokens.textTertiary
+        val tone = if (searching) Tokens.accentSoft else Tokens.textTertiary
         val family = if (searching) Type.MEDIUM else Type.REGULAR
-        Sk.textRight(right, lastX.toFloat(), headerY.toFloat(), labelText, tone, family)
+        if (searching) {
+            // A narrowing is a state you are *in*, and this screen's rule is that escape leaves it one
+            // step at a time. A tone alone said so too quietly to be the thing a hand reaches for; a
+            // pill in the accent is the same claim the rail's selected entry makes, which is what a
+            // narrowing actually is.
+            val pillWidth = w(right, labelText, family) + Tokens.SPACE_12
+            val pillHeight = Sk.lineHeight(labelText, family) + Tokens.SPACE_6
+            val pillY = (headerY - Tokens.SPACE_2).toFloat()
+            Sk.fill(
+                lastX - pillWidth, pillY, pillWidth, pillHeight,
+                Tokens.alpha(Tokens.accent, Tokens.ACCENT_WASH_ALPHA), pillHeight / 2f,
+            )
+            Sk.border(
+                lastX - pillWidth, pillY, pillWidth, pillHeight,
+                Tokens.alpha(Tokens.accent, Tokens.BORDER_WASH_ALPHA), pillHeight / 2f,
+            )
+        }
+        Sk.textRight(right, (lastX - if (searching) Tokens.SPACE_6 else 0).toFloat(), headerY.toFloat(), labelText, tone, family)
         Table.divider(frameLeft.toFloat(), (headerY + Tokens.SPACE_16).toFloat(), frameWidth.toFloat())
     }
 
@@ -545,11 +571,41 @@ internal class SettingsScreen(
         val total = SettingsPage.total(items)
         scroll = Scroll.clamp(scroll, total, pageHeight)
 
+        val cardLeft = rowLeft.toFloat()
+        val cardWidth = (lastX - rowLeft).toFloat()
+
         Sk.clip(0f, bodyTop.toFloat(), width.toFloat(), (listBottom - bodyTop).toFloat())
+
+        // **The cards first, all of them, before any row.** They are containers, so every one of them
+        // has to be behind every row — drawing a card immediately before its own rows would put the
+        // second card over the first card's last row wherever two groups touch. Off-screen groups are
+        // skipped for the same reason the rows are: the debug tab is over twice the height of the space
+        // it has.
+        val groups = SettingsPage.groups(items)
+        for (group in groups) {
+            val top = bodyTop + tops[group.first] - scroll
+            val last = group.last
+            val bottom = bodyTop + tops[last] + items[last].height - scroll
+            if (bottom <= bodyTop || top >= listBottom) continue
+            Chrome.card(cardLeft, top.toFloat(), cardWidth, (bottom - top).toFloat())
+        }
+
+        // Which lines get a rule above them: every row unit but the first of its card. Resolved from
+        // the same [SettingsPage.groups] the cards came from, so a rule cannot land where no card is.
+        val ruled = HashSet<Int>()
+        for (group in groups) {
+            var first = true
+            for (index in group) {
+                if (!SettingsPage.startsRow(items[index].kind)) continue
+                if (first) first = false else ruled.add(index)
+            }
+        }
+
         for (index in items.indices) {
             val item = items[index]
             val y = bodyTop + tops[index] - scroll
             if (y + item.height <= bodyTop || y >= listBottom) continue
+            if (index in ruled) Chrome.rowRule(cardLeft, y.toFloat(), cardWidth)
             // Before the row is drawn, so a value the row has to truncate can still take the tooltip
             // off it — see [tooltipLines].
             hint(item, y)
@@ -689,11 +745,34 @@ internal class SettingsScreen(
 
             // Not a switch but still clickable: the position row. The value is the control, so it reads
             // as primary rather than as metadata.
-            SettingsPage.Kind.ACTION -> Sk.textRight(
-                item.value, lastX.toFloat(),
-                Sk.centreY(y.toFloat(), rowHeight.toFloat(), rowText, Type.MEDIUM), rowText,
-                Controls.blend(Tokens.textSecondary, Tokens.textPrimary, hover), Type.MEDIUM,
-            )
+            //
+            // **The verb is tinted and the reading is not.** These values are built as
+            // `"top right · 141, 40 · move"` — a fact and then the thing a click does. Colouring the
+            // whole string would put the accent on a coordinate, which is not a link and not a state;
+            // colouring nothing would leave the one clickable word on the screen looking like the
+            // metadata beside it. So the trailing verb takes the accent and the rest does not.
+            SettingsPage.Kind.ACTION -> {
+                val baseline = Sk.centreY(y.toFloat(), rowHeight.toFloat(), rowText, Type.MEDIUM)
+                val cut = item.value.lastIndexOf(VERB_SEPARATOR)
+                if (cut < 0) {
+                    Sk.textRight(
+                        item.value, lastX.toFloat(), baseline, rowText,
+                        Controls.blend(Tokens.textSecondary, Tokens.textPrimary, hover), Type.MEDIUM,
+                    )
+                } else {
+                    val verb = item.value.substring(cut + VERB_SEPARATOR.length)
+                    val head = item.value.substring(0, cut + VERB_SEPARATOR.length)
+                    val verbWidth = w(verb, rowText, Type.MEDIUM)
+                    Sk.textRight(
+                        verb, lastX.toFloat(), baseline, rowText,
+                        Controls.blend(Tokens.accentSoft, Tokens.textPrimary, hover), Type.MEDIUM,
+                    )
+                    Sk.textRight(
+                        head, lastX - verbWidth, baseline, rowText,
+                        Controls.blend(Tokens.textSecondary, Tokens.textPrimary, hover), Type.MEDIUM,
+                    )
+                }
+            }
 
             SettingsPage.Kind.STEPPER -> {
                 val stepperWidth = Stepper.width(item.value) { w(it, Stepper.SIZE, Type.MEDIUM) }
@@ -946,8 +1025,12 @@ internal class SettingsScreen(
             if (spark == 0) fit(detail.text, available, noteText) else "",
         )
         if (detail.badge) {
+            // `EARNED`, not `SOLID`: this badge says the last run in this room was the player's own
+            // best, read straight out of `RoomHistory.Attempt.pb`. That is the single fact
+            // `Tokens.positive` exists for.
             Badge.draw(
                 (lastX - badgeWidth), (y + (Table.ROW - Badge.HEIGHT) / 2).toFloat(), PB,
+                style = Badge.Style.EARNED,
             )
         }
         if (spark == 0) return

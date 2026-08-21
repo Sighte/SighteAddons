@@ -105,12 +105,55 @@ class UiThemeTest {
         }
     }
 
-    /** A chip's active state is a solid accent fill with the opposite extreme written on it. */
+    /**
+     * A segmented control's thumb and a switch that is on are solid [Palette.accent] with
+     * [Palette.accentText] written on them.
+     *
+     * **This is what forced `accentText` to stay the dark end when the accent became a hue.** The
+     * obvious pairing for a saturated blue is white, and white on `#5A82FF` is 3.48:1 — under the
+     * floor. The near-black that was already there measures 5.55:1 on the same blue, so the ramp did
+     * not need a new value, only for nobody to "fix" it to white on the way past.
+     */
     @Test
     fun `accent text is legible on the accent fill`() {
         for (palette in listOf(Palette.DARK, Palette.LIGHT)) {
             val ratio = Contrast.ratio(palette.accentText, palette.accent)
             assertTrue(ratio >= Contrast.AA, "${palette.name}: accent pair is %.2f:1".format(ratio))
+        }
+    }
+
+    /**
+     * The two hues that are set as *text* rather than used as a fill.
+     *
+     * [Palette.accent] is a fill colour and is tested as one above. [Palette.accentSoft] is the same
+     * hue at text weight — the tinted verb on an action row, a sparkline, the search pill's readout —
+     * and [Palette.positive] is set as text nowhere yet but is one row's value away from being, so it
+     * is held to the same floor before somebody discovers otherwise.
+     *
+     * Checked on all three surfaces and under both washes, exactly like the neutral tones: an accent
+     * that clears the floor on a card and fails on a pressed overlay row is an accent that fails on
+     * the row a cursor is actually on.
+     */
+    @Test
+    fun `the hues clear the floor wherever they are set as text`() {
+        for (palette in listOf(Palette.DARK, Palette.LIGHT)) {
+            val hues = listOf("accentSoft" to palette.accentSoft, "positive" to palette.positive)
+            for (surface in palette.surfaces) {
+                val grounds = listOf(
+                    "plain" to surface,
+                    "hovered" to Contrast.over(palette.surfaceHover, surface),
+                    "pressed" to Contrast.over(palette.surfaceActive, surface),
+                )
+                for ((groundName, ground) in grounds) {
+                    for ((hueName, hue) in hues) {
+                        val ratio = Contrast.ratio(hue, ground)
+                        assertTrue(
+                            ratio >= Contrast.AA,
+                            "${palette.name}: $hueName on a $groundName surface is %.2f:1".format(ratio),
+                        )
+                    }
+                }
+            }
         }
     }
 

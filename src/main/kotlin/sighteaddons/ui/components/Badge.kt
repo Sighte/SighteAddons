@@ -11,15 +11,26 @@ import sighteaddons.ui.theme.Tokens
  * means "personal best" has to say so — and `Glyphs.chevron` already covers "an improvement", which is
  * a different claim: a chevron says this run beat the last one, a `PB` says it beat every one.
  *
- * The two styles differ by *fill*, not by shade. A solid badge is the strong claim and an outlined one
- * is the weak one, and both survive a reader who cannot separate two greys — which a "brighter grey
- * badge" would not, with `textSecondary` and `textTertiary` 1.27:1 apart.
+ * The styles differ by *fill*, not by shade. A solid badge is the strong claim and an outlined one is
+ * the weak one, and both survive a reader who cannot separate two greys — which a "brighter grey badge"
+ * would not, with `textSecondary` and `textTertiary` 1.27:1 apart. [Style.EARNED] adds a hue on top of
+ * that distinction rather than instead of it: it is still a solid fill with a label on it, so it still
+ * says what it means in greyscale.
  */
 internal object Badge {
 
     enum class Style {
-        /** Solid accent. The strong claim: earned, current, best. */
+        /** Solid, achromatic. The strong claim about a fact that is not a record: current, present. */
         SOLID,
+
+        /**
+         * Solid, in [Tokens.positive]. The one thing that colour is allowed to mean: the player's own
+         * best.
+         *
+         * Its own style rather than a colour argument, so the rule is enforced by the type: a caller
+         * cannot pass "green" to a badge that means something else, because there is nothing to pass.
+         */
+        EARNED,
 
         /** Hairline outline. The weak one: new, pending, informational. */
         OUTLINE,
@@ -49,7 +60,8 @@ internal object Badge {
         val radius = HEIGHT / 2f
         when {
             !enabled -> Sk.border(x, y, boxWidth, HEIGHT.toFloat(), Tokens.borderSubtle, radius)
-            style == Style.SOLID -> Sk.fill(x, y, boxWidth, HEIGHT.toFloat(), Tokens.accent, radius)
+            style == Style.SOLID -> Sk.fill(x, y, boxWidth, HEIGHT.toFloat(), Tokens.invert, radius)
+            style == Style.EARNED -> Sk.fill(x, y, boxWidth, HEIGHT.toFloat(), Tokens.positive, radius)
             else -> Sk.border(x, y, boxWidth, HEIGHT.toFloat(), Tokens.borderStrong, radius)
         }
         // Medium, always. A badge is three or four capitals at ten pixels sitting on a fill that may be
@@ -64,11 +76,15 @@ internal object Badge {
     /** The label colour for a style, public so a contrast test can measure it against [fill]. */
     fun labelColour(style: Style, enabled: Boolean): Int = when {
         !enabled -> Tokens.textDisabled
-        style == Style.SOLID -> Tokens.accentText
+        style == Style.SOLID || style == Style.EARNED -> Tokens.invertText
         else -> Tokens.textSecondary
     }
 
     /** What the label lands on, or `0` when the badge has no fill of its own. */
-    fun fill(style: Style, enabled: Boolean): Int =
-        if (enabled && style == Style.SOLID) Tokens.accent else 0
+    fun fill(style: Style, enabled: Boolean): Int = when {
+        !enabled -> 0
+        style == Style.SOLID -> Tokens.invert
+        style == Style.EARNED -> Tokens.positive
+        else -> 0
+    }
 }

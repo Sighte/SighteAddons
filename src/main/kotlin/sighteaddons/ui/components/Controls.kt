@@ -118,17 +118,20 @@ internal object Controls {
             Sk.fill(x, y, width, height, Tokens.fade(Tokens.surfaceHover, hover), radius)
         }
         if (active > 0f) {
-            Sk.fill(x, y, width, height, Tokens.fade(Tokens.accent, active), radius)
+            // Inverted, not accented, and the line matters: the accent means "selected or in
+            // progress", and a chip is a filter. Six chips in the accent would read as six things
+            // being done at once.
+            Sk.fill(x, y, width, height, Tokens.fade(Tokens.invert, active), radius)
         }
         if (active <= 0.5f) Sk.border(x, y, width, height, Tokens.borderDefault, radius)
 
         val family = if (active > 0.5f) Type.MEDIUM else Type.REGULAR
-        val labelColour = blend(Tokens.textSecondary, Tokens.accentText, active)
+        val labelColour = blend(Tokens.textSecondary, Tokens.invertText, active)
         val textY = Sk.centreY(y, height, size, family)
         Sk.text(label, x + Tokens.SPACE_8, textY, size, labelColour, family)
         if (count >= 0) {
             val countColour =
-                if (active > 0.5f) blend(Tokens.textTertiary, Tokens.accentText, active) else Tokens.textTertiary
+                if (active > 0.5f) blend(Tokens.textTertiary, Tokens.invertText, active) else Tokens.textTertiary
             Sk.text(
                 count.toString(),
                 x + Tokens.SPACE_8 + Sk.width("$label ", size, family), textY, size, countColour, family,

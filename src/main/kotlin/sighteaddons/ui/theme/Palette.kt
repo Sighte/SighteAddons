@@ -1,8 +1,25 @@
 package sighteaddons.ui.theme
 
 /**
- * One theme's colour ramp. Strictly monochrome — every value here is a neutral, and there is no hue
- * anywhere in this UI by design.
+ * One theme's colour ramp: a neutral scale, plus exactly two hues that are only ever spent on state.
+ *
+ * **This file used to say "strictly monochrome ... there is no hue anywhere in this UI by design", and
+ * that is no longer true.** The user reversed it on 21.08.2026 after seeing the two side by side. Worth
+ * recording rather than quietly editing, because the monochrome rule was load-bearing for a while and
+ * its consequences are still all over this UI: every state is *also* carried by a shape, a label or a
+ * weight, never by colour alone. That property is kept. The hues make the states easier to find; they
+ * are never the only thing that says what a state is, so the design still survives a greyscale
+ * screenshot and a reader who cannot separate two hues.
+ *
+ * The two are [accent] and [positive], and the rules for them are narrow:
+ *
+ * - [accent] marks **what is currently selected or in progress** — the open page, a switch that is on,
+ *   a slider's travelled span, the sorted column's direction, a focus ring.
+ * - [positive] marks **one fact and no others**: that a record is the player's own best. Nothing
+ *   decorative is allowed to borrow it, or it stops meaning anything.
+ * - [invert] is the achromatic pair that survives from the monochrome design, and it keeps its job:
+ *   a filter chip and a badge invert rather than colour, because a chip set is a *filter* and a filter
+ *   is not a state of progress.
  *
  * Two instances exist, [DARK] and [LIGHT]. Component code never names either: it reads [Tokens],
  * which points at whichever is active, so a theme switch changes values and never branches.
@@ -41,10 +58,26 @@ internal class Palette(
     /** Inactive. Exempt from the contrast floor, per WCAG's disabled-control exemption. */
     val textDisabled: Int,
 
-    /** The only accent this design has: the extreme of the ramp. */
+    /** Selected, on, in progress. See the class notes for what may and may not use it. */
     val accent: Int,
-    /** What sits legibly on top of [accent] — the opposite extreme. */
+    /** What sits legibly on top of [accent]. Measured, not assumed — see the ramps below. */
     val accentText: Int,
+    /**
+     * The accent at text weight.
+     *
+     * [accent] itself is a *fill* colour: at the saturation the design wants, white on it measures
+     * 3.48:1 and fails the floor, which is why [accentText] is the dark end. Set as text on a dark
+     * surface the same hue has to travel the other way instead, and this is where it lands.
+     */
+    val accentSoft: Int,
+
+    /** The achromatic inverted fill an active chip and a solid badge wear. */
+    val invert: Int,
+    /** What sits on [invert]. */
+    val invertText: Int,
+
+    /** The player's own best. One fact, one colour, nothing else may use it. */
+    val positive: Int,
 
     /** The base of every drop shadow. Always the dark end, because a shadow is an absence of light. */
     val shadow: Int,
@@ -103,8 +136,15 @@ internal class Palette(
             textSecondary = 0xFFA5A9B0.toInt(),
             textTertiary = 0xFF91959D.toInt(),
             textDisabled = 0xFF474B52.toInt(),
-            accent = 0xFFFFFFFF.toInt(),
+            // BlackSkija's own pair, taken from its README example, which is what "orient on this"
+            // meant literally. `accentText` stays the dark end and is a measurement, not a taste: white
+            // on this blue is 3.48:1 and under the floor, while `#0A0A0B` on it is 5.55:1.
+            accent = 0xFF5A82FF.toInt(),
             accentText = 0xFF0A0A0B.toInt(),
+            accentSoft = 0xFF96CDFF.toInt(),
+            invert = 0xFFFFFFFF.toInt(),
+            invertText = 0xFF0A0A0B.toInt(),
+            positive = 0xFF6BE0A6.toInt(),
             shadow = 0xFF000000.toInt(),
             scrim = 0xFF000000.toInt(),
             highlight = 0x0FFFFFFF,
@@ -130,8 +170,19 @@ internal class Palette(
             textSecondary = 0xFF4C5058.toInt(),
             textTertiary = 0xFF5F636B.toInt(),
             textDisabled = 0xFFAEB2B9.toInt(),
-            accent = 0xFF0A0A0B.toInt(),
+            // Both hues move a long way down for the light ramp, and for the usual reason: a colour
+            // that reads as an accent on near-black is a pastel on white. The dark ramp's `#96CDFF`
+            // measures 1.4:1 on a white card; this blue is 6.6:1, and it doubles as `accentSoft`
+            // because a light theme has nowhere brighter for the same hue to go.
+            accent = 0xFF2F52C8.toInt(),
             accentText = 0xFFFAFAFA.toInt(),
+            accentSoft = 0xFF2F52C8.toInt(),
+            invert = 0xFF0A0A0B.toInt(),
+            invertText = 0xFFFAFAFA.toInt(),
+            // `#0F7A52` was the first attempt and measured 4.17:1 on a pressed white row, which the
+            // new hue test caught. The binding case is not a plain card but a card under
+            // `surfaceActive`, exactly as it was for `textTertiary` in the dark ramp.
+            positive = 0xFF0E7049.toInt(),
             shadow = 0xFF3C3F45.toInt(),
             // Pure white rather than `surfaceBase`: this is the only surface in the ramp that has to
             // carry text over an unknown backdrop, and every step it is darkened is a step the world

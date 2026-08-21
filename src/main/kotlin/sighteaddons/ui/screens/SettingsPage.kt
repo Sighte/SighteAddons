@@ -131,6 +131,40 @@ internal object SettingsPage {
     /** The strip a [Kind.STAT] line's bar occupies under its figure. */
     const val BAR = Tokens.SPACE_6
 
+    /**
+     * The runs of consecutive lines that belong inside one card, as index ranges.
+     *
+     * A [Kind.SECTION] is the boundary: it is the group's *label*, sits above the card rather than in
+     * it, and its own height is the air between one card and the next. Anything before the first
+     * section is a group too — the stats overview opens straight into figures.
+     *
+     * Here rather than in the screen because it is the arithmetic a card's geometry comes from, and
+     * because it is checkable: a card drawn one item short leaves the last row of a group sitting on
+     * the panel with no container, which looks exactly like a row that failed to load.
+     */
+    fun groups(items: List<Item>): List<IntRange> {
+        val out = mutableListOf<IntRange>()
+        var start = -1
+        for (index in items.indices) {
+            if (items[index].kind == Kind.SECTION) {
+                if (start >= 0) out.add(start..index - 1)
+                start = -1
+                continue
+            }
+            if (start < 0) start = index
+        }
+        if (start >= 0) out.add(start..items.lastIndex)
+        return out
+    }
+
+    /**
+     * Whether a line begins a new row *unit* inside its card, which is where a rule goes.
+     *
+     * A [Kind.NOTE] belongs to the line above it — it is that row's second line, not a row of its own
+     * — so a rule between them would cut a row in half.
+     */
+    fun startsRow(kind: Kind): Boolean = kind != Kind.NOTE && kind != Kind.SECTION
+
     /** How tall the whole page is. */
     fun total(items: List<Item>): Int {
         var height = 0

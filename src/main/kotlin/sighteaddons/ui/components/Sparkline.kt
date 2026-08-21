@@ -58,8 +58,8 @@ internal object Sparkline {
 
         val step = (width - 1f) / (count - 1)
         val bottom = y + height
-        val area = Tokens.alpha(Tokens.accent, AREA_ALPHA)
-        val clear = Tokens.alpha(Tokens.accent, 0)
+        val area = Tokens.alpha(Tokens.accentSoft, AREA_ALPHA)
+        val clear = Tokens.alpha(Tokens.accentSoft, 0)
 
         // The area fill first, a column per point. Vertical gradient from the stroke down to nothing,
         // so the fill reads as belonging to the line rather than as a bar chart behind it.
@@ -77,7 +77,7 @@ internal object Sparkline {
             Sk.line(
                 x + i * step, valueY(attempts[first + i].ticks, cap, y, height),
                 x + (i + 1) * step, valueY(attempts[first + i + 1].ticks, cap, y, height),
-                Tokens.accent, Chrome.HAIRLINE,
+                Tokens.accentSoft, Chrome.HAIRLINE,
             )
         }
 
@@ -104,7 +104,7 @@ internal object Sparkline {
      */
     private fun dot(cx: Float, cy: Float, filled: Boolean) {
         if (filled) {
-            Sk.circle(cx, cy, DOT, Tokens.accent)
+            Sk.circle(cx, cy, DOT, Tokens.accentSoft)
         } else {
             Sk.circle(cx, cy, DOT, Tokens.surfaceBase)
             Sk.border(cx - DOT, cy - DOT, DOT * 2f, DOT * 2f, Tokens.textTertiary, DOT)

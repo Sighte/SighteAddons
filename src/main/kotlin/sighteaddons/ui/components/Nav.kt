@@ -105,6 +105,15 @@ internal object Nav {
     fun item(x: Float, y: Float, width: Float, height: Float, label: String, select: Float, hover: Float) {
         Controls.rowHighlight(x, y, width, height, hover, selected = false)
         if (select > 0f) {
+            // A wash rather than a fill: the entry has to read as tinted by the accent, not painted
+            // with it, or the rail's one selected row outweighs the page it selected.
+            Sk.fill(
+                x, y, width, height,
+                Tokens.alpha(Tokens.accent, (Tokens.ACCENT_WASH_ALPHA * select).toInt()),
+                Tokens.RADIUS_SM.toFloat(),
+            )
+        }
+        if (select > 0f) {
             val bar = height - Tokens.SPACE_8
             Sk.fill(x, y + (height - bar) / 2f, INDICATOR * select.coerceIn(0f, 1f), bar, Tokens.accent, INDICATOR / 2f)
         }
