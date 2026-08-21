@@ -120,6 +120,35 @@ internal object Chrome {
      */
     const val HAIRLINE = 1f
 
+    /**
+     * A segmented progress indicator: one filled block per unit, with a gap between them.
+     *
+     * Segments rather than a continuous bar for totals of twelve or fewer, because a room with six
+     * secrets and four found should be countable at a glance without reading a number — and because a
+     * bar at 66 % and a bar at 70 % look the same, while four blocks of six never do.
+     *
+     * Carried over from `Surface.segments`. The partial fill on the leading segment is what lets the
+     * indicator move between whole secrets rather than snapping, and it is now genuinely partial: the
+     * old version rounded the coverage to whole pixels, so on a narrow bar the animation had two or
+     * three positions per segment.
+     */
+    fun segments(
+        x: Float, y: Float, width: Float, height: Float,
+        total: Int, filled: Float,
+        on: Int, off: Int,
+    ) {
+        if (total <= 0) return
+        val gap = Tokens.SPACE_2
+        val each = (width - gap * (total - 1)) / total
+        if (each <= 0f) return
+        for (i in 0 until total) {
+            val left = x + i * (each + gap)
+            val coverage = (filled - i).coerceIn(0f, 1f)
+            Sk.fill(left, y, each, height, off, height / 2f)
+            if (coverage > 0f) Sk.fill(left, y, each * coverage, height, on, height / 2f)
+        }
+    }
+
     /** A vertical hairline, for the rail's divider and anything else that separates two columns. */
     fun ruleV(x: Float, y: Float, h: Float) {
         Sk.fill(x, y, HAIRLINE, h, Tokens.borderSubtle)

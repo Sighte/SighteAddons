@@ -1,7 +1,6 @@
 package sighteaddons
 
 import net.minecraft.client.gui.GuiGraphicsExtractor
-import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.gui.screens.options.controls.KeyBindsScreen
 import net.minecraft.client.input.CharacterEvent
 import net.minecraft.client.input.KeyEvent
@@ -29,6 +28,10 @@ import sighteaddons.ui.motion.Clock
 import sighteaddons.ui.motion.Easing
 import sighteaddons.ui.motion.Motion
 import sighteaddons.ui.render.Zoom
+import sighteaddons.ui.sk.Chrome
+import sighteaddons.ui.sk.Sk
+import sighteaddons.ui.sk.SkScreen
+import sighteaddons.ui.sk.Type
 import sighteaddons.ui.screens.Frame
 import sighteaddons.ui.screens.HudPreview
 import sighteaddons.ui.screens.OverlayPreview
@@ -76,10 +79,10 @@ import sighteaddons.ui.theme.Tokens
  *    456 and 427 that Minecraft's auto scale hands out on ordinary displays. A layout that can only be
  *    checked by opening the game at one resolution is a layout nobody checks.
  */
-class SettingsScreen(
+internal class SettingsScreen(
     private var tab: Tab = Tab.HUD,
     private var view: View = View.ROOMS,
-) : Screen(Component.literal("Sighte Addons")) {
+) : SkScreen(Component.literal("Sighte Addons")) {
 
     /** [label] rather than the enum name: the rest of this screen is lower case throughout. */
     enum class Tab(val label: String) {
@@ -353,8 +356,12 @@ class SettingsScreen(
     private fun tableLayout(): RecordColumns.Layout = RecordColumns.of(
         contentLeft, content,
         wantType = filter == RecordTable.Filter.ALL,
-        header = { Labels.width(font, it.uppercase()) },
-        value = { font.width(it) },
+        // Both measured in the face and at the size the cell is actually drawn in, which is the whole
+        // point of this being two lambdas. Measuring a header with one font and drawing it in another
+        // compiles perfectly and puts every column in the wrong place — and a header set in Medium is
+        // wider than the same word in Regular, so the sorted column is the one that overflows.
+        header = { Math.ceil(w(it.uppercase(), Table.HEADER_SIZE, Type.MEDIUM).toDouble()).toInt() },
+        value = { Math.ceil(w(it, Table.CELL_SIZE, Type.MEDIUM).toDouble()).toInt() },
     )
 
     /** How many table rows fit, which is also how far a press on the list may land. */
@@ -364,70 +371,137 @@ class SettingsScreen(
 
     // --- Rendering --------------------------------------------------------------------------
 
-    override fun extractBackground(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int, delta: Float) {
+    /**
+     * The type sizes this screen draws at.
+     *
+     * They are the existing scale in [Tokens], not a new one — the scale was fine; what changed is that
+     * every one of these is now a real rasterisation of a proportional face rather than `pose().scale`
+     * on a nine-pixel bitmap. [Type.MEDIUM] is spent only on values, because with an achromatic palette
+     * the weight is the whole of what separates a figure from the word that names it.
+     */
+    private val rowText get() = Tokens.TEXT_12.toFloat()
+    private val noteText get() = Tokens.TEXT_11.toFloat()
+    private val labelText get() = Tokens.TEXT_10.toFloat()
+
+    /** Measure, at the size this screen's rows are drawn at. Render-thread only, like everything in [Sk]. */
+    private fun w(text: String, size: Float = rowText, family: String = Type.REGULAR): Float =
+        Sk.width(text, size, family)
+
+    /**
+     * The panel's own box, which is [Frame]'s geometry plus the air the panel needs around it.
+     *
+     * The frame arithmetic is untouched — it is measured against the GUI-scaled sizes Minecraft's auto
+     * scale actually hands out and `SettingsPageTest` walks all of them. What is new is that there is
+     * now a *surface* around it, so a layout that does not fit has a visible edge to run past instead of
+     * bleeding into the window.
+     */
+    private val panelPad get() = Tokens.SPACE_16
+    private val panelLeft get() = frameLeft - panelPad
+    private val panelWidth get() = frameWidth + panelPad * 2
+    private val panelTop get() = Frame.MARGIN - Tokens.SPACE_8
+    private val panelHeight get() = height - (Frame.MARGIN - Tokens.SPACE_8) * 2
+
+    /**
+     * The blurred world behind the panel, dimmed — except in placement mode, which keeps its scrim.
+     *
+     * The old screen filled the window with [Tokens.surfaceBase] and its comment argued that a settings
+     * screen earns an opaque background. That was the right call for a renderer whose only tool was
+     * `fill`: a "floating panel" would have been a rectangle of slightly different grey. With a real
+     * blur, a real shadow and real corners the trade reverses, and the user chose the panel.
+     *
+     * **Placing is still the one mode that must not paint over the game.** The whole question it exists
+     * to answer is where the card sits against a dungeon, and a blurred surface behind it answers that
+     * question about a blurred surface. So no blur and no panel there — only a wash light enough to read
+     * the world through, which is exactly what it had before.
+     */
+    override val backdrop: Backdrop
+        get() = if (placing != null) Backdrop.NONE else Backdrop.BLUR
+
+    override val backdropDimTop: Int
+        get() = if (placing != null) {
+            Tokens.alpha(Tokens.shadow, Chrome.PLACING_DIM_ALPHA)
+        } else {
+            Tokens.alpha(Tokens.scrim, Chrome.DIM_ALPHA)
+        }
+
+    override val backdropDimBottom: Int get() = backdropDimTop
+
+    /**
+     * Per-frame bookkeeping, on the extraction pass.
+     *
+     * This used to sit at the top of `extractBackground`, which [SkScreen] now owns. It has to happen
+     * here rather than in [content]: by the time the compositor calls that back, anything reading the
+     * frame clock or the device density has already been asked.
+     */
+    override fun beginFrame() {
         val window = minecraft.window
         Density.beginFrame(window.width, window.height, window.guiScaledWidth, window.guiScaledHeight)
         Clock.frame(paused = false)
-        // **Placing is the one mode that must not paint over the game.** The whole question it exists
-        // to answer is where the card sits against a dungeon — the hotbar, the health bar, the boss
-        // bar, whatever the player actually looks past it at — and a flat surface behind it answers
-        // that question about a flat surface. A settings screen earns an opaque background; a
-        // placement tool cannot have one.
-        //
-        // Not nothing, either: a scrim this light leaves the world plainly readable and still gives
-        // the hint line something to sit on.
-        if (placing != null) {
-            graphics.fill(0, 0, width, height, Tokens.alpha(Tokens.shadow, PLACING_SCRIM))
-            return
-        }
-        graphics.fill(0, 0, width, height, Tokens.surfaceBase)
     }
 
-    override fun extractRenderState(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int, delta: Float) {
+    /**
+     * The placement editor's HUD elements, which are still drawn by Minecraft's own renderer.
+     *
+     * See [SkScreen.extractExtra] for why this seam exists. It lands under everything [content] draws,
+     * which is the right way round here: the element below, its position readout on top.
+     */
+    override fun extractExtra(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int, delta: Float) {
+        placing?.let { renderPlacingElement(graphics, it) }
+    }
+
+    override fun content() {
         placing?.let {
-            renderPlacing(graphics, it)
+            renderPlacingChrome(it)
             return
         }
         tooltipLines = null
 
-        renderRail(graphics, mouseX, mouseY)
-        renderHeader(graphics)
+        Chrome.panel(panelLeft.toFloat(), panelTop.toFloat(), panelWidth.toFloat(), panelHeight.toFloat())
 
-        if (tab == Tab.RECORDS) renderRecords(graphics, mouseX, mouseY) else renderPage(graphics, mouseX, mouseY)
+        renderRail()
+        renderHeader()
 
-        // Truncated to the content column like every other line on this screen. It was the one string
-        // drawn with neither a scissor nor a fit, so a sentence longer than the column — and at the
-        // vanilla minimum the column is 168 pixels — was painted across the rest of the screen.
-        graphics.text(
-            font, fit(footer(), content), contentLeft, height - Frame.MARGIN - Tokens.SPACE_6,
-            Tokens.textTertiary, false,
+        if (tab == Tab.RECORDS) renderRecords() else renderPage()
+
+        // Truncated to the content column like every other line on this screen. It was once the one
+        // string drawn with neither a scissor nor a fit, so a sentence longer than the column — and at
+        // the vanilla minimum the column is 168 pixels — was painted across the rest of the screen.
+        Sk.text(
+            fit(footer(), content, noteText), contentLeft.toFloat(),
+            (height - Frame.MARGIN - Tokens.SPACE_6).toFloat(), noteText, Tokens.textTertiary,
         )
 
-        // Last, and outside every scissor: a floating surface that is clipped to the list it describes
-        // is not floating.
-        tooltipLines?.let { Tooltip.draw(graphics, font, tooltipX, tooltipY, width, height, it) }
+        // Last, and outside every clip: a floating surface that is clipped to the list it describes is
+        // not floating.
+        tooltipLines?.let { Tooltip.draw(tooltipX, tooltipY, width, height, it) }
     }
 
     /** The nav rail. Each entry carries its own hover and its own selected indicator. */
-    private fun renderRail(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
-        val onRail = mouseX in frameLeft..(frameLeft + Nav.WIDTH)
-        val over = if (onRail) Nav.rowAt(bodyTop, Tab.entries.size, mouseY) else -1
+    private fun renderRail() {
+        val onRail = pointerX in frameLeft..(frameLeft + Nav.WIDTH)
+        val over = if (onRail) Nav.rowAt(bodyTop, Tab.entries.size, pointerY) else -1
         for ((index, entry) in Tab.entries.withIndex()) {
             val y = Nav.rowY(bodyTop, index)
             val active = entry == tab
             val hover = Controls.hover(anim.of("rail.${entry.name}"), index == over && !active)
             val select = anim.of("railsel.${entry.name}", if (active) 1f else 0f)
             select.animateTo(if (active) 1f else 0f, Motion.FAST, Easing.STANDARD, Motion.Kind.OPACITY)
-            Nav.item(graphics, font, frameLeft, y, Nav.WIDTH, Nav.ROW, entry.label, select.value, hover)
+            Nav.item(
+                frameLeft.toFloat(), y.toFloat(), Nav.WIDTH.toFloat(), Nav.ROW.toFloat(),
+                entry.label, select.value, hover,
+            )
         }
         Nav.divider(
-            graphics, frameLeft + Nav.WIDTH + Frame.GAP / 2, bodyTop - Tokens.SPACE_12,
-            pageHeight + Tokens.SPACE_20,
+            (frameLeft + Nav.WIDTH + Frame.GAP / 2).toFloat(), (bodyTop - Tokens.SPACE_12).toFloat(),
+            (pageHeight + Tokens.SPACE_20).toFloat(),
         )
     }
 
-    private fun renderHeader(graphics: GuiGraphicsExtractor) {
-        Labels.draw(graphics, font, "SIGHTE ADDONS", frameLeft, headerY, Tokens.textPrimary)
+    private fun renderHeader() {
+        Sk.text(
+            "SIGHTE ADDONS", frameLeft.toFloat(), headerY.toFloat(), labelText,
+            Tokens.textSecondary, Type.MEDIUM,
+        )
         val right = when {
             tab != Tab.RECORDS -> VERSION
             view != View.ROOMS -> pbSummary()
@@ -440,11 +514,13 @@ class SettingsScreen(
                 }
             }
         }
-        // Only the search readout earns the brighter tone, and only the rooms view has a search.
+        // Only the search readout earns the brighter tone and the weight, and only the rooms view has a
+        // search. Everything else up here is a fact about the build, not a state you are in.
         val searching = tab == Tab.RECORDS && view == View.ROOMS && query.isNotEmpty()
         val tone = if (searching) Tokens.textPrimary else Tokens.textTertiary
-        graphics.text(font, right, lastX - font.width(right), headerY, tone, false)
-        Table.divider(graphics, frameLeft, headerY + Tokens.SPACE_16, frameWidth)
+        val family = if (searching) Type.MEDIUM else Type.REGULAR
+        Sk.textRight(right, lastX.toFloat(), headerY.toFloat(), labelText, tone, family)
+        Table.divider(frameLeft.toFloat(), (headerY + Tokens.SPACE_16).toFloat(), frameWidth.toFloat())
     }
 
     // --- Pages: the three settings tabs and the stats overview -------------------------------
@@ -456,12 +532,12 @@ class SettingsScreen(
      * heights, which is rule 3 held by construction rather than by two people editing the same numbers.
      * Lines entirely outside the viewport are skipped rather than clipped — at GUI scale 4 the debug tab
      * is over twice the height of the space it has, and drawing the half of it nobody can see is a
-     * couple of hundred draw calls per frame spent on nothing.
+     * couple of hundred queued draws per frame spent on nothing.
      */
-    private fun renderPage(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
+    private fun renderPage() {
         val items = pageItems()
         if (items.isEmpty()) {
-            renderEmpty(graphics, bodyTop, listBottom)
+            renderEmpty(bodyTop, listBottom)
             return
         }
 
@@ -469,19 +545,22 @@ class SettingsScreen(
         val total = SettingsPage.total(items)
         scroll = Scroll.clamp(scroll, total, pageHeight)
 
-        graphics.enableScissor(0, bodyTop, width, listBottom)
+        Sk.clip(0f, bodyTop.toFloat(), width.toFloat(), (listBottom - bodyTop).toFloat())
         for (index in items.indices) {
             val item = items[index]
             val y = bodyTop + tops[index] - scroll
             if (y + item.height <= bodyTop || y >= listBottom) continue
             // Before the row is drawn, so a value the row has to truncate can still take the tooltip
             // off it — see [tooltipLines].
-            hint(item, y, mouseX, mouseY)
-            drawItem(graphics, item, y, mouseX, mouseY)
+            hint(item, y)
+            drawItem(item, y)
         }
-        graphics.disableScissor()
+        Sk.unclip()
 
-        Controls.scrollbar(graphics, lastX + Tokens.SPACE_6, bodyTop, listBottom, total, pageHeight, scroll)
+        Controls.scrollbar(
+            (lastX + Tokens.SPACE_6).toFloat(), bodyTop.toFloat(), listBottom.toFloat(),
+            total, pageHeight, scroll,
+        )
     }
 
     /**
@@ -499,30 +578,31 @@ class SettingsScreen(
      * a hand had to learn to wait. The band check is what keeps a row scrolled half under the header
      * from answering for a cursor that is over the header.
      */
-    private fun hint(item: SettingsPage.Item, y: Int, mouseX: Int, mouseY: Int) {
+    private fun hint(item: SettingsPage.Item, y: Int) {
         if (item.notes.isEmpty()) return
-        if (mouseY !in bodyTop until listBottom) return
-        if (mouseX !in rowLeft..lastX || mouseY !in y until (y + item.height)) return
-        tooltip(item.notes, mouseX, mouseY)
+        if (pointerY !in bodyTop until listBottom) return
+        if (pointerX !in rowLeft..lastX || pointerY !in y until (y + item.height)) return
+        tooltip(item.notes, pointerX, pointerY)
     }
 
-    private fun drawItem(graphics: GuiGraphicsExtractor, item: SettingsPage.Item, y: Int, mouseX: Int, mouseY: Int) {
+    private fun drawItem(item: SettingsPage.Item, y: Int) {
         when (item.kind) {
-            SettingsPage.Kind.SECTION -> Labels.sectionHeader(
-                graphics, font, item.label.uppercase(), contentLeft, y + Tokens.SPACE_12, content,
-                item.meta.takeIf { it.isNotEmpty() },
+            SettingsPage.Kind.SECTION -> Chrome.groupLabel(
+                contentLeft.toFloat(), (y + Tokens.SPACE_12).toFloat(), content.toFloat(),
+                item.label.uppercase(), item.meta,
             )
 
             // An explanation, indented under the row it explains and truncated rather than wrapped: a
             // note that grows downward as the window narrows pushes every row under it out of the page.
-            SettingsPage.Kind.NOTE -> graphics.text(
-                font, font.plainSubstrByWidth(item.label, content - NOTE_INDENT),
-                contentLeft + NOTE_INDENT, y + (SettingsPage.NOTE - Labels.CAP) / 2,
-                Tokens.textTertiary, false,
+            SettingsPage.Kind.NOTE -> Sk.text(
+                fit(item.label, content - NOTE_INDENT, noteText),
+                (contentLeft + NOTE_INDENT).toFloat(),
+                Sk.centreY(y.toFloat(), SettingsPage.NOTE.toFloat(), noteText),
+                noteText, Tokens.textTertiary,
             )
 
-            SettingsPage.Kind.STAT -> drawStat(graphics, item, y, mouseX, mouseY)
-            else -> drawControl(graphics, item, y, mouseX, mouseY)
+            SettingsPage.Kind.STAT -> drawStat(item, y)
+            else -> drawControl(item, y)
         }
     }
 
@@ -532,57 +612,66 @@ class SettingsScreen(
      * Three columns and not two: the label says what it is, the value is the figure, and the note says
      * what the figure is made of — `median of 268` against `fastest of 3`. **The note is the state**, and
      * the tone only agrees with it: a thin figure is `textSecondary` rather than `textPrimary`, which is
-     * 1.27:1 of separation and therefore not something anybody is asked to read on its own.
+     * 1.27:1 of separation and therefore not something anybody is asked to read on its own. The figure
+     * also carries [Type.MEDIUM], which is the separation this page did not have before.
      */
-    private fun drawStat(graphics: GuiGraphicsExtractor, item: SettingsPage.Item, y: Int, mouseX: Int, mouseY: Int) {
-        val textY = y + (SettingsPage.ROW - Labels.CAP) / 2
-        graphics.text(font, item.label, contentLeft, textY, Tokens.textSecondary, false)
+    private fun drawStat(item: SettingsPage.Item, y: Int) {
+        val textY = Sk.centreY(y.toFloat(), SettingsPage.ROW.toFloat(), rowText)
+        Sk.text(item.label, contentLeft.toFloat(), textY, rowText, Tokens.textSecondary)
 
-        val room = valueX - contentLeft - font.width(item.label) - Tokens.SPACE_8
-        val value = fit(item.value, room)
-        graphics.text(
-            font, value, valueX - font.width(value), textY,
-            if (item.thin) Tokens.textSecondary else Tokens.textPrimary, false,
+        val room = valueX - contentLeft - w(item.label).toInt() - Tokens.SPACE_8
+        val value = fit(item.value, room, rowText, Type.MEDIUM)
+        Sk.textRight(
+            value, valueX.toFloat(), Sk.centreY(y.toFloat(), SettingsPage.ROW.toFloat(), rowText, Type.MEDIUM),
+            rowText, if (item.thin) Tokens.textSecondary else Tokens.textPrimary, Type.MEDIUM,
         )
         // `most recorded` is the one figure on this page that is a name rather than a number, so it is
         // the one that can be cut off — and a truncated room name with nothing behind it is the exact
         // hole the table fills with a tooltip. Same mechanism, same frame.
-        if (value != item.value && mouseY in bodyTop until listBottom &&
-            mouseX in rowLeft..lastX && mouseY in y until (y + SettingsPage.ROW)
+        if (value != item.value && pointerY in bodyTop until listBottom &&
+            pointerX in rowLeft..lastX && pointerY in y until (y + SettingsPage.ROW)
         ) {
-            tooltip(item.value, mouseX, mouseY)
+            tooltip(item.value, pointerX, pointerY)
         }
 
         if (item.meta.isNotEmpty()) {
-            val meta = font.plainSubstrByWidth(item.meta, lastX - valueX - Tokens.SPACE_8)
-            graphics.text(font, meta, lastX - font.width(meta), textY, Tokens.textTertiary, false)
+            val meta = fit(item.meta, lastX - valueX - Tokens.SPACE_8, noteText)
+            Sk.textRight(
+                meta, lastX.toFloat(), Sk.centreY(y.toFloat(), SettingsPage.ROW.toFloat(), noteText),
+                noteText, Tokens.textTertiary,
+            )
         }
         // The bar sits under the figure it qualifies rather than beside it. A ratio is the only kind of
         // number a bar can carry honestly, and the number is already written above it — see ProgressBar.
         if (item.fraction >= 0f) {
-            ProgressBar.draw(graphics, contentLeft, y + SettingsPage.ROW, content, ProgressBar.HEIGHT, item.fraction)
+            ProgressBar.draw(
+                contentLeft.toFloat(), (y + SettingsPage.ROW).toFloat(),
+                content.toFloat(), ProgressBar.HEIGHT.toFloat(), item.fraction,
+            )
         }
     }
 
-    private fun drawControl(graphics: GuiGraphicsExtractor, item: SettingsPage.Item, y: Int, mouseX: Int, mouseY: Int) {
+    private fun drawControl(item: SettingsPage.Item, y: Int) {
         val rowHeight = item.height
-        val inViewport = mouseY in bodyTop until listBottom
+        val inViewport = pointerY in bodyTop until listBottom
         val hovered = item.interactive && inViewport &&
-            mouseX in rowLeft..lastX && mouseY in y until (y + rowHeight)
+            pointerX in rowLeft..lastX && pointerY in y until (y + rowHeight)
         val hover = Controls.hover(anim.of("row.${tab.name}.${item.label}"), hovered)
 
         if (item.interactive) {
             // The wash, the hover test above and the press test in [clickPage] all run [rowLeft] to
             // [lastX]. Stopping at [lastX] rather than eight pixels past it: the scrollbar lives out
             // there now, and a wash running under it makes the track look like part of the row.
-            Controls.rowHighlight(graphics, rowLeft, y, lastX - rowLeft, rowHeight, hover, false)
+            Controls.rowHighlight(
+                rowLeft.toFloat(), y.toFloat(), (lastX - rowLeft).toFloat(), rowHeight.toFloat(), hover, false,
+            )
         }
 
-        val textY = y + (rowHeight - Labels.CAP) / 2
+        val textY = Sk.centreY(y.toFloat(), rowHeight.toFloat(), rowText)
         val plain = item.kind == SettingsPage.Kind.INFO
-        graphics.text(
-            font, item.label, contentLeft, textY,
-            if (plain) Tokens.textSecondary else Tokens.textPrimary, false,
+        Sk.text(
+            item.label, contentLeft.toFloat(), textY, rowText,
+            if (plain) Tokens.textSecondary else Tokens.textPrimary,
         )
 
         when (item.kind) {
@@ -592,24 +681,27 @@ class SettingsScreen(
                 val travel = anim.spring("toggle.${tab.name}.${item.label}", if (item.on) 1f else 0f)
                 travel.springTo(if (item.on) 1f else 0f, Motion.BASE)
                 Controls.toggle(
-                    graphics, lastX - Controls.toggleWidth(TOGGLE_HEIGHT), y + (rowHeight - TOGGLE_HEIGHT) / 2,
-                    TOGGLE_HEIGHT, travel.value, enabled = true,
+                    (lastX - Controls.toggleWidth(TOGGLE_HEIGHT)).toFloat(),
+                    (y + (rowHeight - TOGGLE_HEIGHT) / 2).toFloat(),
+                    TOGGLE_HEIGHT.toFloat(), travel.value, enabled = true,
                 )
             }
 
             // Not a switch but still clickable: the position row. The value is the control, so it reads
             // as primary rather than as metadata.
-            SettingsPage.Kind.ACTION -> graphics.text(
-                font, item.value, lastX - font.width(item.value), textY,
-                Controls.blend(Tokens.textSecondary, Tokens.textPrimary, hover), false,
+            SettingsPage.Kind.ACTION -> Sk.textRight(
+                item.value, lastX.toFloat(),
+                Sk.centreY(y.toFloat(), rowHeight.toFloat(), rowText, Type.MEDIUM), rowText,
+                Controls.blend(Tokens.textSecondary, Tokens.textPrimary, hover), Type.MEDIUM,
             )
 
             SettingsPage.Kind.STEPPER -> {
-                val stepperWidth = Stepper.width(font, item.value)
+                val stepperWidth = Stepper.width(item.value) { w(it, Stepper.SIZE, Type.MEDIUM) }
                 val x = lastX - stepperWidth
-                val arm = if (hovered) Stepper.armAt(x, stepperWidth, mouseX) else 0
+                val arm = if (hovered) Stepper.armAt(x, stepperWidth, pointerX) else 0
                 Stepper.draw(
-                    graphics, font, x, y + (rowHeight - Stepper.HEIGHT) / 2, stepperWidth, Stepper.HEIGHT,
+                    x.toFloat(), (y + (rowHeight - Stepper.HEIGHT) / 2).toFloat(),
+                    stepperWidth.toFloat(), Stepper.HEIGHT.toFloat(),
                     item.value, item.fraction.coerceIn(0f, 1f),
                     minusHover = Controls.hover(anim.of("minus.${item.label}"), arm < 0),
                     plusHover = Controls.hover(anim.of("plus.${item.label}"), arm > 0),
@@ -624,21 +716,25 @@ class SettingsScreen(
                 val travel = anim.spring("slider.${item.label}", item.fraction)
                 val held = sliderHeld >= 0
                 if (held) travel.snapTo(item.fraction) else travel.springTo(item.fraction, Motion.BASE)
-                graphics.text(
-                    font, item.value, sliderX - Tokens.SPACE_8 - font.width(item.value), textY,
-                    Controls.blend(Tokens.textSecondary, Tokens.textPrimary, hover), false,
+                Sk.textRight(
+                    item.value, (sliderX - Tokens.SPACE_8).toFloat(),
+                    Sk.centreY(y.toFloat(), rowHeight.toFloat(), rowText, Type.MEDIUM), rowText,
+                    Controls.blend(Tokens.textSecondary, Tokens.textPrimary, hover), Type.MEDIUM,
                 )
                 Slider.draw(
-                    graphics, sliderX, y + (rowHeight - Slider.HEIGHT) / 2, SLIDER_WIDTH, Slider.HEIGHT,
+                    sliderX.toFloat(), (y + (rowHeight - Slider.HEIGHT) / 2).toFloat(),
+                    SLIDER_WIDTH.toFloat(), Slider.HEIGHT.toFloat(),
                     travel.value, hover = hover, active = held,
                 )
             }
 
             // Plain information.
             else -> {
-                val room = lastX - contentLeft - font.width(item.label) - Tokens.SPACE_8
-                val value = font.plainSubstrByWidth(item.value, room.coerceAtLeast(0))
-                graphics.text(font, value, lastX - font.width(value), textY, Tokens.textTertiary, false)
+                val room = lastX - contentLeft - w(item.label).toInt() - Tokens.SPACE_8
+                Sk.textRight(
+                    fit(item.value, room, noteText), lastX.toFloat(),
+                    Sk.centreY(y.toFloat(), rowHeight.toFloat(), noteText), noteText, Tokens.textTertiary,
+                )
             }
         }
     }
@@ -652,46 +748,50 @@ class SettingsScreen(
      * under it — a control that moves when the thing it controls changes is a control you have to find
      * again after every use.
      */
-    private fun renderRecords(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
-        renderChooser(graphics, mouseX, mouseY)
+    private fun renderRecords() {
+        renderChooser()
         when (view) {
-            View.ROOMS -> renderRooms(graphics, mouseX, mouseY)
-            View.SPLITS, View.RUNS -> renderPbs(graphics)
+            View.ROOMS -> renderRooms()
+            View.SPLITS, View.RUNS -> renderPbs()
         }
     }
+
+    /** The measured width of one segment of the view chooser, shared by the draw and the hit test. */
+    private fun segmentWidth(): Int = Segmented.segmentWidth(VIEWS) { w(it, Tokens.TEXT_11.toFloat()) }
 
     /**
      * The three-way view chooser.
      *
      * The thumb is sprung rather than eased, which is `Segmented`'s own distinction put to work: the
      * travel between segments is what says which way the page just moved, and a spring overshoots
-     * slightly in the direction it travelled. [Segmented.indexAt] is asked for the hover *and* is what
-     * the press resolves against, so rule 3 holds without either side holding a width.
+     * slightly in the direction it travelled. [segmentWidth] is what both the hover and the press
+     * resolve against, so rule 3 holds without either side keeping its own copy.
      *
-     * Scissored for the chip row's reason. Three labels want about 153 pixels and the narrowest content
+     * Clipped for the chip row's reason. Three labels want about 153 pixels and the narrowest content
      * column this panel ever has is 168, so it fits at every size the game offers — and the one thing
      * that must not happen if that ever stops being true is a segment painted over the rest of the
      * screen with nothing clipping it.
      */
-    private fun renderChooser(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
+    private fun renderChooser() {
         val travel = anim.spring("view", view.ordinal.toFloat())
         travel.springTo(view.ordinal.toFloat(), Motion.BASE)
-        val over = if (mouseY in segmentsY until (segmentsY + Segmented.HEIGHT)) {
-            Segmented.indexAt(font, VIEWS, contentLeft, mouseX)
+        val each = segmentWidth()
+        val over = if (pointerY in segmentsY until (segmentsY + Segmented.HEIGHT)) {
+            Segmented.indexAt(VIEWS, each, contentLeft, pointerX)
         } else {
             -1
         }
-        graphics.enableScissor(contentLeft, segmentsY, lastX, segmentsY + Segmented.HEIGHT)
+        Sk.clip(contentLeft.toFloat(), segmentsY.toFloat(), content.toFloat(), Segmented.HEIGHT.toFloat())
         Segmented.draw(
-            graphics, font, contentLeft, segmentsY, Segmented.HEIGHT,
+            contentLeft.toFloat(), segmentsY.toFloat(), Segmented.HEIGHT.toFloat(), each.toFloat(),
             VIEWS, view.ordinal, travel.value, hover = over,
         )
-        graphics.disableScissor()
+        Sk.unclip()
     }
 
     // --- Rooms view -------------------------------------------------------------------------
 
-    private fun renderRooms(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
+    private fun renderRooms() {
         build()
 
         // Widths are derived before drawing rather than returned from it, so hover and hit testing use
@@ -700,36 +800,40 @@ class SettingsScreen(
         //
         // **The counts come off when six chips carrying them do not fit.** At GUI scale 4 the content
         // column is 328 pixels and six chips with two-digit counts want about 356, so the last one was
-        // being drawn past the right edge of the *screen* — the chip row has no scissor and nothing was
-        // clipping it. A chip advertises the number of rows a click produces, which is worth having and
+        // being drawn past the right edge of the *screen* — the chip row has no clip and nothing was
+        // stopping it. A chip advertises the number of rows a click produces, which is worth having and
         // is not worth having a chip nobody can click; the counts are what goes.
+        val chipMeasure: (String) -> Float = { w(it, Tokens.TEXT_11.toFloat()) }
         val withCounts = RecordTable.Filter.entries.sumOf {
-            Controls.chipWidth(font, it.label, cachedCounts[it] ?: 0)
+            Math.ceil(Controls.chipWidth(it.label, cachedCounts[it] ?: 0, chipMeasure).toDouble()).toInt()
         } + (RecordTable.Filter.entries.size - 1) * Tokens.SPACE_6
         val showCounts = withCounts <= content
 
         chipHits.clear()
         var chipX = contentLeft
-        // Scissored to the panel, and the press zones clipped with it. Without the counts six chips
-        // are 278 pixels, which still does not fit the 168 the vanilla minimum GUI size leaves — and
-        // the chip row has no list around it, so what did not fit was simply painted over the rest of
-        // the screen. Clipped, what can be pressed is exactly what can be seen.
-        graphics.enableScissor(contentLeft, chipsY, lastX, chipsY + CHIP_H)
+        // Clipped to the panel, and the press zones clipped with it. Without the counts six chips are
+        // 278 pixels, which still does not fit the 168 the vanilla minimum GUI size leaves — and the
+        // chip row has no list around it, so what did not fit was simply painted over the rest of the
+        // screen. Clipped, what can be pressed is exactly what can be seen.
+        Sk.clip(contentLeft.toFloat(), chipsY.toFloat(), content.toFloat(), CHIP_H.toFloat())
         for (chip in RecordTable.Filter.entries) {
             val count = if (showCounts) cachedCounts[chip] ?: 0 else -1
-            val chipWidth = Controls.chipWidth(font, chip.label, count)
+            val chipWidth = Math.ceil(Controls.chipWidth(chip.label, count, chipMeasure).toDouble()).toInt()
             val active = anim.of("chip.${chip.name}", if (chip == filter) 1f else 0f)
             active.animateTo(if (chip == filter) 1f else 0f, Motion.FAST, Easing.STANDARD, Motion.Kind.OPACITY)
-            val hovered = mouseX in chipX until minOf(chipX + chipWidth, lastX) &&
-                mouseY in chipsY until (chipsY + CHIP_H)
+            val hovered = pointerX in chipX until minOf(chipX + chipWidth, lastX) &&
+                pointerY in chipsY until (chipsY + CHIP_H)
             val hover = Controls.hover(anim.of("chiphover.${chip.name}"), hovered)
-            Controls.chip(graphics, font, chipX, chipsY, CHIP_H, chip.label, count, active.value, hover)
+            Controls.chip(
+                chipX.toFloat(), chipsY.toFloat(), CHIP_H.toFloat(),
+                chip.label, count, active.value, hover,
+            )
             if (chipX < lastX) chipHits.add(Triple(chip, chipX, minOf(chipX + chipWidth, lastX)))
             chipX += chipWidth + Tokens.SPACE_6
         }
-        graphics.disableScissor()
+        Sk.unclip()
 
-        // The chevron rotates between the two directions rather than swapping glyphs, so the reversal is
+        // The caret rotates between the two directions rather than swapping glyphs, so the reversal is
         // visibly the same control changing its mind. One animatable for the whole header row: there is
         // only ever one sorted column, so a second would be a direction nothing is pointing in.
         val flip = anim.of("sortdir", if (sortDesc) 1f else 0f)
@@ -738,19 +842,20 @@ class SettingsScreen(
         // The hovered column is resolved once, through the same zones the press uses. Testing each
         // column against the cursor on its own would light two headers wherever their zones met, and
         // the whole point of a partition is that there is exactly one answer.
-        val onHeader = if (mouseY in columnsY until (columnsY + Tokens.SPACE_12)) layout.at(mouseX) else null
+        val onHeader = if (pointerY in columnsY until (columnsY + Tokens.SPACE_12)) layout.at(pointerX) else null
         for (column in layout.columns) {
             Table.headerCell(
-                graphics, font, column.label, column.x0, column.x1, columnsY, column.rightAligned,
+                column.label, column.x0.toFloat(), column.x1.toFloat(), columnsY.toFloat(),
+                column.rightAligned,
                 sorted = column.sort == sortBy,
                 flip = flip.value,
                 hover = Controls.hover(anim.of("col.${column.sort.name}"), column.sort == onHeader?.sort),
             )
         }
-        Table.divider(graphics, contentLeft, columnsY + Tokens.SPACE_12, content)
+        Table.divider(contentLeft.toFloat(), (columnsY + Tokens.SPACE_12).toFloat(), content.toFloat())
 
         if (cachedLines.isEmpty()) {
-            renderEmpty(graphics, firstRow, listBottom)
+            renderEmpty(firstRow, listBottom)
             return
         }
 
@@ -758,46 +863,50 @@ class SettingsScreen(
         pageSize = visible
         scroll = Scroll.clamp(scroll, cachedLines.size, visible)
 
-        graphics.enableScissor(0, firstRow, width, listBottom)
+        Sk.clip(0f, firstRow.toFloat(), width.toFloat(), (listBottom - firstRow).toFloat())
         for ((index, line) in cachedLines.drop(scroll).take(visible).withIndex()) {
             val y = firstRow + index * Table.ROW
             if (line.detail != null) {
-                renderDetail(graphics, line.detail, y)
+                renderDetail(line.detail, y)
             } else {
-                renderRecord(graphics, layout, line.row, y, mouseX, mouseY)
+                renderRecord(layout, line.row, y)
             }
         }
-        graphics.disableScissor()
+        Sk.unclip()
 
-        Controls.scrollbar(graphics, lastX + Tokens.SPACE_6, firstRow, listBottom, cachedLines.size, visible, scroll)
+        Controls.scrollbar(
+            (lastX + Tokens.SPACE_6).toFloat(), firstRow.toFloat(), listBottom.toFloat(),
+            cachedLines.size, visible, scroll,
+        )
     }
 
-    private fun renderRecord(
-        graphics: GuiGraphicsExtractor,
-        layout: RecordColumns.Layout,
-        row: RecordTable.Row,
-        y: Int,
-        mouseX: Int,
-        mouseY: Int,
-    ) {
+    private fun renderRecord(layout: RecordColumns.Layout, row: RecordTable.Row, y: Int) {
         val open = row.room == expanded
-        val hovered = mouseX in rowLeft..lastX && mouseY in y until (y + Table.ROW)
+        val hovered = pointerX in rowLeft..lastX && pointerY in y until (y + Table.ROW)
         val hover = Controls.hover(anim.of("rec.${row.room}"), hovered)
-        Controls.rowHighlight(graphics, rowLeft, y, lastX - rowLeft, Table.ROW, hover, open)
+        Controls.rowHighlight(
+            rowLeft.toFloat(), y.toFloat(), (lastX - rowLeft).toFloat(), Table.ROW.toFloat(), hover, open,
+        )
 
-        val textY = y + (Table.ROW - Labels.CAP) / 2
-        val name = font.plainSubstrByWidth(row.room, layout.nameWidth)
-        graphics.text(font, name, contentLeft, textY, if (open) Tokens.textPrimary else Tokens.textSecondary, false)
+        val textY = Sk.centreY(y.toFloat(), Table.ROW.toFloat(), rowText)
+        val name = fit(row.room, layout.nameWidth, rowText)
+        Sk.text(
+            name, contentLeft.toFloat(), textY, rowText,
+            if (open) Tokens.textPrimary else Tokens.textSecondary,
+        )
         // The full name only exists in a tooltip when the column actually cut it off.
-        if (name != row.room && hovered) tooltip(row.room, mouseX, mouseY)
-        if (layout.showType) graphics.text(font, row.typeLabel, layout.typeX, textY, Tokens.textTertiary, false)
+        if (name != row.room && hovered) tooltip(row.room, pointerX, pointerY)
+        if (layout.showType) {
+            Sk.text(row.typeLabel, layout.typeX.toFloat(), textY, noteText, Tokens.textTertiary)
+        }
 
-        // A time that exists is primary; a dash is tertiary. Weight and luminance carry the
-        // distinction, and the dash is the same width as a time so the column stays a column.
-        right(graphics, row.clear.time(), layout.clearX, textY, row.clear != null)
-        if (layout.secretsX >= 0) right(graphics, row.secrets.time(), layout.secretsX, textY, row.secrets != null)
-        if (layout.runsX >= 0) right(graphics, row.runs.toString(), layout.runsX, textY, false)
-        right(graphics, Format.ago(row.lastTs, System.currentTimeMillis()), lastX, textY, false)
+        // A time that exists is primary and set in Medium; a dash is tertiary and is not. Weight,
+        // luminance and the dash being the same width as a time all carry it, so the column stays a
+        // column whichever of the two it holds.
+        right(row.clear.time(), layout.clearX, y, row.clear != null)
+        if (layout.secretsX >= 0) right(row.secrets.time(), layout.secretsX, y, row.secrets != null)
+        if (layout.runsX >= 0) right(row.runs.toString(), layout.runsX, y, false)
+        right(Format.ago(row.lastTs, System.currentTimeMillis()), lastX, y, false)
     }
 
     /**
@@ -806,8 +915,7 @@ class SettingsScreen(
      * Drawn at [Table.detail]'s full extent rather than animated open: the growth the component offers
      * is there so the detail reads as coming *out of* the row that was clicked, and a rule that grows
      * past a sparkline which is already fully drawn beside it reads as two elements arriving rather than
-     * one. The connector is what earns the component its place here; the animation would need the chart
-     * to fade with it, and `Sparkline` draws at one opacity.
+     * one. The connector is what earns the component its place here.
      *
      * **The `PB` badge is here rather than on the row above, and that is a size decision.** The room
      * column is 63 pixels at 1080p and 52 at 1280×720 — see [RecordColumns] for where those come from
@@ -817,8 +925,10 @@ class SettingsScreen(
      * row shows one of those, but "the last run here was it" — [RoomHistory.Attempt.pb] read straight
      * out of the file rather than a comparison this screen would have to invent.
      */
-    private fun renderDetail(graphics: GuiGraphicsExtractor, detail: Detail, y: Int) {
-        val badgeRoom = if (detail.badge) Badge.width(font, PB) + Tokens.SPACE_6 else 0
+    private fun renderDetail(detail: Detail, y: Int) {
+        val badgeMeasure: (String) -> Float = { w(it, Badge.SIZE, Type.MEDIUM) }
+        val badgeWidth = Badge.width(PB, badgeMeasure)
+        val badgeRoom = if (detail.badge) Math.ceil(badgeWidth.toDouble()).toInt() + Tokens.SPACE_6 else 0
         val plain = Table.contentX(contentLeft)
         val available = lastX - plain - badgeRoom
 
@@ -828,24 +938,27 @@ class SettingsScreen(
         // exactly the sample size that makes the median beside it readable. Below [SPARK_MIN] there is
         // no chart at all: a twenty-attempt line squeezed into thirty pixels is not a trend, and the
         // number it was standing next to is.
-        val wanted = available - font.width(detail.text) - Tokens.SPACE_12
+        val wanted = available - w(detail.text, noteText).toInt() - Tokens.SPACE_12
         val spark = if (detail.spark != null && wanted >= SPARK_MIN) minOf(wanted, SPARK_MAX) else 0
 
         Table.detail(
-            graphics, font, contentLeft, y, Table.ROW, detail.label,
-            if (spark == 0) fit(detail.text, available) else "",
+            contentLeft.toFloat(), y.toFloat(), Table.ROW.toFloat(), detail.label,
+            if (spark == 0) fit(detail.text, available, noteText) else "",
         )
         if (detail.badge) {
             Badge.draw(
-                graphics, font, lastX - Badge.width(font, PB), y + (Table.ROW - Badge.HEIGHT) / 2, PB,
+                (lastX - badgeWidth), (y + (Table.ROW - Badge.HEIGHT) / 2).toFloat(), PB,
             )
         }
         if (spark == 0) return
-        Sparkline.draw(graphics, plain, y + 2, spark, Table.ROW - 4, detail.spark!!, detail.cap)
+        Sparkline.draw(
+            plain.toFloat(), (y + 2).toFloat(), spark.toFloat(), (Table.ROW - 4).toFloat(),
+            detail.spark!!, detail.cap,
+        )
         val textX = plain + spark + Tokens.SPACE_12
-        graphics.text(
-            font, fit(detail.text, lastX - badgeRoom - textX), textX, y + (Table.ROW - Labels.CAP) / 2,
-            Tokens.textSecondary, false,
+        Sk.text(
+            fit(detail.text, lastX - badgeRoom - textX, noteText), textX.toFloat(),
+            Sk.centreY(y.toFloat(), Table.ROW.toFloat(), noteText), noteText, Tokens.textSecondary,
         )
     }
 
@@ -889,10 +1002,10 @@ class SettingsScreen(
      * Where a personal-best table's columns go.
      *
      * Two of them, measured right to left from what will actually be drawn, which is [RecordColumns]'
-     * argument in miniature: `BEST` is a fixed span of tracked capitals and a run total is a fixed span
-     * of digits, neither of them a share of the window, and whatever survives on the left is the
-     * label's. Nothing is ever dropped here — with two columns there is nothing to drop, and at the
-     * narrowest content column this panel has the label still keeps well over half of it.
+     * argument in miniature: `BEST` is a fixed span of capitals and a run total is a fixed span of
+     * digits, neither of them a share of the window, and whatever survives on the left is the label's.
+     * Nothing is ever dropped here — with two columns there is nothing to drop, and at the narrowest
+     * content column this panel has the label still keeps well over half of it.
      *
      * The sample is a **run** total rather than a room clear. `10:23.4` is seven characters where
      * `0:41.2` is six, and a whole M7 does pass ten minutes — a column budgeted against the shorter one
@@ -901,7 +1014,10 @@ class SettingsScreen(
     private class PbLayout(val header: String, val labelWidth: Int, val timeX: Int)
 
     private fun pbLayout(): PbLayout {
-        val time = maxOf(Labels.width(font, BEST_HEADER), font.width(SAMPLE_RUN_TIME))
+        val time = maxOf(
+            w(BEST_HEADER, labelText, Type.MEDIUM),
+            w(SAMPLE_RUN_TIME, rowText, Type.MEDIUM),
+        ).toInt()
         return PbLayout(
             header = if (view == View.RUNS) PARTY_HEADER else SPLIT_HEADER,
             labelWidth = (content - time - RecordColumns.GAP - Table.INDENT).coerceAtLeast(0),
@@ -918,18 +1034,15 @@ class SettingsScreen(
      * The absence of that caret is the signal, which is exactly the three-state design that component
      * already documents — this is its "neither" state, permanently.
      */
-    private fun renderPbs(graphics: GuiGraphicsExtractor) {
+    private fun renderPbs() {
         val layout = pbLayout()
-        Labels.draw(graphics, font, layout.header, contentLeft, columnsY, Tokens.textTertiary)
-        Labels.draw(
-            graphics, font, BEST_HEADER,
-            layout.timeX - Labels.width(font, BEST_HEADER), columnsY, Tokens.textTertiary,
-        )
-        Table.divider(graphics, contentLeft, columnsY + Tokens.SPACE_12, content)
+        Sk.text(layout.header, contentLeft.toFloat(), columnsY.toFloat(), labelText, Tokens.textTertiary)
+        Sk.textRight(BEST_HEADER, layout.timeX.toFloat(), columnsY.toFloat(), labelText, Tokens.textTertiary)
+        Table.divider(contentLeft.toFloat(), (columnsY + Tokens.SPACE_12).toFloat(), content.toFloat())
 
         val lines = pbLines()
         if (lines.isEmpty()) {
-            renderPbEmpty(graphics)
+            renderPbEmpty()
             return
         }
 
@@ -937,13 +1050,16 @@ class SettingsScreen(
         pageSize = visible
         scroll = Scroll.clamp(scroll, lines.size, visible)
 
-        graphics.enableScissor(0, firstRow, width, listBottom)
+        Sk.clip(0f, firstRow.toFloat(), width.toFloat(), (listBottom - firstRow).toFloat())
         for ((index, line) in lines.drop(scroll).take(visible).withIndex()) {
-            renderPbLine(graphics, layout, line, firstRow + index * Table.ROW)
+            renderPbLine(layout, line, firstRow + index * Table.ROW)
         }
-        graphics.disableScissor()
+        Sk.unclip()
 
-        Controls.scrollbar(graphics, lastX + Tokens.SPACE_6, firstRow, listBottom, lines.size, visible, scroll)
+        Controls.scrollbar(
+            (lastX + Tokens.SPACE_6).toFloat(), firstRow.toFloat(), listBottom.toFloat(),
+            lines.size, visible, scroll,
+        )
     }
 
     /**
@@ -955,29 +1071,23 @@ class SettingsScreen(
      * is nothing behind it to expand, because the store holds one number per key and that number is
      * already on the row.
      *
-     * The heading is drawn through the same [Labels.sectionHeader] the settings pages use, so a floor
+     * The heading is drawn through the same [Chrome.groupLabel] the settings pages use, so a floor
      * boundary on a table and a section boundary on a page are the same shape. Its meta is the floor's
      * headline time, and it is absent rather than dashed when there is none — see [PbTable].
      */
-    private fun renderPbLine(
-        graphics: GuiGraphicsExtractor,
-        layout: PbLayout,
-        line: PbTable.Line,
-        y: Int,
-    ) {
-        val textY = y + (Table.ROW - Labels.CAP) / 2
+    private fun renderPbLine(layout: PbLayout, line: PbTable.Line, y: Int) {
         if (line.heading) {
-            Labels.sectionHeader(
-                graphics, font, line.floor.uppercase(), contentLeft, textY, content,
-                line.time.takeIf { it.isNotEmpty() },
+            Chrome.groupLabel(
+                contentLeft.toFloat(), Sk.centreY(y.toFloat(), Table.ROW.toFloat(), labelText),
+                content.toFloat(), line.floor.uppercase(), line.time,
             )
             return
         }
-        graphics.text(
-            font, font.plainSubstrByWidth(line.label!!, layout.labelWidth),
-            contentLeft + Table.INDENT, textY, Tokens.textSecondary, false,
+        Sk.text(
+            fit(line.label!!, layout.labelWidth, rowText), (contentLeft + Table.INDENT).toFloat(),
+            Sk.centreY(y.toFloat(), Table.ROW.toFloat(), rowText), rowText, Tokens.textSecondary,
         )
-        right(graphics, line.time, layout.timeX, textY, present = true)
+        right(line.time, layout.timeX, y, present = true)
     }
 
     /**
@@ -988,12 +1098,13 @@ class SettingsScreen(
      * [renderEmpty] can produce is about a filter that is not there. What a reader needs instead is
      * where the records would come from, which is a different fact per view.
      */
-    private fun renderPbEmpty(graphics: GuiGraphicsExtractor) {
+    private fun renderPbEmpty() {
         val splits = view == View.SPLITS
         val note = if (splits) CONFIG_FILE else RUNPBS_FILE
-        val y = firstRow + ((listBottom - firstRow - EmptyState.height(note)) / 2).coerceAtLeast(0)
+        val block = EmptyState.height(Sk.lineHeight(EmptyState.BODY_SIZE), note)
+        val y = firstRow + ((listBottom - firstRow - block) / 2f).coerceAtLeast(0f)
         EmptyState.draw(
-            graphics, font, contentLeft, y, content,
+            contentLeft.toFloat(), y, content.toFloat(),
             if (splits) "no split records yet" else "no run records yet",
             if (splits) {
                 // Both ways in, because the switch is the common case and the import is the one that
@@ -1014,7 +1125,7 @@ class SettingsScreen(
      * always the third case — it has no filter of its own, and a chip left active on the table must not
      * make it claim one.
      */
-    private fun renderEmpty(graphics: GuiGraphicsExtractor, top: Int, bottom: Int) {
+    private fun renderEmpty(top: Int, bottom: Int) {
         val blank = tab == Tab.STATS || narrowing == RecordTable.Narrowing.NONE
         val note = if (blank) HISTORY_FILE else null
         val headline = if (blank) "no history yet" else "nothing matches this filter"
@@ -1028,31 +1139,30 @@ class SettingsScreen(
         // minimum, and a 320×240 GUI is what a small window gets — the block ran into the footer. This
         // is the first thing a fresh install sees on this screen, and it was the one arrangement never
         // laid out against a real height.
-        val y = top + ((bottom - top - EmptyState.height(note)) / 2).coerceAtLeast(0)
-        EmptyState.draw(graphics, font, contentLeft, y, content, headline, hint, note)
+        val block = EmptyState.height(Sk.lineHeight(EmptyState.BODY_SIZE), note)
+        val y = top + ((bottom - top - block) / 2f).coerceAtLeast(0f)
+        EmptyState.draw(contentLeft.toFloat(), y, content.toFloat(), headline, hint, note)
     }
 
     /**
-     * Placement mode: the element sits where it currently is and is dragged from there.
+     * Placement mode's HUD element, drawn through Minecraft's own renderer.
      *
      * **It shows the element at its own position rather than under the cursor, and that is the change
      * that makes this an editor.** Before, the preview followed the mouse and a click dropped its
-     * top-left corner there — so the one thing a player wanted to see, where the HUD *is*, was the
-     * one thing the mode never showed, and moving it three pixels meant re-aiming at nothing.
+     * top-left corner there — so the one thing a player wanted to see, where the HUD *is*, was the one
+     * thing the mode never showed, and moving it three pixels meant re-aiming at nothing.
      *
      * One mode for all three, because they are one question asked about three rectangles. It draws the
      * real element in every case: the card with the live run when there is one — [HudSnapshot.current]
      * is what the overlay itself reads, so during a dungeon this is the actual HUD, at actual width,
-     * with the actual room in it — and each chip through the same function the game draws it with. Where
-     * there is no live data there is a scripted stand-in, the same one the gallery uses, so a preview
-     * that drifts from the overlay is visible here too.
+     * with the actual room in it — and each chip through the same function the game draws it with.
+     *
+     * Still on the old renderer because the HUD is, and that is the whole reason
+     * [SkScreen.extractExtra] exists. When the HUD draws through [Sk] this merges back into
+     * [renderPlacingChrome].
      */
-    private fun renderPlacing(graphics: GuiGraphicsExtractor, target: Target) {
+    private fun renderPlacingElement(graphics: GuiGraphicsExtractor, target: Target) {
         val origin = placingOrigin(target)
-        val h = placedHeight(target)
-        // Drawn through the real files, at the position the real ones read, so this is the overlay and
-        // not a picture of it. The card gets the live run when there is one; the two chips get a
-        // scripted line, because a popup needs a room you just finished and a countdown needs Storm.
         when (target) {
             // The card and the splits panel draw at an origin the editor hands them, so the size is
             // applied here — exactly as HudRoot.render and SplitsHud.render do it for the live ones.
@@ -1074,6 +1184,12 @@ class SettingsScreen(
                 graphics, font, width, height, SplitsCurrentHud.sample(),
             )
         }
+    }
+
+    /** Placement mode's readouts, which are this screen's own and therefore drawn through [Sk]. */
+    private fun renderPlacingChrome(target: Target) {
+        val origin = placingOrigin(target)
+        val h = placedHeight(target)
 
         // The numbers, beside the element and out of it, so a player who wants an exact position can
         // read one off while dragging rather than guessing at what they landed on.
@@ -1084,32 +1200,34 @@ class SettingsScreen(
         // would otherwise have to infer. Watching the label change as the element crosses into the next
         // third is also the only way the anchoring is visible at all before a resolution change.
         val text = target.slot.label()
+        val textWidth = w(text, noteText, Type.MEDIUM)
         // Under it, unless there is no room under it. A bottom-anchored element has its own bottom edge
         // against the screen's, and a label drawn below that one is a label nobody can read — which
         // would take the numbers away in exactly the corner where they are hardest to guess.
         val below = origin.y + h + Tokens.SPACE_6
         val labelY = if (below + HudRoot.TEXT_LINE <= height) below else origin.y - Tokens.SPACE_12
-        graphics.text(
-            font, text,
-            origin.x.coerceAtMost(width - font.width(text)).coerceAtLeast(0), labelY.coerceAtLeast(0),
-            if (dragging) Tokens.textPrimary else Tokens.textTertiary, false,
+        Sk.text(
+            text,
+            origin.x.toFloat().coerceAtMost(width - textWidth).coerceAtLeast(0f),
+            labelY.coerceAtLeast(0).toFloat(), noteText,
+            if (dragging) Tokens.textPrimary else Tokens.textTertiary, Type.MEDIUM,
         )
 
         // Two lines, because one that says all of it does not fit: at GUI scale 4 on a 1366×768 window
         // the screen is 342 px wide, and the single line this replaced already measured about 350 before
         // there was anything new to say on it.
-        graphics.text(
-            font,
+        Sk.text(
             if (dragging) {
                 "release to place it · wheel resizes it"
             } else {
                 "drag the ${target.what} · wheel resizes · arrows nudge · r resets"
             },
-            frameLeft, headerY, Tokens.textTertiary, false,
+            frameLeft.toFloat(), headerY.toFloat(), noteText, Tokens.textTertiary,
         )
-        graphics.text(
-            font, "click off it when done · esc cancels",
-            frameLeft, headerY + HudRoot.TEXT_LINE + Tokens.SPACE_2, Tokens.textTertiary, false,
+        Sk.text(
+            "click off it when done · esc cancels",
+            frameLeft.toFloat(), (headerY + HudRoot.TEXT_LINE + Tokens.SPACE_2).toFloat(),
+            noteText, Tokens.textTertiary,
         )
     }
 
@@ -1807,7 +1925,7 @@ class SettingsScreen(
             if (mouseY in segmentsY until (segmentsY + Segmented.HEIGHT)) {
                 // Resolved through the same call that drew the hover, so rule 3 holds without either
                 // side keeping a copy of the segment width.
-                val segment = Segmented.indexAt(font, VIEWS, contentLeft, mouseX)
+                val segment = Segmented.indexAt(VIEWS, segmentWidth(), contentLeft, mouseX)
                 if (segment >= 0) {
                     selectView(View.entries[segment])
                     return true
@@ -1879,7 +1997,7 @@ class SettingsScreen(
 
         when (item.kind) {
             SettingsPage.Kind.STEPPER -> {
-                val stepperWidth = Stepper.width(font, item.value)
+                val stepperWidth = Stepper.width(item.value) { w(it, Stepper.SIZE, Type.MEDIUM) }
                 val arm = Stepper.armAt(lastX - stepperWidth, stepperWidth, mouseX)
                 // `0` is the value between the arms, which is deliberately not a target — see
                 // Stepper.armAt. Shift no longer reverses anything here because the minus arm is what
@@ -2095,7 +2213,18 @@ class SettingsScreen(
         return true
     }
 
-    private fun fit(text: String, room: Int): String = font.plainSubstrByWidth(text, room.coerceAtLeast(0))
+    /**
+     * Truncate [text] to [room] pixels at the size it will be drawn at.
+     *
+     * It used to be `font.plainSubstrByWidth`, which could binary-search a bitmap font's integer
+     * widths. The size and face now have to be named at the call site, because with a proportional
+     * face the answer depends on both — and a truncation measured at one size and drawn at another is
+     * a string that either overflows its column or stops short of it.
+     */
+    private fun fit(
+        text: String, room: Int,
+        size: Float = rowText, family: String = Type.REGULAR,
+    ): String = Sk.fit(text, room.coerceAtLeast(0).toFloat(), size, family)
 
     /** Owes this frame a tooltip. Anything a column cut off says so the same way. */
     private fun tooltip(text: String, mouseX: Int, mouseY: Int) = tooltip(listOf(text), mouseX, mouseY)
@@ -2178,10 +2307,17 @@ class SettingsScreen(
 
     private fun Int?.time() = this?.let(Format::ticks) ?: Format.MISSING
 
-    private fun right(graphics: GuiGraphicsExtractor, text: String, rightX: Int, y: Int, present: Boolean) {
-        graphics.text(
-            font, text, rightX - font.width(text), y,
-            if (present) Tokens.textPrimary else Tokens.textTertiary, false,
+    /**
+     * A right-aligned cell. [y] is the row's top, not the text's — the row is what the caller has.
+     *
+     * A value that exists is set in Medium and lands on `textPrimary`; a dash is Regular and tertiary.
+     * Three signals for one distinction, which is what this palette has instead of a colour.
+     */
+    private fun right(text: String, rightX: Int, y: Int, present: Boolean) {
+        val family = if (present) Type.MEDIUM else Type.REGULAR
+        Sk.textRight(
+            text, rightX.toFloat(), Sk.centreY(y.toFloat(), Table.ROW.toFloat(), rowText, family), rowText,
+            if (present) Tokens.textPrimary else Tokens.textTertiary, family,
         )
     }
 

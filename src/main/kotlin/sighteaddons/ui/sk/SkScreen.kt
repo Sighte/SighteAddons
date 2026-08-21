@@ -87,10 +87,24 @@ internal abstract class SkScreen(title: Component) : SkijaScreen(title) {
         content()
     }
 
+    /**
+     * Anything that still has to be drawn through Minecraft's own renderer, on the extraction pass.
+     *
+     * There is exactly one caller and one reason: the placement editor draws the *real* HUD elements,
+     * and the HUD has not been ported to Skija yet. Everything issued here lands **below** everything
+     * [content] draws, because the Skija overlay composites as a single layer over the GUI — which
+     * happens to be the right way round for that one case (the element underneath, its readout on top)
+     * and would be exactly the wrong way round for anything sitting inside a panel.
+     *
+     * So this is a migration seam, not an extension point. When the HUD draws through [Sk] it goes.
+     */
+    protected open fun extractExtra(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int, delta: Float) {}
+
     final override fun extractRenderState(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int, delta: Float) {
         pointerX = mouseX
         pointerY = mouseY
         beginFrame()
+        extractExtra(graphics, mouseX, mouseY, delta)
 
         if (degraded) fallback(graphics)
 

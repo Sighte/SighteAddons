@@ -205,12 +205,36 @@ class RecordColumnsTest {
         for ((_, guiHeight, name) in sizes) {
             val bottom = Frame.listBottom(guiHeight)
             for (top in listOf(Frame.bodyTop, firstRow)) {
-                val height = EmptyState.height("config/sighteaddons/history.jsonl")
-                assertTrue(height <= bottom - top, "$name: the empty state is taller than its band")
-                val y = top + ((bottom - top - height) / 2).coerceAtLeast(0)
-                assertTrue(y >= top, "$name: centred above its band")
-                assertTrue(y + height <= bottom, "$name: centred through the footer")
+                for (line in LINE_HEIGHTS) {
+                    val height = EmptyState.height(line, "config/sighteaddons/history.jsonl")
+                    assertTrue(
+                        height <= bottom - top,
+                        "$name at line height $line: the empty state is taller than its band",
+                    )
+                    val y = top + ((bottom - top - height) / 2f).coerceAtLeast(0f)
+                    assertTrue(y >= top, "$name at line height $line: centred above its band")
+                    assertTrue(y + height <= bottom, "$name at line height $line: centred through the footer")
+                }
             }
         }
+    }
+
+    private companion object {
+        /**
+         * The line heights this block is checked against, for [EmptyState.BODY_SIZE] of 11.
+         *
+         * The block's height depends on the font's ascent plus descent, which is measured on the render
+         * thread and is therefore not a number a unit test can obtain. Passing one stand-in would make
+         * this test agree with an assumption rather than with the font, so it walks the range a real
+         * face can produce instead: a line runs about 1.0 to 1.65 times the em, so 11 to 18 at this
+         * size. JetBrains Mono measures about 14.3.
+         *
+         * **The upper end is a real limit, found by widening this list too far.** At a line height of
+         * 24 — a ratio of 2.2, which no text face has — the block is taller than the band it is centred
+         * in at `guiScaledHeight` 240. So the empty state does not survive an arbitrarily tall face, and
+         * anyone raising [EmptyState.BODY_SIZE] or switching to a face with unusual metrics has to come
+         * back here rather than discovering it on a 320x240 window.
+         */
+        val LINE_HEIGHTS = listOf(11f, 13f, 14.3f, 16.5f, 18f)
     }
 }
