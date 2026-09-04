@@ -93,6 +93,16 @@ internal object DungeonSplits {
     /** [LAG] as the panel prints it. */
     const val LAG_LABEL = "LAG"
 
+    /**
+     * The third row that is not a [Split]: the run's projected final time — [RunEstimate] over
+     * [SplitExpected]. Named here with the others for [LAG]'s reason: it is a row on the splits panel,
+     * and a name a player reads belongs in one place.
+     */
+    const val ESTIMATE = "est. run"
+
+    /** [ESTIMATE] as the panel prints it. */
+    const val ESTIMATE_LABEL = "EST. RUN"
+
     /** [ChatEvents]' own leading-space tolerance, kept for the reason given there. */
     private const val LEAD = """^\s*"""
 

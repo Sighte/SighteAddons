@@ -4,6 +4,7 @@ import net.minecraft.client.gui.Font
 import net.minecraft.client.gui.GuiGraphicsExtractor
 import sighteaddons.ui.components.Labels
 import sighteaddons.ui.hud.HudRoot
+import sighteaddons.ui.render.DevicePixels
 import sighteaddons.ui.render.Surface
 import sighteaddons.ui.render.Zoom
 import sighteaddons.ui.theme.Tokens
@@ -66,6 +67,14 @@ internal object SplitsHud {
      */
     private const val WIDEST_TIME = "10:00.0"
 
+    /**
+     * The air the EST. RUN row's divider costs: the hairline and a breath either side of it.
+     *
+     * A named constant used by [measure] and [draw] both, because the two agreeing to the pixel is
+     * [measure]'s whole contract and a literal written twice is how they stop.
+     */
+    private const val RULE_GAP = 4
+
     fun render(
         graphics: GuiGraphicsExtractor,
         font: Font,
@@ -97,7 +106,8 @@ internal object SplitsHud {
      * screen, as a border that stops above the last row it is supposed to contain.
      */
     internal fun measure(readout: Splits.Readout): Int =
-        PADDING * 2 + (readout.rows.size + extraRows(readout)) * ROW
+        PADDING * 2 + (readout.rows.size + extraRows(readout)) * ROW +
+            (if (estimateShown(readout)) RULE_GAP else 0)
 
     /** Split out for the gallery, which has a readout and no screen to place it against. */
     internal fun draw(
@@ -156,6 +166,18 @@ internal object SplitsHud {
             // definition, and printing that would read as "no lag" next to a number saying otherwise.
             Labels.draw(graphics, font, DungeonSplits.LAG_LABEL, left, y, Tokens.textTertiary)
             time(graphics, font, readout.lagText, timeRight, y, Tokens.textTertiary)
+            y += ROW
+        }
+
+        if (estimateShown(readout)) {
+            // Last, under a rule, because every row above it is a measurement and this one is a
+            // projection — the divider is what keeps a reader from summing it in with the facts. The
+            // tick cell stays empty for the lag row's reason turned around: expected times are typed in
+            // wall-clock seconds (SplitExpected says why), so there is no tick figure to print.
+            DevicePixels.hairlineH(graphics, left, y + 1, WIDTH - PADDING * 2, Tokens.borderSubtle)
+            y += RULE_GAP
+            Labels.draw(graphics, font, DungeonSplits.ESTIMATE_LABEL, left, y, Tokens.textTertiary)
+            time(graphics, font, readout.estimateText, timeRight, y, Tokens.textSecondary)
         }
     }
 
@@ -170,7 +192,9 @@ internal object SplitsHud {
      * drawn one row short of what is inside it, which is the exact failure [measure] exists to prevent.
      */
     private fun extraRows(readout: Splits.Readout): Int =
-        (if (bossEntryShown(readout)) 1 else 0) + (if (lagShown(readout)) 1 else 0)
+        (if (bossEntryShown(readout)) 1 else 0) +
+            (if (lagShown(readout)) 1 else 0) +
+            (if (estimateShown(readout)) 1 else 0)
 
     /**
      * Whether the lag row is drawn.
@@ -182,6 +206,18 @@ internal object SplitsHud {
      */
     private fun lagShown(readout: Splits.Readout): Boolean =
         Config.splitsLag && Config.splitsTickTime && readout.hasLag
+
+    /**
+     * Whether the EST. RUN row is drawn.
+     *
+     * **Not gated on the tick column, unlike [lagShown]** — the lag row is the difference between the
+     * two columns and needs both on screen to be checkable, while the estimate is a wall-clock figure
+     * whose inputs are the wall-clock column above it and the player's own typed times. The
+     * finished-run and missing-expectation cases are already inside `estimateMs` ([RunEstimate] returns
+     * its NONE for both), so [measure], [draw] and this cannot disagree about them.
+     */
+    private fun estimateShown(readout: Splits.Readout): Boolean =
+        Config.splitsEstimate && readout.estimateMs >= 0
 
     /** One right-aligned cell, so a column of them stays a column whatever the digits are. */
     private fun time(graphics: GuiGraphicsExtractor, font: Font, text: String, right: Int, y: Int, argb: Int) {

@@ -341,6 +341,7 @@ object Splits {
             hasBossEntry = hasBossEntry,
             runningRow = running,
             floorTag = floorTag,
+            estimateMs = RunEstimate.projectMs(rows, running < 0) { SplitExpected.get(floorTag, it) },
         )
     }
 
@@ -398,6 +399,18 @@ object Splits {
          */
         val lagMs: Long = lostToLag(totalMs, totalTicks),
         val lagText: String = Format.millis(lagMs),
+        /**
+         * The run's projected final time — [RunEstimate.projectMs], or [RunEstimate.NONE] when a
+         * remaining split has no expected time on file or the run is over.
+         *
+         * Passed in rather than defaulted like [lagMs], because it is not derivable from the fields
+         * above: it needs [SplitExpected], which [readout] looks up and [sample] scripts. Riding in the
+         * readout is what makes it free at the frame — [display] holds this object for the tenth of a
+         * second its strings are valid, so an expected time edited mid-run reaches the panel within
+         * 100 ms without a [SplitExpected.revision] term in the cache key.
+         */
+        val estimateMs: Long = RunEstimate.NONE,
+        val estimateText: String = Format.millis(estimateMs),
     ) {
         /** Whether the last mark has landed. A finished run has no running row. */
         val finished get() = runningRow < 0
@@ -482,6 +495,11 @@ object Splits {
             hasBossEntry = true,
             runningRow = spans.lastIndex,
             floorTag = "F7",
+            // Scripted like the spans above it, not summed over the live SplitExpected store: the
+            // editor's drag rectangle has to show the panel at its tallest whether or not this install
+            // has typed any expected times yet. Six closed spans (230.0 s) plus a plan for the three
+            // still open — the shape a mid-run estimate actually has.
+            estimateMs = 340_000L,
         )
     }
 

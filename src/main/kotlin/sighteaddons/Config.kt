@@ -214,6 +214,17 @@ object Config {
     var splitsLag = true
 
     /**
+     * The EST. RUN row: the run's projected final time, closed splits plus the player's own expected
+     * times for the rest — [RunEstimate], summed over [SplitExpected].
+     *
+     * On by default even though it is a new row on a panel people have already placed, because the row
+     * is self-gating: [RunEstimate.projectMs] returns nothing until *every* remaining split of the
+     * floor has an expected time on file, and a fresh install has none. So the default costs nobody a
+     * pixel, and it is what makes "prefill from PBs" one click instead of two.
+     */
+    var splitsEstimate = true
+
+    /**
      * The single large clock for the running split — see [SplitsCurrentHud]. Off, as Odin's is: three
      * elements already default to the middle of the screen and a fourth arriving switched on would land
      * on one of them.
@@ -451,10 +462,12 @@ object Config {
             splitsBossEntry = obj.bool("splitsBossEntry", splitsBossEntry)
             splitsSendToChat = obj.bool("splitsSendToChat", splitsSendToChat)
             splitsLag = obj.bool("splitsLag", splitsLag)
+            splitsEstimate = obj.bool("splitsEstimate", splitsEstimate)
             splitsCurrent = obj.bool("splitsCurrent", splitsCurrent)
             // Records rather than a setting, and read as defensively as one: a malformed floor costs
             // that floor and nothing else. See SplitPbs.read.
             SplitPbs.read(obj)
+            SplitExpected.read(obj)
             roomMessages = obj.bool("roomMessages", roomMessages)
             ownPbsOnly = obj.bool("ownPbsOnly", ownPbsOnly)
             runSummary = obj.bool("runSummary", runSummary)
@@ -508,8 +521,10 @@ object Config {
         obj.addProperty("splitsBossEntry", splitsBossEntry)
         obj.addProperty("splitsSendToChat", splitsSendToChat)
         obj.addProperty("splitsLag", splitsLag)
+        obj.addProperty("splitsEstimate", splitsEstimate)
         obj.addProperty("splitsCurrent", splitsCurrent)
         SplitPbs.write(obj)
+        SplitExpected.write(obj)
         obj.addProperty("roomMessages", roomMessages)
         obj.addProperty("ownPbsOnly", ownPbsOnly)
         obj.addProperty("runSummary", runSummary)
