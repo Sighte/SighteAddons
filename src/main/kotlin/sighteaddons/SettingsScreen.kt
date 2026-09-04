@@ -20,6 +20,7 @@ import sighteaddons.ui.components.Slider
 import sighteaddons.ui.components.Sparkline
 import sighteaddons.ui.components.Stepper
 import sighteaddons.ui.components.Table
+import sighteaddons.ui.components.TextField
 import sighteaddons.ui.components.Tooltip
 import sighteaddons.ui.hud.HudKeys
 import sighteaddons.ui.hud.HudRoot
@@ -189,6 +190,32 @@ internal class SettingsScreen(
      * screen entirely — one field for both would make a release during placement write the scrim.
      */
     private var sliderHeld = -1
+
+    /**
+     * Which expected-time field has the keyboard, as `floor to split`, or null.
+     *
+     * **A key and not an index**, unlike [sliderHeld], because a field outlives clicks in a way a drag
+     * does not: the page reflows while one is focused — the parent toggle above it can close, the floor
+     * stepper can move — and an index into a list that is rebuilt every frame would then commit the
+     * typed time onto whichever row inherited the number.
+     */
+    private var fieldFocus: Pair<String, String>? = null
+
+    /** The focused field's caret and text. One, because at most one field has the keyboard. */
+    private val fieldEdit = TextField.Edit()
+
+    /** What every *unfocused* field draws through — reset per row, so the component stays stateless. */
+    private val fieldScratch = TextField.Edit()
+
+    /**
+     * Which floor's expected times the splits section is editing.
+     *
+     * Screen state like [view], not config: which page of a plan was open last is not a setting.
+     * Seeded from the sidebar so the floor somebody is standing in is the one already showing, and F7
+     * otherwise — the floor anybody thinking about run time is thinking about.
+     */
+    private var estimateFloor: String =
+        SoloClear.floorTag(DungeonSession.floor).takeIf { DungeonSplits.numberOf(it) != null } ?: "F7"
 
     /** Where inside the element it was grabbed, so it does not jump to meet the cursor. */
     private var grabX = 0
@@ -784,6 +811,27 @@ internal class SettingsScreen(
                     item.value, item.fraction.coerceIn(0f, 1f),
                     minusHover = Controls.hover(anim.of("minus.${item.label}"), arm < 0),
                     plusHover = Controls.hover(anim.of("plus.${item.label}"), arm > 0),
+                )
+            }
+
+            // A typed value. The box is a fixed width sized off the widest time the panel prints —
+            // WIDEST_TIME's argument — so nine of them in a column stay a column whatever is in them.
+            // The focused row draws the live [fieldEdit]; every other row funnels its stored value
+            // through the one scratch Edit, which is what keeps TextField stateless and this screen the
+            // only owner of a caret.
+            SettingsPage.Kind.FIELD -> {
+                val boxWidth =
+                    Math.ceil(w("10:00.0", TextField.SIZE).toDouble()).toInt() + TextField.PADDING * 2
+                val focused = item.meta == focusedFieldKey()
+                val edit = if (focused) fieldEdit else fieldScratch.also { it.set(item.value) }
+                TextField.draw(
+                    (lastX - boxWidth).toFloat(), (y + (rowHeight - FIELD_HEIGHT) / 2).toFloat(),
+                    boxWidth.toFloat(), FIELD_HEIGHT.toFloat(),
+                    edit,
+                    placeholder = Format.MISSING,
+                    focus = if (focused) 1f else 0f,
+                    hover = hover,
+                    caret = TextField.caretOn(focused),
                 )
             }
 
@@ -1639,9 +1687,62 @@ internal class SettingsScreen(
             // What the number is, in the row that switches it on: the two columns minus each other,
             // which is not something a reader can be expected to infer from the word "lag".
             note("the run's wall clock minus its server ticks, summed")
+            toggle("estimate row", Config.splitsEstimate) { Config.splitsEstimate = !Config.splitsEstimate }
+            note("closed splits as run, plus your expected times for the rest")
+            if (Config.splitsEstimate) {
+                // The floor chooser is a stepper over the fifteen tags rather than fifteen rows of
+                // fields: the chains are up to nine splits long, and every floor's plan on one page
+                // would be a hundred rows deep. PbTable's reading order — masters first, sevens first
+                // — so the floor being run tonight is a step away, not fourteen.
+                add(
+                    SettingsPage.Item(
+                        SettingsPage.Kind.STEPPER, "expected times for", estimateFloor,
+                        fraction = Slider.fractionOf(FLOOR_TAGS.indexOf(estimateFloor), 0, FLOOR_TAGS.lastIndex),
+                        step = { back ->
+                            commitField()
+                            estimateFloor = FLOOR_TAGS.neighbour(estimateFloor, back)
+                        },
+                    ),
+                )
+                note("master floors keep their own plan — an m7 is not an f7")
+                val chain = DungeonSplits.chainFor(estimateFloor)
+                chain?.dropLast(1)?.forEach { split ->
+                    add(
+                        SettingsPage.Item(
+                            SettingsPage.Kind.FIELD, split.name,
+                            value = SplitExpected.get(estimateFloor, split.name)?.let(Format::seconds) ?: "",
+                            // The identity the draw and the focus agree on — see [fieldKey].
+                            meta = fieldKey(estimateFloor, split.name),
+                            click = { focusField(estimateFloor, split.name) },
+                        ),
+                    )
+                    note("type a time — 1:05, 65 or 65.5 all read as themselves")
+                }
+                action("prefill from PBs", "this floor's records${VERB_SEPARATOR}copy") {
+                    SplitExpected.prefillFromPbs(estimateFloor)
+                }
+                note("copies each split's personal best over this floor's plan")
+                state(estimatePlanState(chain))
+            }
             toggle("split clock", Config.splitsCurrent) { Config.splitsCurrent = !Config.splitsCurrent }
             note("the running split alone, large, for a boss fight")
             if (Config.splitsCurrent) place(Target.SPLITS_CURRENT)
+        }
+    }
+
+    /**
+     * The estimate section's standing sentence: whether the row can draw at all on this floor.
+     *
+     * A [state] line and not a tooltip, for [SettingsPage.Kind]'s rule — it is a statement about the
+     * current value, and it is the answer to the one question this feature will actually be asked:
+     * "why is there no EST. RUN row on my panel". All-or-nothing is [RunEstimate]'s contract.
+     */
+    private fun estimatePlanState(chain: List<DungeonSplits.Split>?): String {
+        val names = chain?.dropLast(1)?.map { it.name } ?: return "unknown floor"
+        val planned = names.count { SplitExpected.get(estimateFloor, it) != null }
+        return when (planned) {
+            names.size -> "all ${names.size} splits planned — the row can draw on $estimateFloor"
+            else -> "$planned of ${names.size} splits planned — the row needs all of them"
         }
     }
 
@@ -2075,10 +2176,21 @@ internal class SettingsScreen(
         val item = items.getOrNull(index)
 
         if (item == null || mouseX !in rowLeft..lastX) {
+            // A press on nothing still ends the field — clicking away is the commit gesture, and it
+            // has to work on the page's empty margin as well as on another row.
+            commitField()
             return super.mouseClicked(event, doubleClick)
         }
+        // Anything that is not a field commits and closes the one that was open. A field press does
+        // not: its own click handler decides whether it is a refocus or a move to a different field.
+        if (item.kind != SettingsPage.Kind.FIELD) commitField()
 
         when (item.kind) {
+            SettingsPage.Kind.FIELD -> {
+                item.click?.invoke()
+                return true
+            }
+
             SettingsPage.Kind.STEPPER -> {
                 val stepperWidth = Stepper.width(item.value) { w(it, Stepper.SIZE, Type.MEDIUM) }
                 val arm = Stepper.armAt(lastX - stepperWidth, stepperWidth, mouseX)
@@ -2192,6 +2304,8 @@ internal class SettingsScreen(
      * is a state you leave, and closing the whole screen to get out of it loses your place.
      */
     override fun keyPressed(event: KeyEvent): Boolean {
+        // The focused field owns the keyboard outright — see [fieldKeyPressed].
+        if (fieldFocus != null) return fieldKeyPressed(event)
         // Escape out of placing puts the element back, rather than closing the screen with a position
         // the player was in the middle of changing their mind about.
         val target = placing
@@ -2243,16 +2357,40 @@ internal class SettingsScreen(
     }
 
     /**
-     * One key for the focused field. Returns whether it was ours.
+     * One key for the focused field. Always swallows, so a keystroke cannot fall through to something
+     * else — the records search, or vanilla — while the field has focus.
      *
-     * **Copy and cut are swallowed rather than handled**, which is the one deliberate omission. A masked
-     * field that will hand its own contents to the clipboard is a masked field in appearance only, and
-     * the mod has no reason to be a place credentials are read *out* of — the key arrives from
-     * `config.json` or from a paste, and leaves only as a request header. Swallowing rather than
-     * ignoring, so the keystroke does not fall through to something else while the field has focus.
+     * Enter is the commit and escape is the revert, which is the same pair the placement editor answers
+     * to: clicking off something keeps it, escape puts it back. Everything unlisted is deliberately
+     * inert — paste included, because a field that takes nine characters at most is not the field a
+     * clipboard was filled for, and the character filter in [charTyped] would have to be re-argued
+     * against arbitrary pasted text.
      */
+    private fun fieldKeyPressed(event: KeyEvent): Boolean {
+        when (event.key()) {
+            GLFW.GLFW_KEY_ENTER, GLFW.GLFW_KEY_KP_ENTER -> commitField()
+            GLFW.GLFW_KEY_ESCAPE -> revertField()
+            GLFW.GLFW_KEY_BACKSPACE -> fieldEdit.backspace()
+            GLFW.GLFW_KEY_DELETE -> fieldEdit.delete()
+            GLFW.GLFW_KEY_LEFT -> fieldEdit.move(-1, event.hasShiftDown())
+            GLFW.GLFW_KEY_RIGHT -> fieldEdit.move(1, event.hasShiftDown())
+            GLFW.GLFW_KEY_HOME -> fieldEdit.home(event.hasShiftDown())
+            GLFW.GLFW_KEY_END -> fieldEdit.end(event.hasShiftDown())
+            GLFW.GLFW_KEY_A -> if (event.hasControlDown()) fieldEdit.selectAll()
+        }
+        return true
+    }
+
     /** Type anywhere to filter. No input box: the query itself is the only thing worth showing. */
     override fun charTyped(event: CharacterEvent): Boolean {
+        // The field first, and only the characters a duration is made of. Everything else is swallowed
+        // while one is focused, for [fieldKeyPressed]'s reason — and the filter is what keeps the IME
+        // and every exotic input path out of a value that has to parse.
+        if (fieldFocus != null) {
+            val typed = event.codepointAsString()
+            if (typed.all { it in '0'..'9' || it == ':' || it == '.' }) fieldEdit.insert(typed)
+            return true
+        }
         if (tab != Tab.RECORDS || view != View.ROOMS || !event.isAllowedChatCharacter) {
             return super.charTyped(event)
         }
@@ -2261,9 +2399,71 @@ internal class SettingsScreen(
         return true
     }
 
+    // --- The expected-time fields -----------------------------------------------------------
+
+    /**
+     * One spelling of a field's identity, carried in [SettingsPage.Item.meta] so the draw can ask "is
+     * this row the focused one" without holding an index into a list that is rebuilt every frame.
+     */
+    private fun fieldKey(floor: String, split: String): String = "$floor|$split"
+
+    /** [fieldKey] for the field that has the keyboard, or the empty string. */
+    private fun focusedFieldKey(): String = fieldFocus?.let { fieldKey(it.first, it.second) } ?: ""
+
+    /**
+     * Gives [split]'s field the keyboard, committing whichever field had it.
+     *
+     * Seeded selected, so typing replaces: the act this field exists for is retyping a whole time, not
+     * editing the tenth of one, and a caret that has to be steered first would make nine fields nine
+     * chores. It also spares v1 any caret hit-testing — a second click still just selects everything.
+     */
+    private fun focusField(floor: String, split: String) {
+        if (fieldFocus == floor to split) {
+            // A second click on the field that already has the keyboard re-selects what is in it —
+            // and must not reseed from the store, which would throw away what was typed so far.
+            fieldEdit.selectAll()
+            return
+        }
+        commitField()
+        fieldFocus = floor to split
+        fieldEdit.set(SplitExpected.get(floor, split)?.let(Format::seconds) ?: "")
+        fieldEdit.selectAll()
+    }
+
+    /**
+     * Writes the focused field into [SplitExpected] and drops the focus. Safe to call with none.
+     *
+     * **Every way out of the field runs through here** — a click anywhere that is not it, enter, the
+     * floor stepper, a tab or view switch, [removed] — because a blur path that skips it loses a typed
+     * value silently, which on a screen with no colour for errors is a value that was never anywhere.
+     * The one deliberate exception is escape, which is the *revert* gesture everywhere on this screen
+     * (the placement editor documents it) and therefore drops the focus without writing.
+     *
+     * Blank means "no plan" and clears the key; a string [SplitExpected.parse] refuses reverts to the
+     * stored value — the field snaps back, the same register as escape, because writing a guess at what
+     * a typo meant would put a number in the estimate nobody chose.
+     */
+    private fun commitField() {
+        val (floor, split) = fieldFocus ?: return
+        fieldFocus = null
+        val typed = fieldEdit.text.trim()
+        if (typed.isEmpty()) {
+            SplitExpected.remove(floor, split)
+        } else {
+            SplitExpected.parse(typed)?.let { SplitExpected.set(floor, split, it) }
+        }
+        Config.save()
+    }
+
+    /** Drops the focus without writing — what escape does. */
+    private fun revertField() {
+        fieldFocus = null
+    }
+
     // --- Zones and helpers ------------------------------------------------------------------
 
     private fun selectTab(entry: Tab) {
+        commitField()
         tab = entry
         scroll = 0
     }
@@ -2277,6 +2477,7 @@ internal class SettingsScreen(
      * table that looks empty.
      */
     private fun selectView(entry: View) {
+        commitField()
         view = entry
         scroll = 0
     }
@@ -2417,6 +2618,7 @@ internal class SettingsScreen(
      */
     override fun removed() {
         releaseSlider()
+        commitField()
         HudRoot.editing = false
         super.removed()
     }
@@ -2431,6 +2633,23 @@ internal class SettingsScreen(
 
         /** A switch on a 20-pixel row, with air above and below it. */
         const val TOGGLE_HEIGHT = 16
+
+        /** [TOGGLE_HEIGHT]'s reason: a field filling its whole 20-pixel row would touch the rules. */
+        const val FIELD_HEIGHT = 16
+
+        /**
+         * The fifteen floors in [PbTable.order]'s reading order — masters first, sevens first — which
+         * is asked of that function rather than respelled, so the records page and this stepper cannot
+         * come to walk the floors differently.
+         */
+        val FLOOR_TAGS: List<String> =
+            ((1..7).flatMap { listOf("M$it", "F$it") } + "E").sortedBy(PbTable::order)
+
+        /** The tag one step from [tag], wrapping at both ends like [StormTimer.step]. */
+        fun List<String>.neighbour(tag: String, back: Boolean): String {
+            val index = indexOf(tag).coerceAtLeast(0)
+            return this[(index + (if (back) -1 else 1) + size) % size]
+        }
 
         /**
          * The scrim slider's track.

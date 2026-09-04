@@ -47,8 +47,14 @@ internal object SettingsPage {
      * costs, which rows below are inert because the panel above them is closed. Those have to be
      * readable without a cursor on them: a switch that publishes a name has to be legible before the
      * click, not after somebody sees their name on a board.
+     *
+     * **[FIELD] is a typed value** — a label with a `TextField` on the right, for the handful of
+     * settings that are genuinely a number somebody knows (an expected split time) rather than a choice
+     * a stepper can walk to. [Item.click] is what focuses it; the caret, commit and keyboard handling
+     * belong to the screen, which is the only thing that knows how many fields there are — the same
+     * split `TextField.Edit`'s own KDoc draws.
      */
-    enum class Kind { SECTION, NOTE, TOGGLE, ACTION, INFO, STEPPER, SLIDER, STAT }
+    enum class Kind { SECTION, NOTE, TOGGLE, ACTION, INFO, STEPPER, SLIDER, STAT, FIELD }
 
     /**
      * One line.
