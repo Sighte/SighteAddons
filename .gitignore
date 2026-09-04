@@ -5,6 +5,9 @@ build/
 out/
 classes/
 
+# kotlin — 2.x writes sessions/ and errors/ here
+.kotlin/
+
 # eclipse
 
 *.launch
@@ -32,6 +35,8 @@ bin/
 
 run/
 .fabric/
+# the README's install step drops built jars here; one `git add .` away from being committed
+mods/
 # written by the loader when the tests boot it
 logs/
 # DebugLog writes here when a test drives ContributionTracker.award: under the test runtime
