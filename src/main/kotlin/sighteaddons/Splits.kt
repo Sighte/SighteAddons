@@ -241,12 +241,12 @@ object Splits {
     /**
      * One drawn line: a span, its name, and whether it is the one still running.
      *
-     * [label] rides along rather than being derived at the draw call, for
-     * [DungeonSplits.Split.label]'s reason — the panel draws every row of this every frame.
+     * [name] is what the panel prints since the 04.09.2026 redesign — the lower-case spelling
+     * [DungeonSplits] defines, drawn mixed-case like every value on [sighteaddons.ui.hud.HudRoot].
+     * There used to be a precomputed uppercase `label` beside it; it went with the uppercase rows.
      */
     data class Row(
         val name: String,
-        val label: String,
         val ms: Long,
         val ticks: Long,
         val running: Boolean,
@@ -266,9 +266,8 @@ object Splits {
      * `HudRoot` allocates nothing per frame. Twenty-two cache slots in the renderer would say the same
      * thing far less directly, so the strings are built where the numbers are, once per [display].
      */
-    private fun row(name: String, label: String, ms: Long, ticks: Long, running: Boolean) = Row(
+    private fun row(name: String, ms: Long, ticks: Long, running: Boolean) = Row(
         name = name,
-        label = label,
         ms = ms,
         ticks = ticks,
         running = running,
@@ -303,18 +302,17 @@ object Splits {
             val start = current[i]
             val end = current[i + 1]
             val name = start.split.name
-            val label = start.split.label
             when {
                 // Closed: the span between two marks that both arrived.
                 end.reached ->
-                    rows.add(row(name, label, end.atMs - start.atMs, end.atTicks - start.atTicks, false))
+                    rows.add(row(name, end.atMs - start.atMs, end.atTicks - start.atTicks, false))
                 // Running: this span started and has not ended, so it is measured against now. Exactly
                 // one row can be in this state, and everything after it is simply unknown.
                 start.reached && running < 0 -> {
                     running = i
-                    rows.add(row(name, label, latestMs - start.atMs, latestTicks - start.atTicks, true))
+                    rows.add(row(name, latestMs - start.atMs, latestTicks - start.atTicks, true))
                 }
-                else -> rows.add(row(name, label, -1L, -1L, false))
+                else -> rows.add(row(name, -1L, -1L, false))
             }
         }
 
@@ -411,6 +409,11 @@ object Splits {
          */
         val estimateMs: Long = RunEstimate.NONE,
         val estimateText: String = Format.millis(estimateMs),
+        /**
+         * [totalMs], written once — the panel's header prints it every frame. Defaulted like [lagText],
+         * and for the same property: no readout can carry a header that disagrees with its own total.
+         */
+        val totalText: String = Format.millis(totalMs),
     ) {
         /** Whether the last mark has landed. A finished run has no running row. */
         val finished get() = runningRow < 0
@@ -481,7 +484,7 @@ object Splits {
         )
         val rows = chain.dropLast(1).mapIndexed { i, split ->
             val span = spans.getOrNull(i)
-            row(split.name, split.label, span?.first ?: -1L, span?.second ?: -1L, i == spans.lastIndex)
+            row(split.name, span?.first ?: -1L, span?.second ?: -1L, i == spans.lastIndex)
         }
         val closed = rows.take(3)
         Readout(

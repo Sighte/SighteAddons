@@ -58,16 +58,6 @@ internal object DungeonSplits {
     data class Split(val name: String, val patterns: List<Regex>) {
         constructor(name: String, vararg patterns: Regex) : this(name, patterns.toList())
 
-        /**
-         * [name] as the HUD prints it, built once with the table.
-         *
-         * [sighteaddons.ui.components.Labels] draws uppercase and says outright that callers uppercase
-         * their own strings, because `uppercase()` allocates and the panel redraws ten of these every
-         * frame. The tables here are built at class-load and never change, so this is the one place the
-         * conversion can happen no times per frame instead of ten.
-         */
-        val label: String = name.uppercase()
-
         /** Whether [stripped] is this split's line. Full-string, for [DungeonSplits]' second reason. */
         fun matches(stripped: String): Boolean = patterns.any { it.matchEntire(stripped) != null }
     }
@@ -78,9 +68,6 @@ internal object DungeonSplits {
     /** The aggregate row, which is not a [Split] at all — see [Splits.Readout.bossEntryMs]. */
     const val BOSS_ENTRY = "boss entry"
 
-    /** [BOSS_ENTRY] as the panel prints it. A constant for [Split.label]'s reason. */
-    const val BOSS_ENTRY_LABEL = "BOSS ENTRY"
-
     /**
      * The other row that is not a [Split]: how much of the run was the server being behind.
      *
@@ -90,18 +77,12 @@ internal object DungeonSplits {
      */
     const val LAG = "lag"
 
-    /** [LAG] as the panel prints it. */
-    const val LAG_LABEL = "LAG"
-
     /**
      * The third row that is not a [Split]: the run's projected final time — [RunEstimate] over
      * [SplitExpected]. Named here with the others for [LAG]'s reason: it is a row on the splits panel,
      * and a name a player reads belongs in one place.
      */
     const val ESTIMATE = "est. run"
-
-    /** [ESTIMATE] as the panel prints it. */
-    const val ESTIMATE_LABEL = "EST. RUN"
 
     /** [ChatEvents]' own leading-space tolerance, kept for the reason given there. */
     private const val LEAD = """^\s*"""

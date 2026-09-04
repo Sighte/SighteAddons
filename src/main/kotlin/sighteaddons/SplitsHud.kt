@@ -3,6 +3,7 @@ package sighteaddons
 import net.minecraft.client.gui.Font
 import net.minecraft.client.gui.GuiGraphicsExtractor
 import sighteaddons.ui.components.Labels
+import sighteaddons.ui.hud.Glyphs
 import sighteaddons.ui.hud.HudRoot
 import sighteaddons.ui.render.DevicePixels
 import sighteaddons.ui.render.Surface
@@ -26,6 +27,20 @@ import sighteaddons.ui.theme.Tokens
  * Both are printed through [Format], so a split reads in the same `m:ss.t` as a room clear and a record
  * delta. Odin's `59m 59s` and `(59.9)` were two more dialects and [Format] is the file that exists to
  * have none.
+ *
+ * ### A header, a dot per split, and lower case (04.09.2026)
+ *
+ * The rows used to be uppercase [Labels] — a panel of ten headings and no body. Now the names are the
+ * lower-case spellings [DungeonSplits] already defines, drawn plain the way [HudRoot] draws every
+ * value, and the one tracked label left is the floor tag in the header, where a heading actually sits.
+ * The header also carries the running total over the wall-clock column, because it is that column's
+ * sum and the context every row is read against.
+ *
+ * Each split wears [Glyphs]' own pair: filled means the span ran, hollow means it has not started, and
+ * the running one takes [Tokens.accent] on its dot and its clock — the state that hue is reserved for
+ * ([sighteaddons.ui.theme.Palette]'s rule), while the shape and the primary-tone name keep saying it
+ * in a greyscale screenshot. The aggregate rows below carry no dot: the dots are the chain, and an
+ * aggregate is not a link of it.
  *
  * ### Above the calibration gate, like [StormHud]
  *
@@ -68,12 +83,18 @@ internal object SplitsHud {
     private const val WIDEST_TIME = "10:00.0"
 
     /**
-     * The air the EST. RUN row's divider costs: the hairline and a breath either side of it.
+     * The air the est. run row's divider costs: the hairline and a breath either side of it.
      *
      * A named constant used by [measure] and [draw] both, because the two agreeing to the pixel is
      * [measure]'s whole contract and a literal written twice is how they stop.
      */
     private const val RULE_GAP = 4
+
+    /**
+     * The header line — floor tag, rule, running total — and the air under it. A [measure]/[draw]
+     * constant for [RULE_GAP]'s reason.
+     */
+    private const val HEADER = ROW + Tokens.SPACE_6
 
     fun render(
         graphics: GuiGraphicsExtractor,
@@ -106,7 +127,7 @@ internal object SplitsHud {
      * screen, as a border that stops above the last row it is supposed to contain.
      */
     internal fun measure(readout: Splits.Readout): Int =
-        PADDING * 2 + (readout.rows.size + extraRows(readout)) * ROW +
+        PADDING * 2 + HEADER + (readout.rows.size + extraRows(readout)) * ROW +
             (if (estimateShown(readout)) RULE_GAP else 0)
 
     /** Split out for the gallery, which has a readout and no screen to place it against. */
@@ -130,28 +151,59 @@ internal object SplitsHud {
         val column = font.width(WIDEST_TIME)
         val tickRight = right
         val timeRight = if (Config.splitsTickTime) right - column - Tokens.SPACE_8 else right
+        // The rows' name column starts past the dot, HudRoot's glyph-then-name pattern, so ten dots
+        // line up as a column whatever the mark in each is.
+        val nameLeft = left + Glyphs.SIZE + Tokens.SPACE_6
 
         var y = originY + PADDING
+        // The header: which floor, and where the run stands. The tag is the panel's one tracked label
+        // (Labels.sectionHeader's shape, hand-composed because its meta slot is tertiary and the running
+        // total has earned textSecondary), the rule is what makes the boundary a shape rather than a
+        // shade, and the total sits over the wall-clock column because it is that column's sum.
+        Labels.draw(graphics, font, readout.floorTag, left, y, Tokens.textSecondary)
+        val ruleLeft = left + Labels.width(font, readout.floorTag) + Tokens.SPACE_8
+        val ruleRight = timeRight - font.width(readout.totalText) - Tokens.SPACE_8
+        if (ruleRight > ruleLeft) {
+            DevicePixels.hairlineH(graphics, ruleLeft, y + Labels.CAP / 2, ruleRight - ruleLeft, Tokens.borderSubtle)
+        }
+        time(graphics, font, readout.totalText, timeRight, y, Tokens.textSecondary)
+        y += HEADER
+
         readout.rows.forEach { row ->
-            // The running row is the only one on the panel whose number is still moving, and it is named
-            // in the primary tone while a row that has not started yet drops to tertiary. A span that is
-            // finished sits between them, which is the ordering a reader wants: what is happening now,
-            // what happened, what has not happened.
+            // The running row is the only one on the panel whose number is still moving: its dot and
+            // its clock take the accent — the one state the palette reserves that hue for — while the
+            // shape still says it without the colour (a filled dot under hollow ones, the primary-tone
+            // name). A finished span keeps its filled dot in its own tone; one that has not started is
+            // hollow, Glyphs' own pair for reached and not.
             val tone = when {
                 row.running -> Tokens.textPrimary
                 row.known -> Tokens.textSecondary
                 else -> Tokens.textTertiary
             }
-            Labels.draw(graphics, font, row.label, left, y, tone)
-            time(graphics, font, row.timeText, timeRight, y, if (row.known) Tokens.textPrimary else Tokens.textTertiary)
+            val dotY = y + (Labels.CAP - Glyphs.SIZE) / 2
+            when {
+                row.running -> Glyphs.dotFilled(graphics, left, dotY, Tokens.accent)
+                row.known -> Glyphs.dotFilled(graphics, left, dotY, tone)
+                else -> Glyphs.dotHollow(graphics, left, dotY, tone)
+            }
+            // Mixed case, plain text: the names read as words, not as headings — HudRoot draws every
+            // value this way, and the uppercase rows this replaces were the one place the panel shouted.
+            graphics.text(font, row.name, nameLeft, y, tone, false)
+            val timeTone = when {
+                row.running -> Tokens.accent
+                row.known -> Tokens.textPrimary
+                else -> Tokens.textTertiary
+            }
+            time(graphics, font, row.timeText, timeRight, y, timeTone)
             if (Config.splitsTickTime) time(graphics, font, row.tickText, tickRight, y, Tokens.textTertiary)
             y += ROW
         }
 
         if (bossEntryShown(readout)) {
             // An aggregate of the three spans above it, so it is written in the qualifying tone
-            // throughout rather than in a row's: it is not a split and nothing files a record for it.
-            Labels.draw(graphics, font, DungeonSplits.BOSS_ENTRY_LABEL, left, y, Tokens.textTertiary)
+            // throughout rather than in a row's, and it carries no dot: the dots are the chain, and it
+            // is not a link of it.
+            graphics.text(font, DungeonSplits.BOSS_ENTRY, nameLeft, y, Tokens.textTertiary, false)
             time(graphics, font, readout.bossEntryText, timeRight, y, Tokens.textSecondary)
             if (Config.splitsTickTime) {
                 time(graphics, font, readout.bossEntryTickText, tickRight, y, Tokens.textTertiary)
@@ -164,7 +216,7 @@ internal object SplitsHud {
             // clock and belongs under the totals it was subtracted from; the tick column stays empty
             // because there is no tick figure for it — a lag span counted in ticks is zero by
             // definition, and printing that would read as "no lag" next to a number saying otherwise.
-            Labels.draw(graphics, font, DungeonSplits.LAG_LABEL, left, y, Tokens.textTertiary)
+            graphics.text(font, DungeonSplits.LAG, nameLeft, y, Tokens.textTertiary, false)
             time(graphics, font, readout.lagText, timeRight, y, Tokens.textTertiary)
             y += ROW
         }
@@ -176,7 +228,7 @@ internal object SplitsHud {
             // wall-clock seconds (SplitExpected says why), so there is no tick figure to print.
             DevicePixels.hairlineH(graphics, left, y + 1, WIDTH - PADDING * 2, Tokens.borderSubtle)
             y += RULE_GAP
-            Labels.draw(graphics, font, DungeonSplits.ESTIMATE_LABEL, left, y, Tokens.textTertiary)
+            graphics.text(font, DungeonSplits.ESTIMATE, nameLeft, y, Tokens.textTertiary, false)
             time(graphics, font, readout.estimateText, timeRight, y, Tokens.textSecondary)
         }
     }

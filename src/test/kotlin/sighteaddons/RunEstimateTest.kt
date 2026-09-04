@@ -15,7 +15,6 @@ class RunEstimateTest {
 
     private fun row(name: String, ms: Long, running: Boolean = false) = Splits.Row(
         name = name,
-        label = name.uppercase(),
         ms = ms,
         ticks = if (ms < 0) -1L else ms / 50,
         running = running,

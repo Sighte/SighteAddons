@@ -1032,9 +1032,9 @@ internal class GalleryScreen : SkScreen(Component.literal("Sighte Addons — UI 
      * **Frozen and not scripted, unlike the page before it.** The overlay page runs a timeline because
      * what it has to show is a fade landing and an escalation arriving in order. Nothing on this panel
      * animates: it is a table, and every question about it is a question about one frame — whether the
-     * two time columns read as two columns, whether the three tones separate a span that is running from
-     * one that is finished from one that has not started, and whether the aggregate row at the bottom
-     * reads as an aggregate rather than as an eleventh split.
+     * two time columns read as two columns, whether dot and tone together separate a span that is
+     * running from one that is finished from one that has not started, and whether the dotless
+     * aggregate rows at the bottom read as aggregates rather than as more splits.
      *
      * The tick column and the boss-entry row follow [Config], because they are the player's switches and
      * a specimen that ignored them would be showing a panel nobody has. The caption says which state is
@@ -1064,9 +1064,9 @@ internal class GalleryScreen : SkScreen(Component.literal("Sighte Addons — UI 
      * **Frozen and not scripted, unlike the page before it.** The overlay page runs a timeline because
      * what it has to show is a fade landing and an escalation arriving in order. Nothing on this panel
      * animates: it is a table, and every question about it is a question about one frame — whether the
-     * two time columns read as two columns, whether the three tones separate a span that is running from
-     * one that is finished from one that has not started, and whether the aggregate row at the bottom
-     * reads as an aggregate rather than as an eleventh split.
+     * two time columns read as two columns, whether dot and tone together separate a span that is
+     * running from one that is finished from one that has not started, and whether the dotless
+     * aggregate rows at the bottom read as aggregates rather than as more splits.
      *
      * The tick column and the boss-entry row follow [Config], because they are the player's switches and
      * a specimen that ignored them would be showing a panel nobody has. The caption says which state is
@@ -1079,7 +1079,7 @@ internal class GalleryScreen : SkScreen(Component.literal("Sighte Addons — UI 
         val panelH = SplitsHud.measure(readout)
         val captionY = top + Tokens.SPACE_12 + panelH + Tokens.SPACE_16 + 2
         flat(
-            "running is brightest  ·  finished is one step down  ·  not started yet is a dash",
+            "running is the accent dot and clock  ·  finished is filled  ·  not started is hollow",
             left, captionY, Tokens.textTertiary,
         )
         flat(
@@ -1092,7 +1092,7 @@ internal class GalleryScreen : SkScreen(Component.literal("Sighte Addons — UI 
         )
         flat(
             if (Config.splitsBossEntry) {
-                "the last row is the first three spans summed, in the qualifying tone"
+                "the dotless rows are aggregates  ·  the header total is the wall-clock column's sum"
             } else {
                 "the boss entry row is switched off in /sa"
             },
