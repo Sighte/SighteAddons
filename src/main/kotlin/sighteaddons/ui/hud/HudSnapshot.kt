@@ -15,7 +15,7 @@ import sighteaddons.ui.Format
  * Everything the HUD draws, frozen at one tick.
  *
  * The renderer never touches the tracking layer directly, and that is the point. `RoomHistory.records()`,
- * `RoomHistory.attempts()` and `ContributionTracker.pointsByPlayer()` all hand out their live internal
+ * `RoomHistory.attempts()` and `ContributionTracker.clearPointsByPlayer()` all hand out their live internal
  * `HashMap`s — not copies — and `RoomHistory.ensureLoaded()` does synchronous file I/O on whatever
  * thread calls it first. Reading any of that from the render thread means iterating a map that the
  * client tick may be writing, and stalling a frame on a disk read the first time a screen opens.
@@ -74,10 +74,12 @@ internal class HudSnapshot(
     /**
      * One row of the live standings.
      *
-     * [estimated] is true when any part of [points] is a guess — a teammate's share of secrets somebody
-     * else was seen to find. Never true for the local player: their secrets are counted, not inferred.
-     * The card marks the difference, because a number that is partly a guess and a number that is not
-     * must not look identical.
+     * [estimated] is true when any part of [points] is a guess — a share of the secrets found in a room
+     * this player was in. Live that is every player with secrets, the local one included: the split is
+     * deliberately blind to who is holding the mouse, because a client that proved its own player and
+     * guessed the rest computed a different table from every other client in the party. See
+     * [ClearScore]. The mark separates two kinds of row only after the run, where Hypixel has answered
+     * for some players and not others.
      */
     class Standing(val name: String, val points: Double, val secrets: Int, val estimated: Boolean = false)
 
@@ -182,7 +184,7 @@ internal class HudSnapshot(
                 navTicks = IdleTime.navTicks,
 
                 history = historyOf(visited, room, self, records),
-                standings = standingsOf(visited, self),
+                standings = standingsOf(visited),
             )
         }
 
@@ -252,9 +254,15 @@ internal class HudSnapshot(
         }
 
         /**
-         * The live standings: clear points, plus each teammate's estimated share of the secrets this
-         * client saw somebody else find. See [ClearScore] for why the estimate exists and what replaces
-         * it at the end of a run.
+         * The live standings: clear points, plus every player's estimated share of the secrets found in
+         * the rooms they were in. See [ClearScore] for why the estimate covers the local player too and
+         * what replaces it at the end of a run.
+         *
+         * **Takes no `self`, and that is the point rather than a simplification.** This card is drawn on
+         * every client in the party, and a figure that depends on which client drew it cannot be
+         * compared with the one beside it — which is what two people in one run were doing.
+         * [TrackedRoom.ownSecrets] is deliberately not consulted here; it still drives the secrets
+         * readout above, where it is the answer to a different question.
          *
          * The estimate is rebuilt from the rooms every tick rather than accumulated as secrets arrive.
          * That is deliberate and it is the cheaper of the two in the way that matters: a room's tick
@@ -263,17 +271,15 @@ internal class HudSnapshot(
          * corrected. Recomputing is a few dozen small maps twenty times a second, on the path that
          * already builds every string this card draws.
          */
-        private fun standingsOf(visited: List<TrackedRoom>, self: String?): Array<HudSnapshot.Standing> {
-            val guessed = ClearScore.guessedSecretPoints(
-                visited.map { ClearScore.Room(it.ticks, (it.secretsFound - it.ownSecrets).coerceAtLeast(0)) },
-                self,
+        private fun standingsOf(visited: List<TrackedRoom>): Array<HudSnapshot.Standing> {
+            val secrets = ClearScore.secretPoints(
+                visited.map { ClearScore.Room(it.ticks, it.secretsFound) },
                 ContributionTracker.MIN_TICKS,
             )
             val rows = ClearScore.live(
                 PartyTracker.roster().map { it.name },
                 ContributionTracker.clearPointsByPlayer(),
-                ContributionTracker.ownSecretPointsByPlayer(),
-                guessed,
+                secrets,
             )
             return Array(rows.size) { HudSnapshot.Standing(rows[it].name, rows[it].points, Format.NONE, rows[it].estimated) }
         }

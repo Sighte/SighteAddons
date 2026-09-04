@@ -517,9 +517,10 @@ object ContributionTracker {
      * with both, a room the player fully cleared would pay its secrets twice — once for holding
      * them and once for their finding them.
      *
-     * Not private, because [ClearScore] spends the same quarter twice more: on a teammate's *estimated*
-     * share of the secrets somebody else was seen to find, and on every player's *true* count once
-     * [SecretApi] answers. Three places paying different amounts per secret would be three scores.
+     * Not private, because [ClearScore] spends the same quarter twice more: on every player's
+     * *estimated* share of the secrets found in the rooms they were in, and on every player's *true*
+     * count once [SecretApi] answers. Three places paying different amounts per secret would be three
+     * scores.
      */
     internal const val SECRET_POINTS = 0.25
 
@@ -533,17 +534,19 @@ object ContributionTracker {
     private val rooms = HashMap<Pos, TrackedRoom>()
 
     /**
-     * The two halves of a score, accumulated apart: rooms' clear weight, and the local player's proven
-     * secrets at [SECRET_POINTS] each.
+     * Two things accumulated apart: rooms' clear weight, and the local player's proven secrets at
+     * [SECRET_POINTS] each.
      *
-     * One map summed as it went, until [ClearScore] needed the halves separately — the final standings
-     * rebuild the secret half from Hypixel's real per-player counts, and rebuilding it means being able
-     * to leave the clear half alone. Two accumulators rather than one total minus one part: recovering
-     * a term by subtracting another from a sum is precisely the shape [unattributed] documents as having
-     * been wrong once already, and floating point does not promise `(a + b) - b == a`.
+     * One map summed as it went, until [ClearScore] needed them separately. Two accumulators rather
+     * than one total minus one part: recovering a term by subtracting another from a sum is precisely
+     * the shape [unattributed] documents as having been wrong once already, and floating point does not
+     * promise `(a + b) - b == a`.
      *
-     * [pointsByPlayer] still answers with the sum, because "what is this player's live score" is a real
-     * question and every existing reader asks exactly it.
+     * **[secretCredit] is no longer half of the standings.** The table splits each room's whole secret
+     * count over everybody who was in it, with nobody singled out, because a client that proved its own
+     * player and guessed the rest computed a different table from every other client in the party —
+     * see [ClearScore]. What is left here is the *attribution* figure: what this client can prove about
+     * itself, which is what [SecretAudit] grades and what the secrets readout shows.
      */
     private val clearCredit = HashMap<String, Double>()
     private val secretCredit = HashMap<String, Double>()
@@ -698,20 +701,21 @@ object ContributionTracker {
     }
 
     /**
-     * Weighted ClearPoints per player — **not** a number of rooms, and not comparable with
-     * [roomsCleared]. One [weightOf] room is worth between [MIN_BASE] and [MAX_BASE], and the local
-     * player is additionally paid [SECRET_POINTS] for every secret attributed to them, so this
-     * total normally runs above the room count. See [unattributed].
+     * Clear weight plus the local player's *attributed* secrets — **not** a number of rooms, and not
+     * comparable with [roomsCleared]. One [weightOf] room is worth between [MIN_BASE] and [MAX_BASE],
+     * and the local player is additionally paid [SECRET_POINTS] for every secret attributed to them, so
+     * this total normally runs above the room count. See [unattributed].
      *
-     * **Two halves with two different clocks.** [award] pays a room's clear when its checkmark lands;
-     * [onOwnSecret] pays a quarter the moment a secret is attributed to the local player. The second is
-     * what makes the HUD figure move while somebody is collecting, which it did not do before
-     * `secretpoints-001`.
+     * **Deliberately not the standings figure any more, and the two must not be conflated.** The table
+     * on screen splits every room's whole secret count over everybody who was in it, so a teammate's
+     * row there carries secret points this map has never heard of and the local player's row is an
+     * estimate rather than this proven floor — see [ClearScore]. This is what one client can prove,
+     * which is the right quantity for a log line and the wrong one for a comparison between players.
      *
-     * They are two accumulators now — [clearPointsByPlayer] and [ownSecretPointsByPlayer] — because
-     * [ClearScore] rebuilds the second half from Hypixel's real counts at the end of a run. This is their
-     * sum, which is the live score and the question every older reader was asking; the map is a copy once
-     * a secret has been credited, so nothing here may be mutated by a caller either way.
+     * The only reader left is the run's debug event, plus the tests that pin the two clocks: [award]
+     * pays a room's clear when its checkmark lands, [onOwnSecret] pays a quarter the moment a secret is
+     * attributed. The map is a copy once a secret has been credited, so nothing here may be mutated by
+     * a caller either way.
      */
     fun pointsByPlayer(): Map<String, Double> {
         if (secretCredit.isEmpty()) return clearCredit
@@ -723,33 +727,26 @@ object ContributionTracker {
     /**
      * The clear half alone — rooms' weights, split by time, and nothing about secrets.
      *
-     * What [ClearScore] builds both of its passes on: the live one adds an estimate of everybody else's
-     * secrets to this, and the final one adds Hypixel's real counts to this same figure. Handing out the
-     * live internal map, like every other reader in this file gets.
+     * What [ClearScore] builds both of its passes on: the live one adds every player's estimated share
+     * of the secrets found around them to this, and the final one adds Hypixel's real counts to this
+     * same figure. Handing out the live internal map, like every other reader in this file gets.
      */
     fun clearPointsByPlayer(): Map<String, Double> = clearCredit
-
-    /**
-     * The local player's proven secret credit, [SECRET_POINTS] per attributed find.
-     *
-     * Separate from the clear half so the final standings can replace it with a measurement rather than
-     * add to it: [SecretAudit] exists because this number is known to be a floor, not a total.
-     */
-    fun ownSecretPointsByPlayer(): Map<String, Double> = secretCredit
 
     /**
      * One secret was just credited to [player] — always the local player, because attribution is
      * something this client can only prove about itself. Pays [SECRET_POINTS] on the spot.
      *
-     * **This is the "live" half of `secretpoints-001` and the whole of the user's complaint.** The
-     * credit lands on the tick [SecretTracker.onActionBar] decides the secret was theirs, so the
-     * standings line and the run summary both move while the room is still being worked, rather
-     * than jumping when the checkmark arrives. Nothing waits for a clear: a secret found in a room
-     * that never clears, or in a room that was already cleared when we walked in, is still paid.
+     * **This is no longer what moves the standings**, and `secretpoints-001`'s requirement survives
+     * that change: the table moves while a room is being worked because [TrackedRoom.secretsFound]
+     * rises, which [ClearScore] reads directly. It moves on a teammate's find too, and that is correct
+     * rather than tolerated — a secret found in a room you are standing in is a secret you might have
+     * found, and the split says so with a fraction instead of pretending to know.
      *
      * **Attributed, not found**, and deliberately the same signal the HUD puts on screen as
-     * "you" — [TrackedRoom.ownSecrets] is incremented on the same line that calls this. A
-     * live score that moved on a teammate's find would contradict the readout directly above it.
+     * "you" — [TrackedRoom.ownSecrets] is incremented on the same line that calls this. That pairing
+     * is the point of this function now: it is the attribution figure, kept honest against the readout
+     * above it and against [SecretAudit], and it is not compared between players.
      * The two signals attribution runs on (a counter rise inside the own-interaction window, or a
      * wither-essence chat line naming you) mean a secret walked over is credited to nobody, so this
      * under-counts by exactly the margin the HUD line does. That gap is `ownsecrets-001`'s subject;

@@ -582,16 +582,19 @@ object RoomHistory {
         // Every value the rows need is read here rather than in the callback: by the time an answer
         // lands the player may already be in the next floor, and ContributionTracker, DungeonTab and
         // PartyTracker will all have been reset by it.
-        // **The score's two halves, copied rather than referenced.** Both accessors hand out the
-        // tracker's live maps and `reset()` clears them, so a callback that arrives after the next floor
-        // has started would read empty ones. The guessed half is a value already: a map this run's rooms
-        // produced once, which nothing later can change.
+        // **The clear half is copied rather than referenced.** The accessor hands out the tracker's
+        // live map and `reset()` clears it, so a callback that arrives after the next floor has started
+        // would read an empty one. The secret half is a value already: a map this run's rooms produced
+        // once, which nothing later can change.
+        //
+        // Neither half is told who the local player is. The whole secret count of a room goes to
+        // everybody who was in it, so this summary and the one printed on a teammate's screen are built
+        // the same way — see [ClearScore]. `self` below is for the rows' *secrets* column and for the
+        // audit, both of which are still about attribution and stay that way.
         val rosterNames = PartyTracker.roster().map { it.name }
         val clear = HashMap(ContributionTracker.clearPointsByPlayer())
-        val own = HashMap(ContributionTracker.ownSecretPointsByPlayer())
-        val guessed = ClearScore.guessedSecretPoints(
-            rooms.map { ClearScore.Room(it.ticks, (it.secretsFound - it.ownSecrets).coerceAtLeast(0)) },
-            self,
+        val secrets = ClearScore.secretPoints(
+            rooms.map { ClearScore.Room(it.ticks, it.secretsFound) },
             ContributionTracker.MIN_TICKS,
         )
         val contributed = rosterNames.associateWith { name ->
@@ -612,7 +615,7 @@ object RoomHistory {
             // including the local player, whose attributed count is a floor rather than a total (see
             // SecretAudit). The order is recomputed with them: a correction that reorders the rows and
             // prints them in the old order would be a table that disagrees with its own numbers.
-            val rows = ClearScore.settled(rosterNames, clear, own, guessed, counts)
+            val rows = ClearScore.settled(rosterNames, clear, secrets, counts)
             body(rows, contributed, counts, self, estimated, floorTracked, unattributed, records)
             if (counts.isNotEmpty()) {
                 announce(secretLine(counts))
@@ -625,14 +628,14 @@ object RoomHistory {
                 DebugLog.event(
                     "standings_settled",
                     "answered" to counts.size, "asked" to rosterNames.size,
-                    "guessed" to ContributionTracker.settle(answered.sumOf { guessed[it] ?: 0.0 }),
+                    "guessed" to ContributionTracker.settle(answered.sumOf { secrets[it] ?: 0.0 }),
                     "actual" to ContributionTracker.settle(
                         answered.sumOf { (counts[it] ?: 0) * ContributionTracker.SECRET_POINTS },
                     ),
                     "worst" to ContributionTracker.settle(
                         answered.maxOfOrNull { name ->
                             Math.abs(
-                                (counts[name] ?: 0) * ContributionTracker.SECRET_POINTS - (guessed[name] ?: 0.0),
+                                (counts[name] ?: 0) * ContributionTracker.SECRET_POINTS - (secrets[name] ?: 0.0),
                             )
                         } ?: 0.0,
                     ),

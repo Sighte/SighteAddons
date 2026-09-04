@@ -362,7 +362,7 @@ class ContributionTrackerTest {
      *
      * The score has to move on the find, not on the next checkmark, so nothing here is cleared at
      * all: [ContributionTracker.onCleared] is never called and [ContributionTracker.roomsCleared]
-     * stays at zero while the standings climb. Under the previous model this test could not have
+     * stays at zero while the attributed points climb. Under the previous model this test could not have
      * been written — the whole of a secret's worth was inside [ContributionTracker.weightOf] and
      * arrived with the clear.
      *
