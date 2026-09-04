@@ -18,7 +18,7 @@ import sighteaddons.ui.theme.Tokens
  *
  * ### One [Item] with a [Kind] rather than a sealed hierarchy
  *
- * Every page here — three settings tabs and the stats overview — is a flat list of lines drawn by one
+ * Every page here — the three settings tabs — is a flat list of lines drawn by one
  * loop, hit-tested by one function and scrolled by one offset. A sealed hierarchy would put each line's
  * height, hit box and drawing in a different place from the loop that has to agree with all three, and
  * the bug that produces is a row whose highlight is in one place and whose click is in another. The tag
@@ -35,9 +35,7 @@ internal object SettingsPage {
     /**
      * What a line is.
      *
-     * [SECTION] and [NOTE] are the structure, [TOGGLE] to [SLIDER] are the controls, and [STAT] is a
-     * figure with its sample beside it — the stats overview's only line kind, here rather than in its
-     * own list so both pages share the loop and the scroll.
+     * [SECTION] and [NOTE] are the structure, [TOGGLE] to [SLIDER] and [FIELD] are the controls.
      *
      * **[NOTE] is no longer what explains a row.** An explanation is [Item.notes] now and appears in a
      * tooltip while the cursor is on the row, because thirty-odd permanent grey sentences made the
@@ -54,7 +52,7 @@ internal object SettingsPage {
      * belong to the screen, which is the only thing that knows how many fields there are — the same
      * split `TextField.Edit`'s own KDoc draws.
      */
-    enum class Kind { SECTION, NOTE, TOGGLE, ACTION, INFO, STEPPER, SLIDER, STAT, FIELD }
+    enum class Kind { SECTION, NOTE, TOGGLE, ACTION, INFO, STEPPER, SLIDER, FIELD }
 
     /**
      * One line.
@@ -74,7 +72,6 @@ internal object SettingsPage {
         val value: String = "",
         val meta: String = "",
         val on: Boolean = false,
-        val thin: Boolean = false,
         val fraction: Float = -1f,
         val click: (() -> Unit)? = null,
         val step: ((back: Boolean) -> Unit)? = null,
@@ -87,26 +84,19 @@ internal object SettingsPage {
          * builder buffer and not shared state.** An explanation is written *after* the row it explains
          * in every one of these pages — that is the order somebody reads them in and the order they
          * were in when they were lines — so the builder adds the row and then hangs its sentences off
-         * it. Every page but the stats overview is rebuilt from scratch each frame and none of them is
-         * kept across one, so nothing here outlives the frame that filled it.
+         * it. Every page is rebuilt from scratch each frame and none of them is kept across one, so
+         * nothing here outlives the frame that filled it.
          *
          * A list rather than one string because several rows have two things worth saying, and
          * `Tooltip` already draws as many lines as it is handed.
          */
         val notes = ArrayList<String>()
 
-        /**
-         * How tall this line is.
-         *
-         * A [Kind.STAT] with a bar is taller by exactly the bar: the bar sits under the figure it
-         * qualifies rather than beside it, because a bar and a number competing for the same row is a
-         * row where neither is read.
-         */
+        /** How tall this line is. */
         val height: Int
             get() = when (kind) {
                 Kind.SECTION -> SECTION
                 Kind.NOTE -> NOTE
-                Kind.STAT -> if (fraction >= 0f) ROW + BAR else ROW
                 else -> ROW
             }
 
@@ -134,15 +124,12 @@ internal object SettingsPage {
      */
     const val SECTION = Tokens.SPACE_24
 
-    /** The strip a [Kind.STAT] line's bar occupies under its figure. */
-    const val BAR = Tokens.SPACE_6
-
     /**
      * The runs of consecutive lines that belong inside one card, as index ranges.
      *
      * A [Kind.SECTION] is the boundary: it is the group's *label*, sits above the card rather than in
      * it, and its own height is the air between one card and the next. Anything before the first
-     * section is a group too — the stats overview opens straight into figures.
+     * section is a group too, so a page that opened straight into rows would still be carded.
      *
      * Here rather than in the screen because it is the arithmetic a card's geometry comes from, and
      * because it is checkable: a card drawn one item short leaves the last row of a group sitting on
@@ -282,7 +269,7 @@ internal object Frame {
  * The scroll offset arithmetic, shared by every list on the `/sa` screen.
  *
  * One clamp for all of them, in whatever unit the caller counts in — the history table counts rows
- * because its rows are a fixed height, the settings and stats pages count pixels because theirs are
+ * because its rows are a fixed height, the settings pages count pixels because theirs are
  * not. The unit never appears here, which is exactly why one function can serve both: `total`,
  * `visible` and the offset are the same unit as each other and that is the whole contract.
  *

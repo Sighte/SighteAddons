@@ -27,7 +27,6 @@ class SettingsPageTest {
         item(SettingsPage.Kind.SECTION),
         item(SettingsPage.Kind.TOGGLE),
         item(SettingsPage.Kind.NOTE),
-        item(SettingsPage.Kind.STAT, "bar", fraction = 0.5f),
         item(SettingsPage.Kind.SLIDER),
         item(SettingsPage.Kind.INFO),
     )
@@ -58,14 +57,6 @@ class SettingsPageTest {
         }
         assertEquals(-1, SettingsPage.itemAt(page, -1))
         assertEquals(-1, SettingsPage.itemAt(page, SettingsPage.total(page)), "one past the end is nothing")
-    }
-
-    /** A figure with a bar under it is taller by exactly the bar, and only when it has one. */
-    @Test
-    fun `only a stat with a bar is taller than a row`() {
-        assertEquals(SettingsPage.ROW, item(SettingsPage.Kind.STAT).height)
-        assertEquals(SettingsPage.ROW + SettingsPage.BAR, item(SettingsPage.Kind.STAT, fraction = 0f).height)
-        assertEquals(SettingsPage.NOTE, item(SettingsPage.Kind.NOTE).height)
     }
 
     /** Both ends of the scroll range, in both units the screen counts in. */

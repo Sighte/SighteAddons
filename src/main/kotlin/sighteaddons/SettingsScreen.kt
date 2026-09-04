@@ -14,7 +14,6 @@ import sighteaddons.ui.components.Controls
 import sighteaddons.ui.components.EmptyState
 import sighteaddons.ui.components.Labels
 import sighteaddons.ui.components.Nav
-import sighteaddons.ui.components.ProgressBar
 import sighteaddons.ui.components.Segmented
 import sighteaddons.ui.components.Slider
 import sighteaddons.ui.components.Sparkline
@@ -39,12 +38,11 @@ import sighteaddons.ui.screens.OverlayPreview
 import sighteaddons.ui.screens.RecordColumns
 import sighteaddons.ui.screens.Scroll
 import sighteaddons.ui.screens.SettingsPage
-import sighteaddons.ui.screens.StatsOverview
 import sighteaddons.ui.theme.Density
 import sighteaddons.ui.theme.Tokens
 
 /**
- * The `/sa` screen: the settings, the stats overview and the room history.
+ * The `/sa` screen: the settings and the room history.
  *
  * Built on the design system in `ui/` and, since Phase 4/5, on the components in `ui/components/` —
  * `Nav` for the rail, `Table` for the header cells and the accordion's detail lines, `Tooltip` instead
@@ -85,22 +83,16 @@ internal class SettingsScreen(
     private var view: View = View.ROOMS,
 ) : SkScreen(Component.literal("Sighte Addons")) {
 
-    /** [label] rather than the enum name: the rest of this screen is lower case throughout. */
+    /**
+     * [label] rather than the enum name: the rest of this screen is lower case throughout.
+     *
+     * There was a `STATS` entry between `chat` and `records` — medians and coverage computed out of
+     * the history. Removed on 04.09.2026 because its owner never found a number on it worth having;
+     * `git log` has the page and `StatsOverview` if the answer changes.
+     */
     enum class Tab(val label: String) {
         HUD("hud"),
         CHAT("chat"),
-
-        /**
-         * What the history says about the player as a whole.
-         *
-         * Its own page and not a band above the table, and the reason is arithmetic rather than taste:
-         * at GUI scale 4 a 1080p screen leaves the table 170 pixels, which is six rows. Anything
-         * permanently above it takes rows from the only list on the screen, and anything that scrolls
-         * with it is a summary you have to scroll back up to read. A page costs one rail entry, which
-         * the rail has room for at every scale the game offers, and it sits directly above `rooms`
-         * because that is what it is — the layer above the table.
-         */
-        STATS("stats"),
 
         /**
          * The three record stores, behind one rail entry and a segmented control.
@@ -109,8 +101,8 @@ internal class SettingsScreen(
          * [Nav.ROW] per entry with no scroll, and the space it has is [pageHeight] — 140 pixels at the
          * vanilla minimum GUI size of 320×240, which is five entries and not seven. A sixth would be
          * drawn past the bottom of the panel and a seventh past the bottom of the screen, and neither
-         * would be reachable. So the rail keeps the five it can always draw, and [View] is what picks
-         * between the three tables underneath this one.
+         * would be reachable. So the rail keeps at most the five it can always draw, and [View] is
+         * what picks between the three tables underneath this one.
          */
         RECORDS("records"),
         DEBUG("debug"),
@@ -259,10 +251,6 @@ internal class SettingsScreen(
     private var cachedTotal = 0
     private var cachedMatches = 0
 
-    /** The stats page, rebuilt when the history grows. Keyed on the line count for the same reason. */
-    private var statsKey = -1
-    private var cachedStats: List<SettingsPage.Item> = emptyList()
-
     /**
      * The two personal-best tables, rebuilt when their store changes.
      *
@@ -345,18 +333,6 @@ internal class SettingsScreen(
      * which is rule 3 broken inside a single function.
      */
     private val rowLeft get() = contentLeft - Tokens.SPACE_8
-
-    /**
-     * Where a stats or settings row's value column ends, with the sample note to its right.
-     *
-     * A fraction of [content] rather than a constant, for the same reason the table's columns are: at
-     * GUI scale 4 the content column is 328 pixels and at scale 2 it is 460, and a figure laid out for
-     * the wider one lands underneath its own note on the narrower.
-     *
-     * 55 rather than 60 because the notes are the longer half — `none in the last week` is 21
-     * characters and every value on the page is at most eleven.
-     */
-    private val valueX get() = contentLeft + content * 55 / 100
 
     /** The key field's box. Derived, so [mouseClicked] hit-tests the rectangle it is drawn in. */
 
@@ -684,53 +660,7 @@ internal class SettingsScreen(
                 noteText, Tokens.textTertiary,
             )
 
-            SettingsPage.Kind.STAT -> drawStat(item, y)
             else -> drawControl(item, y)
-        }
-    }
-
-    /**
-     * One figure with the sample it rests on.
-     *
-     * Three columns and not two: the label says what it is, the value is the figure, and the note says
-     * what the figure is made of — `median of 268` against `fastest of 3`. **The note is the state**, and
-     * the tone only agrees with it: a thin figure is `textSecondary` rather than `textPrimary`, which is
-     * 1.27:1 of separation and therefore not something anybody is asked to read on its own. The figure
-     * also carries [Type.MEDIUM], which is the separation this page did not have before.
-     */
-    private fun drawStat(item: SettingsPage.Item, y: Int) {
-        val textY = Sk.centreY(y.toFloat(), SettingsPage.ROW.toFloat(), rowText)
-        Sk.text(item.label, contentLeft.toFloat(), textY, rowText, Tokens.textSecondary)
-
-        val room = valueX - contentLeft - w(item.label).toInt() - Tokens.SPACE_8
-        val value = fit(item.value, room, rowText, Type.MEDIUM)
-        Sk.textRight(
-            value, valueX.toFloat(), Sk.centreY(y.toFloat(), SettingsPage.ROW.toFloat(), rowText, Type.MEDIUM),
-            rowText, if (item.thin) Tokens.textSecondary else Tokens.textPrimary, Type.MEDIUM,
-        )
-        // `most recorded` is the one figure on this page that is a name rather than a number, so it is
-        // the one that can be cut off — and a truncated room name with nothing behind it is the exact
-        // hole the table fills with a tooltip. Same mechanism, same frame.
-        if (value != item.value && pointerY in bodyTop until listBottom &&
-            pointerX in rowLeft..lastX && pointerY in y until (y + SettingsPage.ROW)
-        ) {
-            tooltip(item.value, pointerX, pointerY)
-        }
-
-        if (item.meta.isNotEmpty()) {
-            val meta = fit(item.meta, lastX - valueX - Tokens.SPACE_8, noteText)
-            Sk.textRight(
-                meta, lastX.toFloat(), Sk.centreY(y.toFloat(), SettingsPage.ROW.toFloat(), noteText),
-                noteText, Tokens.textTertiary,
-            )
-        }
-        // The bar sits under the figure it qualifies rather than beside it. A ratio is the only kind of
-        // number a bar can carry honestly, and the number is already written above it — see ProgressBar.
-        if (item.fraction >= 0f) {
-            ProgressBar.draw(
-                contentLeft.toFloat(), (y + SettingsPage.ROW).toFloat(),
-                content.toFloat(), ProgressBar.HEIGHT.toFloat(), item.fraction,
-            )
         }
     }
 
@@ -1252,12 +1182,10 @@ internal class SettingsScreen(
      * The empty states.
      *
      * Same key and same words as the footer: the hint has to name which of the two narrowings escape
-     * takes off, not say "the search" while a chip is what is hiding every room. The stats page is
-     * always the third case — it has no filter of its own, and a chip left active on the table must not
-     * make it claim one.
+     * takes off, not say "the search" while a chip is what is hiding every room.
      */
     private fun renderEmpty(top: Int, bottom: Int) {
-        val blank = tab == Tab.STATS || narrowing == RecordTable.Narrowing.NONE
+        val blank = narrowing == RecordTable.Narrowing.NONE
         val note = if (blank) HISTORY_FILE else null
         val headline = if (blank) "no history yet" else "nothing matches this filter"
         val hint = when {
@@ -1529,7 +1457,6 @@ internal class SettingsScreen(
     private fun pageItems(): List<SettingsPage.Item> = when (tab) {
         Tab.HUD -> hudItems()
         Tab.CHAT -> chatItems()
-        Tab.STATS -> statsItems()
         Tab.DEBUG -> debugItems()
         Tab.RECORDS -> emptyList()
     }
@@ -1855,35 +1782,6 @@ internal class SettingsScreen(
         else -> "${minecraft.user.name}, the floor, the party size and the time, on every new best"
     }
 
-    /**
-     * The stats overview as page items, rebuilt when the history grows.
-     *
-     * Keyed on the line count for the same reason [build] is: the aggregate reads every attempt of every
-     * room, and none of it can change between two frames without a line having been appended.
-     */
-    private fun statsItems(): List<SettingsPage.Item> {
-        val count = RoomHistory.entryCount()
-        if (count == statsKey) return cachedStats
-        statsKey = count
-        val overview = StatsOverview.of(
-            RoomHistory.records(), RoomHistory::attempts, RoomDatabase.roomCount, System.currentTimeMillis(),
-        )
-        cachedStats = buildList {
-            for (part in overview.sections) {
-                section(part.title, part.meta)
-                for (line in part.lines) {
-                    add(
-                        SettingsPage.Item(
-                            SettingsPage.Kind.STAT, line.label, line.value, line.meta,
-                            thin = line.thin, fraction = line.fraction,
-                        ),
-                    )
-                }
-            }
-        }
-        return cachedStats
-    }
-
     // --- Item builders ----------------------------------------------------------------------
 
     private fun MutableList<SettingsPage.Item>.section(title: String, meta: String = "") =
@@ -2023,13 +1921,13 @@ internal class SettingsScreen(
         if (attempts.isNotEmpty()) {
             val ticks = attempts.map { it.ticks }.sorted()
             val median = ticks[ticks.size / 2]
-            // The same floor the overview holds itself to, for the same reason and stated there: this
-            // "median" is the upper middle element, so on two attempts it is the slower of the two. The
-            // record itself is in the row above either way — what the detail adds is the shape of the
-            // history, and on three runs there is no shape yet, only three runs.
+            // Below MIN_SAMPLE there is no median worth the word: it is the upper middle element, so
+            // on two attempts it is the slower of the two. The record itself is in the row above
+            // either way — what the detail adds is the shape of the history, and on three runs there
+            // is no shape yet, only three runs.
             val summary = when {
                 attempts.size == 1 -> "1 attempt"
-                attempts.size < StatsOverview.MIN_SAMPLE -> "${attempts.size} attempts · no median yet"
+                attempts.size < MIN_SAMPLE -> "${attempts.size} attempts · no median yet"
                 else -> "median ${Format.ticks(median)} · ${attempts.size} attempts"
             }
             out.add(
@@ -2047,9 +1945,9 @@ internal class SettingsScreen(
                 .groupBy { it.floor }
                 .map { (floor, runs) -> floor to runs.minOf { it.ticks } }
                 .sortedBy { it.second }
-                // The same count the stats page shows, and named rather than repeated: one room's
-                // floors and every room's floors are the same list at two scales.
-                .take(StatsOverview.FLOORS_SHOWN)
+                // Bounded and named: the accordion is one detail line, and a room that has been run
+                // on six floors would otherwise push the line past the column it lives in.
+                .take(FLOORS_SHOWN)
             if (floors.isNotEmpty()) {
                 out.add(
                     Line(
@@ -2160,7 +2058,7 @@ internal class SettingsScreen(
     }
 
     /**
-     * A press on a settings or stats page.
+     * A press on a settings page.
      *
      * The item is resolved first and the field's focus decided from it, because "anything that is not
      * the field commits and closes it" needs to know what was hit before it can know that — and a commit
@@ -2534,7 +2432,6 @@ internal class SettingsScreen(
     }
 
     private fun footer(): String = when {
-        tab == Tab.STATS -> "everything here comes from history.jsonl"
         // **The one place the settings pages say their explanations exist.** With the sentences off the
         // page there is nothing on it that says hovering a row does anything, and a marker on every row
         // that has one would put back the clutter taking the sentences off did away with. A hint line
@@ -2636,6 +2533,18 @@ internal class SettingsScreen(
 
         /** [TOGGLE_HEIGHT]'s reason: a field filling its whole 20-pixel row would touch the rules. */
         const val FIELD_HEIGHT = 16
+
+        /**
+         * The fewest attempts a median is quoted from, in the records accordion.
+         *
+         * Lived on the deleted `StatsOverview` (its stats page quoted the same medians) and moved here
+         * with its reasoning intact: the "median" is the upper middle element, and below five samples
+         * quoting it dignifies what is still just a couple of runs.
+         */
+        const val MIN_SAMPLE = 5
+
+        /** How many floors an accordion's floors line names before it would outgrow its column. */
+        const val FLOORS_SHOWN = 4
 
         /**
          * The fifteen floors in [PbTable.order]'s reading order — masters first, sevens first — which
