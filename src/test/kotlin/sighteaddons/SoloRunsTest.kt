@@ -68,7 +68,10 @@ class SoloRunsTest {
         val rows = SoloRundown.listRows(listOf(SoloRuns.sample()), now = SoloRuns.sample().ts)
         val row = rows.single()
         assertEquals(300, row.reached)
-        assertEquals(DungeonGrid.formatTicks(4620), row.time)
+        // Hypixel's clock at the crossing, not our 4620 ticks: the announcement quotes the same clock.
+        assertEquals("3:51", row.time)
+        val unclocked = SoloRuns.sample().let { r -> r.copy(score = r.score.copy(marks = r.score.marks.map { it.copy(clock = null) })) }
+        assertEquals(DungeonGrid.formatTicks(4620), SoloRundown.listRows(listOf(unclocked), now = unclocked.ts).single().time)
         assertTrue(row.pb)
         assertTrue(row.label.startsWith("M7 · "))
     }

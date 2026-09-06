@@ -1,6 +1,7 @@
 package sighteaddons.ui.screens
 
 import sighteaddons.Cell
+import sighteaddons.DungeonTab
 import sighteaddons.SoloRuns
 import sighteaddons.ui.Format
 
@@ -22,6 +23,19 @@ internal object SoloRundown {
     /** The shortest stay that counts as having been somewhere: one second, [sighteaddons.ContributionTracker.MIN_TICKS]. */
     const val MIN_STAY = 20
 
+    /**
+     * A mark's time as Hypixel stated it, falling back to our tick clock only when Hypixel said nothing.
+     *
+     * **Hypixel's clock first, the same rule [sighteaddons.SoloClear] announces by.** The two are not the
+     * same measurement: run ticks are client ticks since calibration, and on the F7 of 2026-09-06 they read
+     * 6360 — `5:18.0` — while the sidebar said `05m 17s` at that very tick and the announcement quoted it.
+     * A tab showing `5:18` under an announcement that said `5:17` is two clocks for one moment. Records
+     * ([SoloRuns.bestTo300]) still rank by ticks, one unit for one comparison; only the display follows
+     * the announcement.
+     */
+    fun timeOf(mark: SoloRuns.Mark): String =
+        mark.clock?.let(DungeonTab::seconds)?.let(Format::clock) ?: Format.ticks(mark.tick)
+
     class ListRow(
         val ts: Long,
         val label: String,
@@ -39,8 +53,8 @@ internal object SoloRundown {
             val to300 = r.to300
             val to270 = r.to270
             val (time, reached) = when {
-                to300 != null -> Format.ticks(to300.tick) to 300
-                to270 != null -> Format.ticks(to270.tick) to 270
+                to300 != null -> timeOf(to300) to 300
+                to270 != null -> timeOf(to270) to 270
                 else -> Format.MISSING to 0
             }
             ListRow(
@@ -122,8 +136,8 @@ internal object SoloRundown {
         val to300 = record.to300
         val to270 = record.to270
         return when {
-            to300 != null -> "${record.floor} · ${Format.ticks(to300.tick)} to 300"
-            to270 != null -> "${record.floor} · ${Format.ticks(to270.tick)} to 270"
+            to300 != null -> "${record.floor} · ${timeOf(to300)} to 300"
+            to270 != null -> "${record.floor} · ${timeOf(to270)} to 270"
             else -> "${record.floor} · ${Format.ticks(record.runTicks)} · no 270"
         }
     }
@@ -133,7 +147,8 @@ internal object SoloRundown {
         val out = ArrayList<Pair<String, String>>()
         fun mark(threshold: Int) {
             val m = record.mark(threshold) ?: return
-            out.add("to $threshold" to (Format.ticks(m.tick) + (m.clock?.let { " · $it" } ?: "")))
+            // Hypixel's clock, then ours in ticks: the second is the one the map and the rundown count in.
+            out.add("to $threshold" to "${timeOf(m)} · ${Format.ticks(m.tick)} own")
         }
         mark(270)
         mark(300)

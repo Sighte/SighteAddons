@@ -499,9 +499,10 @@ internal class SoloPanel {
     /** What the header states: how many runs, and the fastest 300 among them. */
     fun headerRight(): String {
         val records = SoloRuns.records()
-        val best = records.mapNotNull { r -> r.to300?.let { r.floor to it.tick } }.minByOrNull { it.second }
+        // Ranked by ticks, shown on Hypixel's clock — see SoloRundown.timeOf.
+        val best = records.mapNotNull { r -> r.to300?.let { r to it } }.minByOrNull { it.second.tick }
         val count = "${records.size} solo ${if (records.size == 1) "run" else "runs"}"
-        return if (best == null) count else "$count · best ${best.first} ${Format.ticks(best.second)}"
+        return if (best == null) count else "$count · best ${best.first.floor} ${SoloRundown.timeOf(best.second)}"
     }
 
     private fun w(text: String, size: Float, family: String = Type.REGULAR): Float = Sk.width(text, size, family)

@@ -299,8 +299,11 @@ class SighteAddons : ClientModInitializer {
         // Same reason, one layer over: Hypixel hands out some secret items rather than dropping them,
         // and an item that never exists in the world is never seen being collected.
         SecretTracker.tickInventory(client)
-        // The party barely changes during a run; re-reading the tab list once a second is plenty.
-        if (DungeonSession.runTicks % 20 == 0) PartyTracker.update(client)
+        // The party barely changes during a run, but the tab list is also where `Secrets Found` and
+        // `Completed Rooms` live, and those are the projected score's inputs. Twice a second, on the same
+        // beat LiveScore samples at: once a second put the score up to a second behind Odin, which
+        // recomputes on the tab packet itself — measured on the F7 of 2026-09-06, 05m 16s against 05m 17s.
+        if (DungeonSession.runTicks % 10 == 0) PartyTracker.update(client)
         ContributionTracker.tick(client, map)
         // After the tracker, because the room the player is standing in may only have been
         // discovered by the call above — on the tick you cross a threshold, asking first would count

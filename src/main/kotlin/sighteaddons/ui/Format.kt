@@ -56,6 +56,14 @@ internal object Format {
      */
     fun seconds(value: Float): String = if (value < 0f) MISSING else millis(Math.round(value * 1000.0))
 
+    /**
+     * Hypixel's own clock, `m:ss` with **no tenth**: its sidebar and tab count whole seconds, and a
+     * `5:17.0` would claim a precision the reading never had. Used where the number shown is Hypixel's
+     * and not this mod's — the solo tab's time to 300, which the announcement also quotes from that clock.
+     */
+    fun clock(seconds: Int): String =
+        if (seconds < 0) MISSING else "%d:%02d".format(java.util.Locale.ROOT, seconds / 60, seconds % 60)
+
     /** A signed split in milliseconds. [delta]'s spelling, [millis]' conversion. */
     fun deltaMillis(deltaMs: Long): String = delta((deltaMs / MS_PER_TICK).toInt())
 
