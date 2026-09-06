@@ -254,6 +254,15 @@ class SighteAddons : ClientModInitializer {
             runTicks = DungeonSession.runTicks,
         )
         SoloClear.tryAnnounce()
+        // Same instant as the gate reads it, and above the boss return for the same reason: the
+        // projection is what crosses 300, and it keeps moving until the map is gone.
+        SoloRecorder.observeScore(
+            runTicks = DungeonSession.runTicks,
+            projected = LiveScore.computedScore,
+            sidebar = LiveScore.score,
+            clock = DungeonSession.sidebarTime ?: DungeonTab.elapsed,
+            nowMs = System.currentTimeMillis(),
+        )
 
         val wasCalibrated = DungeonSession.calibrated
         if (map == null || !DungeonSession.update(client, map)) {
@@ -298,6 +307,9 @@ class SighteAddons : ClientModInitializer {
         // early returns above: the boss advances the clock without being either a room or a
         // corridor, and counting it as navigation would make every run look like an hour of walking.
         IdleTime.tick(currentRoom(client))
+        // Inside both early returns like IdleTime, and for the same reason: the boss is not a room, and
+        // the map this reads is the one that is gone in there. See SoloRecorder.
+        SoloRecorder.tick(client, map)
 
         // Last, so the snapshot the HUD reads is built from state every tracker above has already
         // advanced this tick. The renderer never reaches into the trackers itself: records(),

@@ -111,6 +111,10 @@ object DungeonSession {
     }
 
     fun reset() {
+        // First, before anything below is forgotten: the solo record reads the floor, the solo flag, the
+        // score, the rooms, the idle counters and the blood room, and every one of those is cleared by a
+        // later line of this function. It files nothing on a hop that was not a calibrated F7/M7.
+        SoloRecorder.finish()
         // The only place the floor is forgotten, since `floorloss-001`. It has to be here and
         // nowhere else: this runs on `JOIN`, *after* the JOIN site has written the report for the
         // run being left. Clearing it any earlier — or letting the in-dungeon check clear it, which

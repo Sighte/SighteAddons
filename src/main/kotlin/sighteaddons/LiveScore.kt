@@ -87,6 +87,19 @@ object LiveScore {
         private set
 
     /**
+     * The four terms behind one [DungeonScore.calculateTotal], with the total they sum to.
+     *
+     * Kept next to the sum rather than recomputed from it: the solo-clear record shows *why* a run
+     * projected 307, and the four numbers are exactly what [computed] already had in hand before it
+     * added them up.
+     */
+    data class Breakdown(val time: Int, val explore: Int, val skill: Int, val bonus: Int, val total: Int)
+
+    /** The terms of the current [computedScore], or null whenever that is null. Same sampling. */
+    var breakdown: Breakdown? = null
+        private set
+
+    /**
      * The highest [computedScore] this run reached — [high]'s twin, for the number that actually decides.
      *
      * Kept separately rather than folded into [high] because the two are different quantities, and the
@@ -119,6 +132,7 @@ object LiveScore {
         bloodDone = false
         high = 0
         computedScore = null
+        breakdown = null
         projectedHigh = 0
         loggedStep = 0
     }
@@ -167,7 +181,7 @@ object LiveScore {
         bloodDone: Boolean,
         startedAtMs: Long,
         nowMs: Long,
-    ): Int? {
+    ): Breakdown? {
         val requirement = DungeonScore.requirementFor(floor)
         if (requirement == DungeonScore.FloorRequirement.NONE) return null
         val total = totalRooms(stats.completedRooms, clearedFraction) ?: return null
@@ -190,7 +204,7 @@ object LiveScore {
         val bonus = DungeonScore.calculateBonusScore(
             stats.crypts ?: 0, mimic, stats.prince, quizCompleted = false,
         )
-        return DungeonScore.calculateTotal(time, explore, skill, bonus, isEntrance)
+        return Breakdown(time, explore, skill, bonus, DungeonScore.calculateTotal(time, explore, skill, bonus, isEntrance))
     }
 
     /** Floors that spawn a mimic, as upstream hardcodes them. Hoisted: [computed] runs every tick. */
@@ -222,10 +236,11 @@ object LiveScore {
         // Computed every tick would mean matching eighty tab rows against seven patterns twenty times a
         // second for a number nothing reads yet. Upstream samples at ten ticks; so does this.
         if (runTicks % 10 == 0) {
-            computedScore = computed(
+            breakdown = computed(
                 floor, DungeonStats.read(rows), clearedFraction, secretsPercent,
                 inBoss, bloodDone, startedAtMs, nowMs,
             )
+            computedScore = breakdown?.total
             // Here and not in [set], which only ever sees the read score. The projection needs its own
             // maximum because it is the number a refusal is measured against, and a refusal has to be
             // able to say how close *that* one came.

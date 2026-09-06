@@ -963,6 +963,9 @@ object ContributionTracker {
 
     fun roomAt(cell: Pos): TrackedRoom? = rooms[cell]
 
+    /** The database entry a cell's chunk hashed to, whether or not anybody ever stood there. Read-only. */
+    fun identifiedAt(cell: Pos): RoomInfo? = identified[cell]
+
     fun visitedRooms(): List<TrackedRoom> = rooms.values.distinct()
 
     fun tick(client: Minecraft, map: MapItemSavedData) {

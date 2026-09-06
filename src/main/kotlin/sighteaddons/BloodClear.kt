@@ -33,8 +33,13 @@ package sighteaddons
  */
 object BloodClear {
 
-    /** Run tick the blood room opened, or null before it has. */
-    private var openedAt: Int? = null
+    /** Run tick the blood room opened, or null before it has. Readable for the solo-clear record. */
+    var openedAt: Int? = null
+        private set
+
+    /** Run tick the Watcher let the party pass, or null before it has. Stamped once, like the record. */
+    var doneAt: Int? = null
+        private set
 
     /** Once per run: the Watcher can speak again, and a second pass line must not file a second record. */
     private var recorded = false
@@ -64,6 +69,7 @@ object BloodClear {
             return
         }
         recorded = true
+        doneAt = at
 
         val ticks = at - opened
         val room = ContributionTracker.visitedRooms().firstOrNull { it.type == RoomType.BLOOD }
@@ -82,6 +88,7 @@ object BloodClear {
     /** Called from [DungeonSession.reset], so no run inherits the previous floor's blood room. */
     fun reset() {
         openedAt = null
+        doneAt = null
         recorded = false
     }
 }

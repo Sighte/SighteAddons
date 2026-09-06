@@ -38,6 +38,7 @@ import sighteaddons.ui.screens.OverlayPreview
 import sighteaddons.ui.screens.RecordColumns
 import sighteaddons.ui.screens.Scroll
 import sighteaddons.ui.screens.SettingsPage
+import sighteaddons.ui.screens.SoloPanel
 import sighteaddons.ui.theme.Density
 import sighteaddons.ui.theme.Tokens
 
@@ -105,6 +106,13 @@ internal class SettingsScreen(
          * what picks between the three tables underneath this one.
          */
         RECORDS("records"),
+
+        /**
+         * Solo F7/M7 runs, each with its map and rundown — [SoloPanel] draws it. **The fifth entry,
+         * and the rail is full with it:** the next tab has to go behind a segmented control like the
+         * record stores did, or the arithmetic above stops holding at 320×240.
+         */
+        SOLO("solo"),
         DEBUG("debug"),
     }
 
@@ -283,6 +291,9 @@ internal class SettingsScreen(
 
     private val anim = Anim()
     private val previewHud = HudRoot()
+
+    /** The solo tab's content column, with its own list-or-detail state. Draws only from [content]. */
+    private val solo = SoloPanel()
 
     /** Chip hit zones from the last frame, so a click lands on what was drawn. */
     private val chipHits = ArrayList<Triple<RecordTable.Filter, Int, Int>>()
@@ -473,7 +484,14 @@ internal class SettingsScreen(
         renderRail()
         renderHeader()
 
-        if (tab == Tab.RECORDS) renderRecords() else renderPage()
+        when (tab) {
+            Tab.RECORDS -> renderRecords()
+            // The panel returns the tooltip it owes rather than drawing it, for [tooltipLines]' reason:
+            // it is discovered inside the panel's clip and has to be drawn outside every clip.
+            Tab.SOLO -> solo.draw(contentLeft, content, bodyTop, listBottom, pointerX, pointerY, anim)
+                ?.let { tooltip(it, pointerX, pointerY) }
+            else -> renderPage()
+        }
 
         // Truncated to the content column like every other line on this screen. It was once the one
         // string drawn with neither a scissor nor a fit, so a sentence longer than the column — and at
@@ -515,6 +533,7 @@ internal class SettingsScreen(
             Tokens.textSecondary, Type.MEDIUM,
         )
         val right = when {
+            tab == Tab.SOLO -> solo.headerRight()
             tab != Tab.RECORDS -> VERSION
             view != View.ROOMS -> pbSummary()
             else -> {
@@ -1458,7 +1477,7 @@ internal class SettingsScreen(
         Tab.HUD -> hudItems()
         Tab.CHAT -> chatItems()
         Tab.DEBUG -> debugItems()
-        Tab.RECORDS -> emptyList()
+        Tab.RECORDS, Tab.SOLO -> emptyList()
     }
 
     /**
@@ -2003,6 +2022,9 @@ internal class SettingsScreen(
             }
         }
 
+        // The panel hit-tests against what it drew last frame; anything it did not take is vanilla's.
+        if (tab == Tab.SOLO) return solo.click(mouseX, mouseY) || super.mouseClicked(event, doubleClick)
+
         if (tab == Tab.RECORDS) {
             if (mouseY in segmentsY until (segmentsY + Segmented.HEIGHT)) {
                 // Resolved through the same call that drew the hover, so rule 3 holds without either
@@ -2181,6 +2203,11 @@ internal class SettingsScreen(
             }
             return true
         }
+        if (tab == Tab.SOLO) {
+            // Rows on its list, pixels on its detail — the panel knows which it is showing.
+            solo.wheel(scrollY)
+            return true
+        }
         if (tab == Tab.RECORDS) {
             // Rows, not pixels: every table on this page holds a whole number of fixed-height rows, and
             // the history table has counted in them since it had a scrollbar at all.
@@ -2230,6 +2257,9 @@ internal class SettingsScreen(
                 return true
             }
         }
+        // Escape out of a run's detail is back to the list, the same one-step-at-a-time rule the search
+        // follows below; on the list the panel declines and vanilla closes the screen.
+        if (tab == Tab.SOLO && solo.key(event)) return true
         // The search and both narrowings are the rooms table's. On the other two views escape is
         // vanilla's again, which is what closes the screen — there is no state on them to leave first.
         if (tab == Tab.RECORDS && view == View.ROOMS) {
@@ -2364,6 +2394,9 @@ internal class SettingsScreen(
         commitField()
         tab = entry
         scroll = 0
+        // A run left open on the solo tab would be the first thing shown on the way back; a tab switch
+        // is a fresh start there like the scroll is everywhere else.
+        solo.backToList()
     }
 
     /**
@@ -2432,6 +2465,7 @@ internal class SettingsScreen(
     }
 
     private fun footer(): String = when {
+        tab == Tab.SOLO -> solo.footer()
         // **The one place the settings pages say their explanations exist.** With the sentences off the
         // page there is nothing on it that says hovering a row does anything, and a marker on every row
         // that has one would put back the clutter taking the sentences off did away with. A hint line

@@ -128,6 +128,9 @@ object SoloClear {
 
     private var pending: Pending? = null
     private var score: Int? = null
+
+    /** Hypixel's `Team Score:` for this run, or null before the summary block. Read by [SoloRecorder]. */
+    internal val hypixelScore: Int? get() = score
     private var clearTime: String? = null
     private var princeSeen = false
 

@@ -8,6 +8,7 @@ import org.lwjgl.glfw.GLFW
 import sighteaddons.ClearPopup
 import sighteaddons.Config
 import sighteaddons.RoomHistory
+import sighteaddons.SoloRuns
 import sighteaddons.Splits
 import sighteaddons.SplitsCurrentHud
 import sighteaddons.SplitsHud
@@ -72,6 +73,9 @@ internal class GalleryScreen : SkScreen(Component.literal("Sighte Addons — UI 
         DATA("data"),
         OVERLAY("overlay"),
         SPLITS("splits"),
+
+        /** The solo tab's detail over [SoloRuns.sample] — the only way to see the canvas before a run is filed. No digit left; the arrows reach it. */
+        SOLO("solo"),
     }
 
     private var page = Page.COLOUR
@@ -114,6 +118,9 @@ internal class GalleryScreen : SkScreen(Component.literal("Sighte Addons — UI 
     // reads as a caret rather than as flicker.
 
     private val anim = Anim()
+
+    private val soloPanel = SoloPanel()
+    private val soloSample = SoloRuns.sample()
 
     /** Whether the live button is currently held. */
     private var pressed = false
@@ -217,6 +224,7 @@ internal class GalleryScreen : SkScreen(Component.literal("Sighte Addons — UI 
             Page.DATA -> dataPage(left, top, pointerX, pointerY)
             Page.OVERLAY -> overlayLabels(left, top)
             Page.SPLITS -> splitsLabels(left, top)
+            Page.SOLO -> soloPage(left, top, pointerX, pointerY)
         }
 
         val footer = if (page == Page.HUD || page == Page.OVERLAY) {
@@ -914,6 +922,23 @@ internal class GalleryScreen : SkScreen(Component.literal("Sighte Addons — UI 
         )
     }
 
+    // --- Solo -------------------------------------------------------------------------------
+
+    /**
+     * The solo tab's detail, over a scripted M7 with every state the canvas can show: a 2×2 and an L,
+     * an unopened cell, a blood door, a wither door, a route that doubles back, and the 300 ring.
+     *
+     * At the settings screen's own content width, so what is judged here is what `/sa` will draw.
+     */
+    private fun soloPage(left: Float, top: Float, mouseX: Int, mouseY: Int) {
+        label("SOLO CLEAR  ·  DETAIL OVER A SCRIPTED M7  ·  WHEEL SCROLLS", left, top, Tokens.textSecondary)
+        val panelTop = (top + Tokens.SPACE_16).toInt()
+        val panelBottom = height - Tokens.SPACE_32
+        val panelWidth = minOf(Frame.CONTENT_MAX, (width - left * 2).toInt())
+        val lines = soloPanel.preview(soloSample, left.toInt(), panelWidth, panelTop, panelBottom, mouseX, mouseY, anim)
+        if (lines != null) Tooltip.draw(mouseX, mouseY, width, height, lines)
+    }
+
     // --- Overlays ---------------------------------------------------------------------------
 
     /**
@@ -1220,6 +1245,14 @@ internal class GalleryScreen : SkScreen(Component.literal("Sighte Addons — UI 
      * A press has to be held to be judged — whether it feels attached to the cursor is the whole
      * question — so the flag is cleared on release rather than on the next click.
      */
+    override fun mouseScrolled(mouseX: Double, mouseY: Double, scrollX: Double, scrollY: Double): Boolean {
+        if (page == Page.SOLO) {
+            soloPanel.wheel(scrollY)
+            return true
+        }
+        return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY)
+    }
+
     override fun mouseClicked(event: MouseButtonEvent, doubleClick: Boolean): Boolean {
         val mouseX = event.x().toInt()
         val mouseY = event.y().toInt()
