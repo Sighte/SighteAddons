@@ -23,7 +23,11 @@ jar into `mods/`. Nothing is bundled, so both dependencies have to be there too.
   the same span in Hypixel's server ticks, which is the number two players can compare. Records per
   split per floor, on Odin's own keys, so `/sa import` folds an existing Odin install's in.
 - **Run records** — best time for a whole run, per floor *and* per party size.
-- **Solo clears, announced** — one line per solo run, or the moment a run reaches a score you set.
+- **Solo clears, announced** — one line per solo run, or the moment a run reaches a score you set. The
+  score is projected the way Odin projects it: mimic, prince and bat kills, deaths, and Mayor Paul.
+- **A solo tab** — every solo F7/M7 run, with the time to 300 on Hypixel's clock, the whole floor as
+  the item map showed it, your route through it, and a rundown room by room. From there a run can be
+  posted to the team's channel by hand, with the map as a picture and an optional YouTube link.
 - **Teammate secrets** — each player's count for the run, as the rise in their lifetime total. Looked
   up through this project's own receiver, so there is no key to enter and no setting for one.
 - **A HUD you place** — map, clear popup, storm countdown, splits panel and split clock, each by anchor
@@ -46,6 +50,11 @@ party size, classes, player-ticks, never a name. `/sa` → **debug** turns it of
 | *send my name* | your name on your own run reports, and nobody else's |
 | *announce in discord* | one line per solo clear into the team's channel |
 | *send new bests* | a standing leaderboard row for a run record |
+
+**Two things are sent only when you act.** *Post to discord* on a run in the solo tab sends that run —
+the announcement line, a picture of the floor with the room names, and the video link if you typed one.
+And on entering a floor the mod asks Hypixel's public election page whether Mayor Paul's perk is on:
+a plain GET of a public document, no key, nothing about you in it.
 
 The JSONL debug log is off for an ordinary install. When it is on, everyone in it — teammates and you
 — appears as a pseudonym derived from a salt made fresh every launch and never written down.
