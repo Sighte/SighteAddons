@@ -43,7 +43,19 @@ object SoloPost {
         state = State.Posting(record.ts)
         val pb = mark.threshold == 300 && SoloRuns.bestTo300(record.floor) == mark.tick
         val body = payload(record, player, mark, pb, video)
-        DebugLog.event("solo_post", "ts" to record.ts, "floor" to record.floor, "video" to (video != null), "pb" to pb)
+        // The floor as a picture, base64 in the body. A drawing that fails is a post without one.
+        val png = try {
+            SoloMapImage.render(record)
+        } catch (e: Exception) {
+            SighteAddons.LOGGER.warn("Could not draw the map for the post", e)
+            null
+        }
+        png?.let { body.addProperty("map_png", java.util.Base64.getEncoder().encodeToString(it)) }
+        DebugLog.event(
+            "solo_post",
+            "ts" to record.ts, "floor" to record.floor, "video" to (video != null), "pb" to pb,
+            "mapBytes" to (png?.size ?: 0),
+        )
         SoloClear.post(body.toString()) { ok, reason ->
             Minecraft.getInstance().execute {
                 if (ok) {

@@ -534,6 +534,7 @@ internal class SoloPanel {
             val colour = Tokens.fade(SoloMapLayout.fill(room.type), SoloMapLayout.opacity(room.state))
             for (run in SoloMapLayout.runs(room.cells)) fill(map.rect(run), colour, Tokens.RADIUS_XS.toFloat())
             for (upper in SoloMapLayout.bridges(room.cells)) fill(map.bridge(upper), colour)
+            for (upperLeft in SoloMapLayout.corners(room.cells)) fill(map.corner(upperLeft), colour)
         }
         for (door in record.layout.doors) fill(map.doorRect(door), SoloMapLayout.door(door.type))
 

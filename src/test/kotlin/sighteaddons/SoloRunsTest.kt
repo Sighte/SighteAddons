@@ -91,6 +91,24 @@ class SoloRunsTest {
         assertTrue(body["pb"].asBoolean)
     }
 
+    /** The picture that goes to Discord: a real PNG of the floor's size, with the names wrapped into their cells. */
+    @Test
+    fun `the map renders to a png and names wrap inside a cell`() {
+        val png = SoloMapImage.render(SoloRuns.sample())
+        assertTrue(png.size > 8 && png[1] == 'P'.code.toByte() && png[2] == 'N'.code.toByte() && png[3] == 'G'.code.toByte())
+        val image = javax.imageio.ImageIO.read(png.inputStream())
+        assertEquals(6 * SoloMapImage.CELL + 2 * SoloMapImage.PAD, image.width)
+        assertEquals(6 * SoloMapImage.CELL + 2 * SoloMapImage.PAD, image.height)
+
+        val measure: (String) -> Int = { it.length * 7 }
+        assertEquals(listOf("Shadow", "Assassin"), SoloMapImage.wrap("Shadow Assassin", 60, measure))
+        assertEquals(listOf("Water Board"), SoloMapImage.wrap("Water Board", 80, measure))
+        assertEquals(listOf("Lots Of", "Floors"), SoloMapImage.wrap("Lots Of Floors", 60, measure))
+        assertEquals(3, SoloMapImage.wrap("one two three four five six", 40, measure).size)
+        assertTrue(SoloMapImage.wrap("one two three four five six", 40, measure).last().endsWith("…"))
+        assertEquals(Cell(4, 3), SoloMapImage.anchorOf(setOf(Cell(3, 3), Cell(4, 3), Cell(4, 2))), "the L is named in its corner")
+    }
+
     @Test
     fun `the list row names the time to 300 and the best`() {
         val rows = SoloRundown.listRows(listOf(SoloRuns.sample()), now = SoloRuns.sample().ts)

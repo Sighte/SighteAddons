@@ -48,6 +48,12 @@ internal class SoloMapLayout(val cols: Int, val rows: Int, val cell: Int) {
         (cell - 2 * inset).toFloat(), (2 * inset).toFloat(),
     )
 
+    /** The fill over the corner where four same-room cells meet; [upperLeft] is the one nearest the origin. */
+    fun corner(upperLeft: Cell): Rect = Rect(
+        (x(upperLeft.gx) + cell - inset).toFloat(), (y(upperLeft.gz) + cell - inset).toFloat(),
+        (2 * inset).toFloat(), (2 * inset).toFloat(),
+    )
+
     /** One cell's square, inset like a room — the entrance marker and the hover target. */
     fun square(c: Cell): Rect = rect(Run(c.gz, c.gx, c.gx))
 
@@ -123,6 +129,25 @@ internal class SoloMapLayout(val cols: Int, val rows: Int, val cell: Int) {
 
         /** The cells that have a same-room cell directly below them. */
         fun bridges(cells: Set<Cell>): List<Cell> = cells.filter { Cell(it.gx, it.gz + 1) in cells }
+
+        /**
+         * The cells whose right, lower and lower-right neighbours are all in the room: the four meet
+         * at a corner the runs and the bridges both leave open, a dark square in the middle of every
+         * 2×2. Seen on the first rendered sample, 06.09.2026.
+         */
+        fun corners(cells: Set<Cell>): List<Cell> = cells.filter {
+            Cell(it.gx + 1, it.gz) in cells && Cell(it.gx, it.gz + 1) in cells && Cell(it.gx + 1, it.gz + 1) in cells
+        }
+
+        /** The bounding box of a room's cells as `(gx0, gz0, gx1, gz1)`, and whether the cells fill it. */
+        fun box(cells: Set<Cell>): IntArray = intArrayOf(
+            cells.minOf { it.gx }, cells.minOf { it.gz }, cells.maxOf { it.gx }, cells.maxOf { it.gz },
+        )
+
+        fun isRectangle(cells: Set<Cell>): Boolean {
+            val b = box(cells)
+            return (b[2] - b[0] + 1) * (b[3] - b[1] + 1) == cells.size
+        }
 
         // The colours themselves live in [MapColours], inside `ui/theme/` where the rule that no colour
         // is written anywhere else can see them. These read them by the canvas's own questions.
