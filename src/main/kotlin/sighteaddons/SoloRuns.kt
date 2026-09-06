@@ -127,6 +127,14 @@ object SoloRuns {
         /** When this run was posted to Discord from the tab, and the link that went with it. Null until then. */
         val postedTs: Long? = null,
         val video: String? = null,
+        /**
+         * The clear score: the clear half of the standings for the local player — every cleared room's
+         * weight ([sighteaddons.ContributionTracker.weightOf]), split by time spent, summed. On a solo run
+         * that is the whole floor, so it reads as the dungeon's difficulty — the user's own definition
+         * (07.09.2026). [standing] is the same figure with the secret share added, the number the HUD shows.
+         */
+        val clearScore: Double? = null,
+        val standing: Double? = null,
     ) {
         fun mark(threshold: Int, kind: String = PROJECTED): Mark? =
             score.marks.firstOrNull { it.threshold == threshold && it.kind == kind }
@@ -161,6 +169,8 @@ object SoloRuns {
         obj.addProperty("clock", r.clock)
         obj.addProperty("postedTs", r.postedTs)
         obj.addProperty("video", r.video)
+        obj.addProperty("clearScore", r.clearScore)
+        obj.addProperty("standing", r.standing)
 
         val score = JsonObject()
         score.addProperty("high", r.score.high)
@@ -275,6 +285,8 @@ object SoloRuns {
             clock = obj.optString("clock"),
             postedTs = obj.optLong("postedTs"),
             video = obj.optString("video"),
+            clearScore = obj.opt("clearScore")?.asDouble,
+            standing = obj.opt("standing")?.asDouble,
             score = Score(
                 high = score.optInt("high") ?: 0,
                 projectedHigh = score.optInt("projectedHigh") ?: 0,
@@ -508,6 +520,8 @@ object SoloRuns {
             blood = Blood(open = 4560, done = null),
             layout = Floor(6, 6, Cell(2, 5), rooms, doors),
             route = route,
+            clearScore = 14.32,
+            standing = 21.07,
         )
     }
 }

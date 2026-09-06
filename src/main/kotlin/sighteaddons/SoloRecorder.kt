@@ -168,6 +168,17 @@ object SoloRecorder {
             SoloRuns.Visit(DungeonLayout.gridOf(it.cell, physicalEntrance, lay.entrance), it.enter, it.leave)
         }
 
+        // The clear score: the clear half of the standings, read the way the HUD and the summary read it.
+        // On a solo run this is the summed weight of every room on the floor — its difficulty.
+        val visited = ContributionTracker.visitedRooms()
+        val clearScore = self?.let { ContributionTracker.clearPointsByPlayer()[it] }
+        val standing = self?.let { name ->
+            val secrets = ClearScore.secretPoints(
+                visited.map { ClearScore.Room(it.ticks, it.secretsFound) }, ContributionTracker.MIN_TICKS,
+            )
+            (clearScore ?: 0.0) + (secrets[name] ?: 0.0)
+        }
+
         val ts = System.currentTimeMillis()
         val record = SoloRuns.Record(
             ts = ts,
@@ -199,6 +210,8 @@ object SoloRecorder {
             blood = SoloRuns.Blood(BloodClear.openedAt, BloodClear.doneAt),
             layout = SoloRuns.Floor(lay.cols, lay.rows, lay.entrance, rooms, lay.doors),
             route = route,
+            clearScore = clearScore,
+            standing = standing,
         )
 
         val dir = FabricLoader.getInstance().configDir.resolve("sighteaddons/solo")
@@ -209,6 +222,7 @@ object SoloRecorder {
             "solo_run",
             "file" to name, "rooms" to rooms.size, "doors" to lay.doors.size, "visits" to route.size,
             "marks" to marks.size, "to300" to record.to300?.tick, "complete" to record.complete,
+            "clearScore" to clearScore, "standing" to standing,
         )
     }
 }

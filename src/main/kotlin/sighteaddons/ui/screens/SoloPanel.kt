@@ -772,6 +772,6 @@ internal class SoloPanel {
         const val ROUTE_LABEL = "ROUTE"
         const val SAMPLE_TIME = "10:23.4"
         const val SAMPLE_STAY = "0:41.2"
-        const val SAMPLE_META = "99 secrets · 9 deaths"
+        const val SAMPLE_META = "99.99 pts · 99 secrets · 9 deaths"
     }
 }

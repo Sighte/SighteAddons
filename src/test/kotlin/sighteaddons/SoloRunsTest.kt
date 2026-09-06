@@ -89,6 +89,10 @@ class SoloRunsTest {
         assertEquals(5, body["crypts"].asInt)
         assertEquals("https://youtu.be/abc", body["video"].asString)
         assertTrue(body["pb"].asBoolean)
+        // The clear score, as a component: the receiver prints every key in there as its own field.
+        assertEquals("14.32", body["score_components"].asJsonObject["clear score"].asString)
+        assertTrue(SoloRundown.listRows(listOf(sample), now = sample.ts).single().meta.startsWith("14.32 pts · "))
+        assertEquals("14.32", SoloRundown.summary(sample).first { it.first == "clear score" }.second)
     }
 
     /** The picture that goes to Discord: a real PNG of the floor's size, with the names wrapped into their cells. */

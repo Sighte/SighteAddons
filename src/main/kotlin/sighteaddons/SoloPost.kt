@@ -2,6 +2,7 @@ package sighteaddons
 
 import com.google.gson.JsonObject
 import net.minecraft.client.Minecraft
+import sighteaddons.ui.Format
 
 /**
  * Posting a filed solo run to Discord from the `/sa` solo tab, by hand and with an optional YouTube link.
@@ -93,6 +94,7 @@ object SoloPost {
             mimic = record.score.mimic,
             crypts = record.score.crypts,
             video = video,
+            clearScore = record.clearScore?.let { Format.points(Format.hundredths(it)) },
         )
 
     /**

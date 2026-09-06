@@ -36,6 +36,9 @@ internal object SoloRundown {
     fun timeOf(mark: SoloRuns.Mark): String =
         mark.clock?.let(DungeonTab::seconds)?.let(Format::clock) ?: Format.ticks(mark.tick)
 
+    /** Points as the HUD prints them, two decimals. */
+    fun points(value: Double): String = Format.points(Format.hundredths(value))
+
     class ListRow(
         val ts: Long,
         val label: String,
@@ -63,7 +66,8 @@ internal object SoloRundown {
                 time = time,
                 reached = reached,
                 score = r.score.projectedHigh.toString(),
-                meta = "${r.secrets?.toString() ?: "?"} secrets · ${r.deaths} deaths",
+                meta = (r.clearScore?.let { "${points(it)} pts · " } ?: "") +
+                    "${r.secrets?.toString() ?: "?"} secrets · ${r.deaths} deaths",
                 pb = to300 != null && bests[r.floor] == to300.tick,
             )
         }
@@ -152,6 +156,12 @@ internal object SoloRundown {
         }
         mark(270)
         mark(300)
+        // The clear score first among the figures: on a solo run it is the floor's difficulty, and it is
+        // the number the user asked to see beside every run. The standing adds the secret share.
+        record.clearScore?.let { out.add("clear score" to points(it)) }
+        record.standing?.takeIf { s -> record.clearScore == null || s != record.clearScore }?.let {
+            out.add("standing" to "~${points(it)}")
+        }
         record.score.final?.let { b ->
             out.add("projected" to "${b.skill} · ${b.explore} · ${b.time} · +${b.bonus} = ${b.total}")
         }

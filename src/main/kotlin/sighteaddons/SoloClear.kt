@@ -359,6 +359,8 @@ object SoloClear {
         crypts: Int? = null,
         /** A YouTube link the player attached from the solo tab. The receiver prints it under the headline. */
         video: String? = null,
+        /** The clear score, already formatted — the summed room weights, i.e. the floor's difficulty on a solo run. */
+        clearScore: String? = null,
     ): JsonObject = JsonObject().apply {
         addProperty("player", player)
         addProperty("floor", floor)
@@ -370,7 +372,14 @@ object SoloClear {
         crypts?.let { addProperty("crypts", it) }
         // Hypixel's own number, passed through as a score component so the receiver shows it by name
         // without having to learn the field. Absent when the gate is off and the line never arrived.
-        score?.let { add("score_components", JsonObject().apply { addProperty("score", it) }) }
+        // The clear score rides in the same object: the receiver prints every key it finds there as a
+        // field of its own, capitalised — `Clear score` — so no field has to be taught on the box.
+        if (score != null || clearScore != null) {
+            add("score_components", JsonObject().apply {
+                score?.let { addProperty("score", it) }
+                clearScore?.let { addProperty("clear score", it) }
+            })
+        }
         if (prince) addProperty("prince", true)
         if (mimic) addProperty("mimic", true)
         video?.let { addProperty("video", it) }
