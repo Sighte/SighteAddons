@@ -113,6 +113,40 @@ class SoloRunsTest {
         assertEquals(Cell(4, 3), SoloMapImage.anchorOf(setOf(Cell(3, 3), Cell(4, 3), Cell(4, 2))), "the L is named in its corner")
     }
 
+    /**
+     * The backfill for runs filed before the clear score existed: `award`'s rule for a party of one,
+     * over the rooms in the file. Flat weights, so the arithmetic is the thing under test.
+     */
+    @Test
+    fun `an older run gets its clear score from its rooms, and only when something cleared`() {
+        val sample = SoloRuns.sample()
+        // Ten rooms cleared during the run with the player seen in them; the entrance never clears.
+        val scored = SoloRuns.clearScoreOf(sample) { 1.0 }
+        assertNotNull(scored)
+        assertEquals(10.0, scored!!.first, 1e-9)
+        // 6 + 5 + 4 + 3 + 4 secrets, a quarter each, on top.
+        assertEquals(10.0 + 22 * 0.25, scored.second, 1e-9)
+
+        // A room nobody was seen in earns nothing, like an unattributed room live.
+        val ghost = sample.copy(layout = sample.layout.copy(rooms = sample.layout.rooms.map {
+            if (it.name == "Atlas") it.copy(ownTicks = null) else it
+        }))
+        assertEquals(9.0, SoloRuns.clearScoreOf(ghost) { 1.0 }!!.first, 1e-9)
+
+        // An entrance walked into and left: no room cleared, no score rather than a zero.
+        val aborted = sample.copy(layout = sample.layout.copy(rooms = sample.layout.rooms.map { it.copy(clearTick = null) }))
+        assertNull(SoloRuns.clearScoreOf(aborted) { 1.0 })
+
+        val old = sample.copy(clearScore = null, standing = null)
+        val written = ArrayList<SoloRuns.Record>()
+        val list = mutableListOf(old, sample, aborted.copy(clearScore = null, standing = null))
+        assertEquals(1, SoloRuns.backfill(list, { 2.0 }, { written.add(it) }), "one lacked the number and had something to score")
+        assertEquals(20.0, list[0].clearScore)
+        assertEquals(14.32, list[1].clearScore, "a run that recorded its own figure keeps it")
+        assertNull(list[2].clearScore)
+        assertEquals(listOf(20.0), written.map { it.clearScore })
+    }
+
     @Test
     fun `the list row names the time to 300 and the best`() {
         val rows = SoloRundown.listRows(listOf(SoloRuns.sample()), now = SoloRuns.sample().ts)

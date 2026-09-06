@@ -861,13 +861,23 @@ object ContributionTracker {
      * identify is still a room somebody cleared.
      */
     internal fun weightOf(room: TrackedRoom): Double {
-        val scores = RoomStats.scores
         // The database's name, not [TrackedRoom.name], because the database's spelling is what the
         // report ships and what the receiver folds its averages under. They are the same string
         // whenever both are set — `applyNames` copies one from the other — so the fallback only
         // matters for a room identified but not yet named.
-        val name = room.info?.name ?: room.name
-        return blend(seedOf(room), name?.let { scores.of(it) }, scores.medianTicks)
+        return weightOf(room.info?.name ?: room.name, room.info?.type ?: room.type.name)
+    }
+
+    /**
+     * [weightOf] from a room's name and kind alone — what a filed solo run still knows about its rooms
+     * once the [TrackedRoom] is gone. Same seed, same blend, the scores as resolved for this launch; a
+     * clear score recomputed from a file therefore uses today's weights, not the ones the run was
+     * paid with, which is the one difference and is said in `SoloRuns.backfill`.
+     */
+    internal fun weightOf(name: String?, kind: String): Double {
+        val scores = RoomStats.scores
+        val seed = SEED_BY_NAME[name] ?: if (kind == "PUZZLE") PUZZLE_SEED else ORDINARY_SEED
+        return blend(seed, name?.let { scores.of(it) }, scores.medianTicks)
     }
 
     /**

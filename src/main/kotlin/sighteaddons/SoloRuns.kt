@@ -371,6 +371,60 @@ object SoloRuns {
         return out
     }
 
+    /**
+     * The clear score and the standing of a filed solo run, recomputed from its rooms — for runs filed
+     * before the two were recorded.
+     *
+     * The same decision `ContributionTracker.award` makes, for a party of one: a room counts when its
+     * checkmark landed during the run and was not already there, and the player is paid its whole
+     * weight when they were seen in it at all — the one-second bar with the same raw-presence fallback
+     * `award` has, and nothing when nobody was ever seen there. The secret share is
+     * [ClearScore.secretPoints]' rule for one player: a quarter per secret found in a room they stood in.
+     *
+     * Pure over [weight] so a test can drive it with flat weights; the caller hands in
+     * `ContributionTracker.weightOf(name, kind)`. Null when no room of the run cleared — an entrance
+     * walked into and left has no score, and a zero would claim it had one.
+     */
+    fun clearScoreOf(record: Record, weight: (Room) -> Double): Pair<Double, Double>? {
+        var clear = 0.0
+        var secrets = 0.0
+        var counted = false
+        for (room in record.layout.rooms) {
+            val present = (room.ownTicks ?: 0) > 0
+            if (room.clearTick != null && !room.preCleared) {
+                counted = true
+                if (present) clear += weight(room)
+            }
+            val found = room.secretsFound ?: 0
+            if (found > 0 && present) secrets += found * ContributionTracker.SECRET_POINTS
+        }
+        if (!counted) return null
+        return clear to (clear + secrets)
+    }
+
+    /**
+     * Fills [Record.clearScore] and [Record.standing] into every filed run that lacks them, and writes
+     * those files back. Once per launch, at load; runs filed with the numbers already in them are left
+     * alone. Returns how many were filled.
+     *
+     * With today's room weights rather than the ones the run was paid with live: the scores document
+     * moves as runs accumulate, so a backfilled figure can sit a little off what the HUD showed that
+     * evening. That is the price of having the number at all for a run that never recorded it.
+     */
+    internal fun backfill(records: MutableList<Record>, weight: (Room) -> Double, write: (Record) -> Unit): Int {
+        var filled = 0
+        for (i in records.indices) {
+            val record = records[i]
+            if (record.clearScore != null) continue
+            val (clear, standing) = clearScoreOf(record, weight) ?: continue
+            val done = record.copy(clearScore = clear, standing = standing)
+            records[i] = done
+            write(done)
+            filled++
+        }
+        return filled
+    }
+
     /** The fastest tick to the projected 300 on [floor], over [records]. Runs that never got there do not count. */
     fun bestTo300(records: List<Record>, floor: String): Int? =
         records.filter { it.floor == floor }.mapNotNull { it.to300?.tick }.minOrNull()
@@ -432,6 +486,15 @@ object SoloRuns {
             }
             list.addAll(fold(bodies))
             SighteAddons.LOGGER.info("Solo runs: {} of {} files readable", list.size, files.size)
+            val filled = backfill(
+                list,
+                weight = { room -> ContributionTracker.weightOf(room.name, room.type.name) },
+                write = { record -> RunReport.publish(DIR, record.fileName, encode(record).toString()) },
+            )
+            if (filled > 0) {
+                SighteAddons.LOGGER.info("Solo runs: clear score filled into {} older run(s)", filled)
+                DebugLog.event("solo_backfill", "filled" to filled, "scoresTs" to RoomStats.scores.generatedTs)
+            }
         } catch (e: Exception) {
             SighteAddons.LOGGER.warn("Could not list {}", DIR, e)
         }
