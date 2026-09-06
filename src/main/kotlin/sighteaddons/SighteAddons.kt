@@ -278,6 +278,8 @@ class SighteAddons : ClientModInitializer {
             return
         }
         if (!wasCalibrated) {
+            // Once an hour at most, off the client thread: whether Paul's ten points are on this run.
+            Mayor.refresh()
             RoomHistory.startRun()
             // Read the roster immediately: waiting for the next 20-tick slot would leave the first
             // second of the run unattributed, with nobody mapped to any decoration.
@@ -351,6 +353,9 @@ class SighteAddons : ClientModInitializer {
         // *after* the headline — `Team Score:` is what releases an armed announcement, and the Prince
         // falls mid-run. Putting this behind the headline check is how they would stop arriving.
         SoloClear.onChatLine(text)
+        // The prince and the bat: two bonus points the tab list never states. Ungated for the same reason
+        // as the line above — they fall mid-run, and the score they belong to is being projected then.
+        LiveScore.onChatLine(text)
         // The same summary block, read for the one line that carries the official clear time. Here
         // rather than behind the headline check for SoloClear's reason: this line arrives after it.
         RunPbs.onChatLine(text)

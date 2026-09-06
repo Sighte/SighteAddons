@@ -61,6 +61,25 @@ object LiveScore {
     private var bloodDone = false
 
     /**
+     * The three bonus kills the tab list never states, latched per run — Odin's `mimicKilled`,
+     * `princeKilled`, `batKilled`, read the way Odin reads them.
+     *
+     * **This is where the solo M7 of 2026-09-06 lost its announcement.** The run projected 297 against a
+     * gate of 300 while Odin showed 300: rooms, time and secrets were identical, and the three points were
+     * a mimic and a prince this side had no way of seeing. The tab rows `Mimic: ✔` and `Prince: ✔` that
+     * the upstream port reads do not exist in the tab list — not one of seven runs that day carried
+     * either — so the port's bonus was crypts and nothing else.
+     */
+    var mimicKilled = false
+        private set
+
+    var princeKilled = false
+        private set
+
+    var batKilled = false
+        private set
+
+    /**
      * The highest score this run reached, and the reason it exists.
      *
      * A gate that does not fire leaves no trace at all: the score is read every tick, [set] only logs a
@@ -130,6 +149,9 @@ object LiveScore {
         source = Source.NONE
         startedAtMs = 0L
         bloodDone = false
+        mimicKilled = false
+        princeKilled = false
+        batKilled = false
         high = 0
         computedScore = null
         breakdown = null
@@ -141,6 +163,38 @@ object LiveScore {
     fun onBloodDone() {
         bloodDone = true
     }
+
+    /**
+     * A baby zombie died in the clear phase of a floor that has a mimic — Odin's `Mimic` module,
+     * transcribed: entity event 3 on a `Zombie` with `isBaby`, only on floors 6 and 7 and only before the
+     * boss. Routed from `EntityEventMixin`; reads the floor itself so the mixin stays one line.
+     *
+     * The mimic chest is also a secret, so the inference in [computed] — 100 % secrets on a mimic floor —
+     * still stands beside this; the two agree whenever both can answer.
+     */
+    fun onMimicDead() {
+        if (mimicKilled || DungeonSession.inBoss || !hasMimics(DungeonSession.floor)) return
+        mimicKilled = true
+        DebugLog.event("bonus", "kind" to "mimic")
+    }
+
+    /** `A Prince falls. +1 Bonus Score` and `A Bat has been slain. +1 Bonus Score`, from the stripped chat. */
+    fun onChatLine(text: String) {
+        when {
+            !princeKilled && PRINCE.matches(text) -> {
+                princeKilled = true
+                DebugLog.event("bonus", "kind" to "prince")
+            }
+            !batKilled && BAT.matches(text) -> {
+                batKilled = true
+                DebugLog.event("bonus", "kind" to "bat")
+            }
+        }
+    }
+
+    /** Hypixel indents these lines; the tail is not anchored so a reworded suffix cannot cost the point. */
+    internal val PRINCE = Regex("""^\s*A Prince falls\..*$""")
+    internal val BAT = Regex("""^\s*A Bat has been slain\..*$""")
 
     /**
      * Rooms the tab list has not counted yet, verbatim from the upstream mod.
@@ -163,7 +217,10 @@ object LiveScore {
      */
     internal fun totalRooms(completedRooms: Int?, clearedFraction: Double?): Int? {
         if (completedRooms == null || clearedFraction == null || clearedFraction <= 0.0) return null
-        return Math.round(completedRooms / clearedFraction).toInt().coerceAtLeast(1)
+        // Odin's rounding, `floor(x + 0.4)`, rather than the upstream port's `round(x)`: the number this
+        // projection is compared against on the other screen is Odin's, and the two differ on exactly the
+        // fractions between .4 and .5 — one room, which is four points of explore and skill together.
+        return Math.floor(completedRooms / clearedFraction + 0.4).toInt().coerceAtLeast(1)
     }
 
     /**
@@ -181,6 +238,11 @@ object LiveScore {
         bloodDone: Boolean,
         startedAtMs: Long,
         nowMs: Long,
+        /** The per-run latches above, and the mayor. Parameters so the formula stays a function of its inputs. */
+        mimic: Boolean = false,
+        prince: Boolean = false,
+        bat: Boolean = false,
+        paul: Boolean = false,
     ): Breakdown? {
         val requirement = DungeonScore.requirementFor(floor)
         if (requirement == DungeonScore.FloorRequirement.NONE) return null
@@ -195,14 +257,16 @@ object LiveScore {
             total, completed, extra, secretsPercent ?: 0.0, requirement.percentage,
         )
         val skill = DungeonScore.calculateSkillScore(
-            total, completed, extra, stats.puzzleCount ?: 0, stats.puzzlesSolved,
+            total, completed, extra, stats.puzzleCount ?: 0, stats.puzzlesSolved, stats.deaths ?: 0,
         )
         // The mimic is inferred as well as read: the mimic chest is a secret, so a full secret count on a
         // floor that has one means it died. Upstream does the same, and it is the one inference here that
-        // cannot be wrong in the direction that matters — 100 % secrets is 100 % secrets.
-        val mimic = stats.mimic || ((secretsPercent ?: 0.0) >= 100.0 && hasMimics(floor))
+        // cannot be wrong in the direction that matters — 100 % secrets is 100 % secrets. The latch from
+        // [onMimicDead] is the third source, and the one that answers on a run that leaves secrets behind.
+        val mimicDead = mimic || stats.mimic || ((secretsPercent ?: 0.0) >= 100.0 && hasMimics(floor))
         val bonus = DungeonScore.calculateBonusScore(
-            stats.crypts ?: 0, mimic, stats.prince, quizCompleted = false,
+            stats.crypts ?: 0, mimicDead, prince || stats.prince, quizCompleted = false,
+            batKilled = bat, paul = paul,
         )
         return Breakdown(time, explore, skill, bonus, DungeonScore.calculateTotal(time, explore, skill, bonus, isEntrance))
     }
@@ -239,6 +303,7 @@ object LiveScore {
             breakdown = computed(
                 floor, DungeonStats.read(rows), clearedFraction, secretsPercent,
                 inBoss, bloodDone, startedAtMs, nowMs,
+                mimicKilled, princeKilled, batKilled, Mayor.paul,
             )
             computedScore = breakdown?.total
             // Here and not in [set], which only ever sees the read score. The projection needs its own

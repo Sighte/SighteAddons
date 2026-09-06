@@ -48,4 +48,30 @@ class DungeonScoreTest {
         assertEquals(279, total)
         assertTrue(total > 200)
     }
+
+    /**
+     * Odin's three rules the upstream port did not have, transcribed rather than guessed: the first death
+     * costs one point and every further one two; a bat is a point; Paul is ten.
+     */
+    @Test
+    fun `deaths, the bat and paul count the way odin counts them`() {
+        fun skill(deaths: Int) = DungeonScore.calculateSkillScore(20, 20, 0, 0, 0, deaths)
+        assertEquals(100, skill(0))
+        assertEquals(99, skill(1))
+        assertEquals(97, skill(2))
+        assertEquals(95, skill(3))
+        assertEquals(
+            9,
+            DungeonScore.calculateBonusScore(crypts = 7, mimicKilled = true, princeKilled = true, quizCompleted = false, batKilled = true),
+            "five crypts at most, plus two, one and one",
+        )
+        assertEquals(
+            15,
+            DungeonScore.calculateBonusScore(crypts = 5, mimicKilled = false, princeKilled = false, quizCompleted = false, paul = true),
+        )
+        assertTrue(Mayor.parse("""{"success":true,"mayor":{"key":"paul","name":"Paul","perks":[{"name":"Marauder"},{"name":"EZPZ"}]}}"""))
+        assertTrue(!Mayor.parse("""{"success":true,"mayor":{"key":"paul","name":"Paul","perks":[{"name":"Marauder"}]}}"""), "Paul without EZPZ is no bonus")
+        assertTrue(!Mayor.parse("""{"success":true,"mayor":{"name":"Diana","perks":[{"name":"EZPZ"}]}}"""))
+        assertTrue(!Mayor.parse("not json"))
+    }
 }

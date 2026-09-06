@@ -56,13 +56,20 @@ object DungeonScore {
         extraCompletedRooms: Int,
         puzzleCount: Int,
         completedPuzzleCount: Int,
+        /**
+         * Team deaths. Odin's `(deathCount * 2 - 1).coerceAtLeast(0)`: the first death costs one
+         * point, every further one two — Hypixel's rule, which the upstream port had left out entirely
+         * and which is why a run with a death projected two points high.
+         */
+        deaths: Int = 0,
     ): Int {
         val completedRoomScore = if (totalRooms != 0) {
             (80.0 * (completedRooms + extraCompletedRooms) / totalRooms).toInt()
         } else 0
         val bounded = completedRoomScore.coerceIn(0, 80)
         val penalty = ((puzzleCount - completedPuzzleCount).coerceAtLeast(0)) * 10
-        return 20 + (bounded - penalty).coerceIn(0, 80)
+        val deathPenalty = (deaths * 2 - 1).coerceAtLeast(0)
+        return 20 + (bounded - penalty - deathPenalty).coerceIn(0, 80)
     }
 
     fun calculateExploreScore(
@@ -109,12 +116,18 @@ object DungeonScore {
         mimicKilled: Boolean,
         princeKilled: Boolean,
         quizCompleted: Boolean,
+        /** `A Bat has been slain. +1 Bonus Score` — the third bonus kill, as Odin counts it. */
+        batKilled: Boolean = false,
+        /** Mayor Paul with the EZPZ perk: ten points on every run, which Hypixel's live score also hides. */
+        paul: Boolean = false,
     ): Int {
         var bonus = 0
         bonus += crypts.coerceAtMost(5)
         if (mimicKilled) bonus += 2
         if (princeKilled) bonus += 1
+        if (batKilled) bonus += 1
         if (quizCompleted) bonus += 5
+        if (paul) bonus += 10
         return bonus
     }
 }
