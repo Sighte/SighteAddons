@@ -1,16 +1,21 @@
 package sighteaddons.ui.screens
 
+import net.minecraft.client.Minecraft
 import net.minecraft.client.input.KeyEvent
 import org.lwjgl.glfw.GLFW
 import sighteaddons.Cell
 import sighteaddons.RoomState
+import sighteaddons.SoloPost
 import sighteaddons.SoloRuns
 import sighteaddons.ui.Format
 import sighteaddons.ui.components.Anim
 import sighteaddons.ui.components.Badge
+import sighteaddons.ui.components.Button
 import sighteaddons.ui.components.Controls
 import sighteaddons.ui.components.EmptyState
+import sighteaddons.ui.components.Popover
 import sighteaddons.ui.components.Table
+import sighteaddons.ui.components.TextField
 import sighteaddons.ui.sk.Chrome
 import sighteaddons.ui.sk.Sk
 import sighteaddons.ui.sk.Type
@@ -52,8 +57,26 @@ internal class SoloPanel {
     private var backW = 0
     private var detailTotal = 0
 
+    // --- Posting to Discord: the button on the run's page, and the popup it opens ----------------
+
+    /** The run whose post popup is open, by `ts`, or null. */
+    private var popupFor: Long? = null
+
+    /** The link being typed. Kept across a cancel, so a link pasted once is not pasted twice. */
+    private val link = TextField.Edit(maxLength = LINK_MAX)
+
+    /** Why the last submit did not go out, shown under the buttons until the next keystroke. */
+    private var linkHint: String? = null
+
+    private var postBtn: IntArray? = null
+    private var popupRect: IntArray? = null
+    private var sendBtn: IntArray? = null
+    private var cancelBtn: IntArray? = null
+
     private val selected: SoloRuns.Record?
         get() = selectedTs?.let { ts -> SoloRuns.records().firstOrNull { it.ts == ts } }
+
+    private val popupOpen: Boolean get() = popupFor != null && popupFor == selectedTs
 
     /** Draws the column. Returns the tooltip owed to this frame, if the pointer is over something that has one. */
     fun draw(left: Int, width: Int, top: Int, bottom: Int, pointerX: Int, pointerY: Int, anim: Anim): List<String>? {
@@ -63,13 +86,21 @@ internal class SoloPanel {
         this.bottom = bottom
         previewing = false
         val record = selected
-        return if (record == null) {
+        if (record == null) {
             selectedTs = null
+            popupFor = null
             drawList(pointerX, pointerY, anim)
-            null
-        } else {
-            drawDetail(record, pointerX, pointerY, anim)
+            return null
         }
+        val tooltip = drawDetail(record, pointerX, pointerY, anim)
+        if (!popupOpen) return tooltip
+        // The post went through: the record now carries its time, and the popup has nothing left to ask.
+        if (record.postedTs != null) {
+            closePopup()
+            return tooltip
+        }
+        drawPopup(record, pointerX, pointerY, anim)
+        return null
     }
 
     /**
@@ -279,7 +310,10 @@ internal class SoloPanel {
             y += curveH + Tokens.SPACE_8
         }
 
-        // 4. The route, stop by stop.
+        // 4. The way to Discord: a button, or the note that it was already taken.
+        y = drawPostRow(record, y, pointerX, pointerY, anim)
+
+        // 5. The route, stop by stop.
         Chrome.groupLabel(left.toFloat(), y.toFloat(), width.toFloat(), ROUTE_LABEL, "${stops.size} stops")
         y += Tokens.SPACE_16
         val rc = routeColumns()
@@ -329,6 +363,139 @@ internal class SoloPanel {
         )
         return tooltip
     }
+
+    /**
+     * One row: the post button, or what the post left behind.
+     *
+     * Disabled rather than hidden on a run that never reached 270 — a button that is not there says the
+     * feature is not there — and in the gallery, whose run is a script and must not reach a channel.
+     */
+    private fun drawPostRow(record: SoloRuns.Record, y0: Int, pointerX: Int, pointerY: Int, anim: Anim): Int {
+        val y = y0
+        val posted = record.postedTs
+        val textY = Sk.centreY(y.toFloat(), Button.HEIGHT.toFloat(), LABEL)
+        if (posted != null) {
+            postBtn = null
+            val text = "posted to discord · ${Format.ago(posted, System.currentTimeMillis())}" +
+                (record.video?.let { " · $it" } ?: "")
+            Sk.text(Sk.fit(text, width.toFloat(), LABEL), left.toFloat(), textY, LABEL, Tokens.textTertiary)
+            return y + Button.HEIGHT + Tokens.SPACE_8
+        }
+        val state = SoloPost.state
+        val posting = state is SoloPost.State.Posting && state.ts == record.ts
+        val enabled = !previewing && record.headline != null && state !is SoloPost.State.Posting
+        val label = if (posting) POSTING_LABEL else POST_LABEL
+        val bw = Button.width(label) { w(it, Button.SIZE, Button.family(Button.Variant.PRIMARY)) }
+        val over = enabled && pointerY in top until bottom &&
+            pointerX in left until (left + bw) && pointerY in y until (y + Button.HEIGHT)
+        Button.draw(
+            left.toFloat(), y.toFloat(), bw.toFloat(), Button.HEIGHT.toFloat(), label, Button.Variant.PRIMARY,
+            hover = Controls.hover(anim.of("solo.post"), over), enabled = enabled,
+        )
+        postBtn = intArrayOf(left, y, bw, Button.HEIGHT)
+        val note = when {
+            state is SoloPost.State.Failed && state.ts == record.ts -> "not delivered · ${state.reason}"
+            record.headline == null -> "reaches a channel from 270 on"
+            previewing -> "a scripted run stays here"
+            else -> null
+        }
+        if (note != null) {
+            val nx = left + bw + GAP
+            Sk.text(Sk.fit(note, (left + width - nx).toFloat(), LABEL), nx.toFloat(), textY, LABEL, Tokens.textSecondary)
+        }
+        return y + Button.HEIGHT + Tokens.SPACE_8
+    }
+
+    /**
+     * The question, its one optional field, and the two answers. Drawn last and outside every clip, over
+     * the column it belongs to, and never wider than that column.
+     */
+    private fun drawPopup(record: SoloRuns.Record, pointerX: Int, pointerY: Int, anim: Anim) {
+        val pw = minOf(width, POPUP_W)
+        val ph = POPUP_H
+        val px = left + (width - pw) / 2
+        val py = top + ((bottom - top - ph) / 2).coerceAtLeast(0)
+        popupRect = intArrayOf(px, py, pw, ph)
+        Popover.frame(px.toFloat(), py.toFloat(), pw.toFloat(), ph.toFloat())
+
+        val pad = Popover.PADDING
+        val inner = pw - pad * 2
+        var cy = py + pad
+        Sk.text(
+            Sk.fit("post ${record.floor} · ${SoloRundown.title(record).substringAfter(" · ")} to discord?", inner.toFloat(), ROW_TEXT, Type.MEDIUM),
+            (px + pad).toFloat(), cy.toFloat(), ROW_TEXT, Tokens.textPrimary, Type.MEDIUM,
+        )
+        cy += LINE
+        Sk.text(
+            Sk.fit("youtube link · optional · ctrl+v pastes", inner.toFloat(), LABEL),
+            (px + pad).toFloat(), cy.toFloat(), LABEL, Tokens.textTertiary,
+        )
+        cy += LINE - Tokens.SPACE_2
+        val overField = pointerX in (px + pad) until (px + pad + inner) && pointerY in cy until (cy + TextField.HEIGHT)
+        TextField.draw(
+            (px + pad).toFloat(), cy.toFloat(), inner.toFloat(), TextField.HEIGHT.toFloat(), link,
+            placeholder = "https://youtu.be/…", focus = 1f,
+            hover = Controls.hover(anim.of("solo.link"), overField), caret = TextField.caretOn(true),
+        )
+        cy += TextField.HEIGHT + Tokens.SPACE_8
+
+        val state = SoloPost.state
+        val posting = state is SoloPost.State.Posting
+        val sendLabel = if (posting) POSTING_LABEL else SEND_LABEL
+        val sendW = Button.width(sendLabel) { w(it, Button.SIZE, Button.family(Button.Variant.PRIMARY)) }
+        val cancelW = Button.width(CANCEL_LABEL) { w(it, Button.SIZE, Button.family(Button.Variant.GHOST)) }
+        val sendX = px + pw - pad - sendW
+        val cancelX = sendX - Tokens.SPACE_8 - cancelW
+        val overSend = !posting && pointerX in sendX until (sendX + sendW) && pointerY in cy until (cy + Button.HEIGHT)
+        val overCancel = pointerX in cancelX until (cancelX + cancelW) && pointerY in cy until (cy + Button.HEIGHT)
+        Button.draw(
+            cancelX.toFloat(), cy.toFloat(), cancelW.toFloat(), Button.HEIGHT.toFloat(), CANCEL_LABEL, Button.Variant.GHOST,
+            hover = Controls.hover(anim.of("solo.cancel"), overCancel),
+        )
+        Button.draw(
+            sendX.toFloat(), cy.toFloat(), sendW.toFloat(), Button.HEIGHT.toFloat(), sendLabel, Button.Variant.PRIMARY,
+            hover = Controls.hover(anim.of("solo.send"), overSend), enabled = !posting,
+        )
+        sendBtn = intArrayOf(sendX, cy, sendW, Button.HEIGHT)
+        cancelBtn = intArrayOf(cancelX, cy, cancelW, Button.HEIGHT)
+        cy += Button.HEIGHT + Tokens.SPACE_6
+
+        val status = when {
+            linkHint != null -> linkHint
+            state is SoloPost.State.Failed && state.ts == record.ts -> "not delivered · ${state.reason}"
+            posting -> "posting…"
+            else -> "enter posts · esc cancels"
+        }
+        Sk.text(Sk.fit(status!!, inner.toFloat(), LABEL), (px + pad).toFloat(), cy.toFloat(), LABEL, Tokens.textTertiary)
+    }
+
+    private fun openPopup(record: SoloRuns.Record) {
+        popupFor = record.ts
+        linkHint = null
+        SoloPost.dismiss()
+    }
+
+    private fun closePopup() {
+        popupFor = null
+        linkHint = null
+        SoloPost.dismiss()
+    }
+
+    /** The post button of the popup, and the enter key: validate the link, then hand over to [SoloPost]. */
+    private fun submit(record: SoloRuns.Record) {
+        if (SoloPost.state is SoloPost.State.Posting) return
+        val typed = link.text
+        val video = SoloPost.videoLink(typed)
+        if (typed.isNotBlank() && video == null) {
+            linkHint = "not a youtube link"
+            return
+        }
+        linkHint = null
+        SoloPost.send(record, video)
+    }
+
+    private fun IntArray.hit(mx: Int, my: Int): Boolean =
+        mx >= this[0] && mx < this[0] + this[2] && my >= this[1] && my < this[1] + this[3]
 
     private class RouteColumns(
         val roomX: Int, val roomW: Int, val inX: Int, val stayX: Int,
@@ -450,9 +617,29 @@ internal class SoloPanel {
 
     /** A press in the column. True when it did something. */
     fun click(mouseX: Int, mouseY: Int): Boolean {
-        if (selected != null) {
+        val record = selected
+        if (record != null) {
+            if (popupOpen) {
+                // Inside the popup the two buttons answer; the field has the keyboard whatever is pressed.
+                // Outside it, the press is the answer "not now" — and is swallowed, so it cannot also open
+                // whatever it landed on underneath.
+                when {
+                    sendBtn?.hit(mouseX, mouseY) == true -> submit(record)
+                    cancelBtn?.hit(mouseX, mouseY) == true -> closePopup()
+                    popupRect?.hit(mouseX, mouseY) == true -> {}
+                    else -> closePopup()
+                }
+                return true
+            }
             if (mouseX in backX..(left + width) && mouseY in backY until (backY + Table.ROW)) {
                 backToList()
+                return true
+            }
+            val button = postBtn
+            if (button != null && button.hit(mouseX, mouseY) && mouseY in top until bottom &&
+                !previewing && record.headline != null && SoloPost.state !is SoloPost.State.Posting
+            ) {
+                openPopup(record)
                 return true
             }
             return false
@@ -475,9 +662,33 @@ internal class SoloPanel {
         }
     }
 
-    /** Escape leaves the detail for the list; on the list it is not ours, so the screen closes. */
+    /**
+     * Escape leaves the detail for the list; on the list it is not ours, so the screen closes.
+     *
+     * While the popup is open the field owns the keyboard outright, the same rule the settings screen's
+     * fields follow — and unlike those, paste is wanted here: a video link is the one value in this UI
+     * that nobody types.
+     */
     fun key(event: KeyEvent): Boolean {
-        if (selected == null) return false
+        val record = selected ?: return false
+        if (popupOpen) {
+            linkHint = null
+            when (event.key()) {
+                GLFW.GLFW_KEY_ESCAPE -> closePopup()
+                GLFW.GLFW_KEY_ENTER, GLFW.GLFW_KEY_KP_ENTER -> submit(record)
+                GLFW.GLFW_KEY_BACKSPACE -> link.backspace()
+                GLFW.GLFW_KEY_DELETE -> link.delete()
+                GLFW.GLFW_KEY_LEFT -> link.move(-1, event.hasShiftDown())
+                GLFW.GLFW_KEY_RIGHT -> link.move(1, event.hasShiftDown())
+                GLFW.GLFW_KEY_HOME -> link.home(event.hasShiftDown())
+                GLFW.GLFW_KEY_END -> link.end(event.hasShiftDown())
+                GLFW.GLFW_KEY_A -> if (event.hasControlDown()) link.selectAll()
+                GLFW.GLFW_KEY_V -> if (event.hasControlDown()) {
+                    link.insert(Minecraft.getInstance().keyboardHandler.clipboard.trim())
+                }
+            }
+            return true
+        }
         if (event.key() == GLFW.GLFW_KEY_ESCAPE || event.key() == GLFW.GLFW_KEY_BACKSPACE) {
             backToList()
             return true
@@ -485,15 +696,24 @@ internal class SoloPanel {
         return false
     }
 
+    /** A character for the link field. True when the popup took it. */
+    fun charTyped(text: String): Boolean {
+        if (!popupOpen) return false
+        linkHint = null
+        link.insert(text)
+        return true
+    }
+
     fun backToList() {
         selectedTs = null
+        popupFor = null
         scroll = 0
     }
 
-    fun footer(): String = if (selected != null) {
-        "esc back to the list · hover a room for its times"
-    } else {
-        "solo f7 and m7 runs · click one for its map"
+    fun footer(): String = when {
+        popupOpen -> "enter posts · esc cancels · ctrl+v pastes the link"
+        selected != null -> "esc back to the list · hover a room for its times"
+        else -> "solo f7 and m7 runs · click one for its map"
     }
 
     /** What the header states: how many runs, and the fastest 300 among them. */
@@ -532,6 +752,18 @@ internal class SoloPanel {
 
         const val PB = "PB"
         const val BACK = "‹ back"
+
+        const val POST_LABEL = "post to discord"
+        const val POSTING_LABEL = "posting…"
+        const val SEND_LABEL = "post"
+        const val CANCEL_LABEL = "cancel"
+
+        /** The popup's box: wide enough for a long watch URL to scroll in, short enough for the 140 px page. */
+        const val POPUP_W = 320
+        const val POPUP_H = 116
+
+        /** A YouTube URL with parameters is under a hundred characters; twice that is room, not a ceiling. */
+        const val LINK_MAX = 200
         const val RUN_HEADER = "RUN"
         const val TIME_HEADER = "TO 300"
         const val SCORE_HEADER = "SCORE"

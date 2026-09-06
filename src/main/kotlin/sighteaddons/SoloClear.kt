@@ -353,6 +353,12 @@ object SoloClear {
         score: Int?,
         prince: Boolean,
         pb: Boolean,
+        /** The mimic, only when its death was seen — `false` would claim it survived. See [LiveScore.onMimicDead]. */
+        mimic: Boolean = false,
+        /** The crypts that counted, when a breakdown exists to back them out of. */
+        crypts: Int? = null,
+        /** A YouTube link the player attached from the solo tab. The receiver prints it under the headline. */
+        video: String? = null,
     ): JsonObject = JsonObject().apply {
         addProperty("player", player)
         addProperty("floor", floor)
@@ -361,10 +367,13 @@ object SoloClear {
         // read are different facts, and the receiver spells the second one `?`.
         secrets?.let { addProperty("secrets", it) }
         addProperty("deaths", deaths)
+        crypts?.let { addProperty("crypts", it) }
         // Hypixel's own number, passed through as a score component so the receiver shows it by name
         // without having to learn the field. Absent when the gate is off and the line never arrived.
         score?.let { add("score_components", JsonObject().apply { addProperty("score", it) }) }
         if (prince) addProperty("prince", true)
+        if (mimic) addProperty("mimic", true)
+        video?.let { addProperty("video", it) }
         addProperty("pb", pb)
     }
 
@@ -629,14 +638,17 @@ object SoloClear {
      * A daemon thread, so quitting the game does not wait for it. Losing the announcement to a quit
      * costs the message and not the record: the line is in the file before this is called.
      */
-    private fun post(body: String) {
+    internal fun post(body: String, onDone: ((ok: Boolean, reason: String) -> Unit)? = null) {
         val endpoint = TelemetryUpload.endpoint()
         if (endpoint == null) {
             // Only reachable with a half-filled `upload.properties`, which is a typo the author has to
             // see rather than a state to work around.
             SighteAddons.LOGGER.warn("No upload endpoint; the solo clear was recorded but not announced")
+            onDone?.invoke(false, "no endpoint")
             return
         }
+        // The chat line is the automatic path's feedback; a post made from the tab reports into the tab.
+        val report: (String) -> Unit = { reason -> if (onDone != null) onDone(false, reason) else failed(reason) }
         val (base, token) = endpoint
         Thread({
             try {
@@ -651,15 +663,16 @@ object SoloClear {
                 val code = client.send(request, HttpResponse.BodyHandlers.discarding()).statusCode()
                 if (code in 200..299) {
                     SighteAddons.LOGGER.info("Solo clear announced")
+                    onDone?.invoke(true, "")
                 } else {
                     // 502 is the receiver saying Discord refused it or that no webhook is configured; it
                     // deliberately does not say which, because the reason would quote the webhook URL.
                     SighteAddons.LOGGER.warn("Solo clear was not announced: HTTP {}", code)
-                    failed("HTTP $code")
+                    report("HTTP $code")
                 }
             } catch (e: Exception) {
                 SighteAddons.LOGGER.warn("Solo clear was not announced", e)
-                failed("no answer")
+                report("no answer")
             }
         }, "sighteaddons-soloclear").apply { isDaemon = true }.start()
     }

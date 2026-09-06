@@ -2319,6 +2319,8 @@ internal class SettingsScreen(
             if (typed.all { it in '0'..'9' || it == ':' || it == '.' }) fieldEdit.insert(typed)
             return true
         }
+        // The solo tab's link field, while its popup is open. Chat characters only, like the search.
+        if (tab == Tab.SOLO && event.isAllowedChatCharacter && solo.charTyped(event.codepointAsString())) return true
         if (tab != Tab.RECORDS || view != View.ROOMS || !event.isAllowedChatCharacter) {
             return super.charTyped(event)
         }

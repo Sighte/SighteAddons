@@ -63,6 +63,34 @@ class SoloRunsTest {
         assertEquals(1, stops.count { it.room.type == RoomType.ENTRANCE })
     }
 
+    /**
+     * The manual post: what the record says about itself once posted, and what leaves the machine. The
+     * link is the one field a player types, so what is accepted is stated rather than left to a regex.
+     */
+    @Test
+    fun `a posted run keeps its link, and only a youtube link is a link`() {
+        val sample = SoloRuns.sample()
+        val posted = sample.copy(postedTs = 5L, video = "https://youtu.be/abc")
+        assertEquals(posted, SoloRuns.decode(SoloRuns.encode(posted)))
+        assertNull(SoloRuns.decode(SoloRuns.encode(sample))!!.postedTs)
+        assertEquals(5, sample.score.crypts, "bonus 7 with a mimic is five crypts")
+
+        assertEquals("https://youtu.be/abc", SoloPost.videoLink(" youtu.be/abc "))
+        assertEquals("https://www.youtube.com/watch?v=x_1-2&t=5s", SoloPost.videoLink("http://www.youtube.com/watch?v=x_1-2&t=5s"))
+        assertNull(SoloPost.videoLink(""))
+        assertNull(SoloPost.videoLink("https://example.com/x"))
+        assertNull(SoloPost.videoLink("https://youtu.be/a b"))
+
+        val body = SoloPost.payload(sample, "Sighte", sample.to300!!, pb = true, video = "https://youtu.be/abc")
+        assertEquals("03m 51s", body["time"].asString, "Hypixel's clock at the crossing, as the announcement says it")
+        assertEquals(307, body["score_components"].asJsonObject["score"].asInt)
+        assertTrue(body["mimic"].asBoolean)
+        assertNull(body["prince"], "not seen, so not claimed")
+        assertEquals(5, body["crypts"].asInt)
+        assertEquals("https://youtu.be/abc", body["video"].asString)
+        assertTrue(body["pb"].asBoolean)
+    }
+
     @Test
     fun `the list row names the time to 300 and the best`() {
         val rows = SoloRundown.listRows(listOf(SoloRuns.sample()), now = SoloRuns.sample().ts)

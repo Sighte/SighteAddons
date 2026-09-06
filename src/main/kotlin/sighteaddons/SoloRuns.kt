@@ -53,7 +53,23 @@ object SoloRuns {
         val marks: List<Mark>,
         /** `(tick, projected)` whenever the projection changed. */
         val curve: List<Pair<Int, Int>>,
-    )
+        /** The bonus kills as [LiveScore] latched them, and the mayor — what the Discord post says about them. */
+        val mimic: Boolean = false,
+        val prince: Boolean = false,
+        val bat: Boolean = false,
+        val paul: Boolean = false,
+    ) {
+        /**
+         * The crypts that counted, backed out of the bonus: `min(crypts, 5)` is what remains once the
+         * kills and Paul are taken off. Null without a breakdown. Capped at five like the score is, which
+         * is the number the announcement's `Crypts` row is about.
+         */
+        val crypts: Int?
+            get() = final?.let { b ->
+                (b.bonus - (if (mimic) 2 else 0) - (if (prince) 1 else 0) - (if (bat) 1 else 0) - (if (paul) 10 else 0))
+                    .coerceIn(0, 5)
+            }
+    }
 
     data class Room(
         val type: RoomType,
@@ -108,12 +124,20 @@ object SoloRuns {
         val blood: Blood,
         val layout: Floor,
         val route: List<Visit>,
+        /** When this run was posted to Discord from the tab, and the link that went with it. Null until then. */
+        val postedTs: Long? = null,
+        val video: String? = null,
     ) {
         fun mark(threshold: Int, kind: String = PROJECTED): Mark? =
             score.marks.firstOrNull { it.threshold == threshold && it.kind == kind }
 
         val to300: Mark? get() = mark(300)
         val to270: Mark? get() = mark(270)
+
+        /** The mark a post is about: 300 if reached, else 270, else nothing worth announcing. */
+        val headline: Mark? get() = to300 ?: to270
+
+        val fileName: String get() = "solo-$ts.json"
     }
 
     // --- Codec --------------------------------------------------------------------------------
@@ -135,12 +159,18 @@ object SoloRuns {
         obj.addProperty("secretsPercent", r.secretsPercent)
         obj.addProperty("deaths", r.deaths)
         obj.addProperty("clock", r.clock)
+        obj.addProperty("postedTs", r.postedTs)
+        obj.addProperty("video", r.video)
 
         val score = JsonObject()
         score.addProperty("high", r.score.high)
         score.addProperty("projectedHigh", r.score.projectedHigh)
         score.addProperty("source", r.score.source)
         score.addProperty("hypixel", r.score.hypixel)
+        score.addProperty("mimic", r.score.mimic)
+        score.addProperty("prince", r.score.prince)
+        score.addProperty("bat", r.score.bat)
+        score.addProperty("paul", r.score.paul)
         r.score.final?.let { b ->
             val final = JsonObject()
             final.addProperty("time", b.time)
@@ -243,11 +273,17 @@ object SoloRuns {
             secretsPercent = obj.opt("secretsPercent")?.asDouble,
             deaths = obj.optInt("deaths") ?: 0,
             clock = obj.optString("clock"),
+            postedTs = obj.optLong("postedTs"),
+            video = obj.optString("video"),
             score = Score(
                 high = score.optInt("high") ?: 0,
                 projectedHigh = score.optInt("projectedHigh") ?: 0,
                 source = score.optString("source") ?: "none",
                 hypixel = score.optInt("hypixel"),
+                mimic = score.opt("mimic")?.asBoolean ?: false,
+                prince = score.opt("prince")?.asBoolean ?: false,
+                bat = score.opt("bat")?.asBoolean ?: false,
+                paul = score.opt("paul")?.asBoolean ?: false,
                 final = final,
                 marks = score.getAsJsonArray("marks").map { e ->
                     val m = e.asJsonObject
@@ -348,6 +384,23 @@ object SoloRuns {
         revision++
     }
 
+    /**
+     * The run was posted: remembers when and with which link, in the list and in the file.
+     *
+     * The file is rewritten whole through the same atomic path [SoloRecorder] wrote it with — one JSON
+     * document per run, so there is no append-only rule to keep here, and a half-written file is the one
+     * thing that must not happen. Client thread, like every other write to the list.
+     */
+    fun markPosted(record: Record, video: String?, ts: Long): Record {
+        ensureLoaded()
+        val posted = record.copy(postedTs = ts, video = video)
+        val index = list.indexOfFirst { it.ts == record.ts }
+        if (index >= 0) list[index] = posted else list.add(0, posted)
+        revision++
+        RunReport.publish(DIR, posted.fileName, encode(posted).toString())
+        return posted
+    }
+
     fun bestTo300(floor: String): Int? = bestTo300(records(), floor)
 
     private fun ensureLoaded() {
@@ -444,6 +497,7 @@ object SoloRuns {
             secrets = 27, secretsPercent = 100.0, deaths = 0, clock = "04m 01s",
             score = Score(
                 high = 265, projectedHigh = 307, source = SIDEBAR, hypixel = null,
+                mimic = true, prince = false, bat = false, paul = false,
                 final = LiveScore.Breakdown(100, 100, 100, 7, 307),
                 marks = listOf(
                     Mark(270, PROJECTED, 3800, "03m 10s", now - 60_000L),
