@@ -41,14 +41,41 @@ internal object SoloRundown {
 
     class ListRow(
         val ts: Long,
+        val floor: String,
         val label: String,
         /** The time to 300, or to 270, or [Format.MISSING]. [reached] says which. */
         val time: String,
         val reached: Int,
+        /** The tick behind [time], for sorting; null when nothing was reached. */
+        val ticks: Int?,
         val score: String,
+        val scoreValue: Int,
+        /** The clear score as text, or [Format.MISSING] for a run filed before it existed. */
+        val pts: String,
+        val ptsValue: Double?,
         val meta: String,
+        val secretsValue: Int?,
         val pb: Boolean,
     )
+
+    /** The chips over the list: both floors, either one, or only the runs that got there. */
+    enum class Filter(val label: String) {
+        ALL("all"),
+        F7("f7"),
+        M7("m7"),
+        REACHED("300"),
+        ;
+
+        fun matches(row: ListRow): Boolean = when (this) {
+            ALL -> true
+            F7 -> row.floor == "F7"
+            M7 -> row.floor == "M7"
+            REACHED -> row.reached == 300
+        }
+    }
+
+    /** The columns a click sorts by. [DATE] is the list's natural order, newest first. */
+    enum class Sort { DATE, TIME, SCORE, POINTS, SECRETS }
 
     fun listRows(records: List<SoloRuns.Record>, now: Long): List<ListRow> {
         val bests = records.map { it.floor }.distinct().associateWith { SoloRuns.bestTo300(records, it) }
@@ -62,16 +89,53 @@ internal object SoloRundown {
             }
             ListRow(
                 ts = r.ts,
+                floor = r.floor,
                 label = "${r.floor} · ${Format.ago(r.ts, now)}",
                 time = time,
                 reached = reached,
+                ticks = (to300 ?: to270)?.tick,
                 score = r.score.projectedHigh.toString(),
-                meta = (r.clearScore?.let { "${points(it)} pts · " } ?: "") +
-                    "${r.secrets?.toString() ?: "?"} secrets · ${r.deaths} deaths",
+                scoreValue = r.score.projectedHigh,
+                pts = r.clearScore?.let(::points) ?: Format.MISSING,
+                ptsValue = r.clearScore,
+                meta = "${r.secrets?.toString() ?: "?"} secrets · ${r.deaths} deaths",
+                secretsValue = r.secrets,
                 pb = to300 != null && bests[r.floor] == to300.tick,
             )
         }
     }
+
+    fun counts(rows: List<ListRow>): Map<Filter, Int> = Filter.entries.associateWith { f -> rows.count(f::matches) }
+
+    /**
+     * [rows] in [by]'s order. Ascending on [TIME][Sort.TIME] is fastest first, with the runs that reached 300
+     * before those that only reached 270 and the rest last — a run that never got there has no time to
+     * be fast with. A missing number sorts last in both directions, so the dashes never lead the list.
+     */
+    fun sort(rows: List<ListRow>, by: Sort, desc: Boolean): List<ListRow> {
+        val comparator: Comparator<ListRow> = when (by) {
+            Sort.DATE -> compareBy { it.ts }
+            Sort.TIME -> compareBy<ListRow>({ -it.reached }, { it.ticks ?: Int.MAX_VALUE })
+            Sort.SCORE -> compareBy { it.scoreValue }
+            Sort.POINTS -> compareBy(nullsLast()) { it.ptsValue }
+            Sort.SECRETS -> compareBy(nullsLast()) { it.secretsValue }
+        }
+        val sorted = rows.sortedWith(comparator.thenByDescending { it.ts })
+        if (!desc) return sorted
+        // Reversed as a whole, then the absent ones put back at the end where they belong either way.
+        val (present, absent) = sorted.reversed().partition { row ->
+            when (by) {
+                Sort.POINTS -> row.ptsValue != null
+                Sort.SECRETS -> row.secretsValue != null
+                Sort.TIME -> row.reached > 0
+                else -> true
+            }
+        }
+        return present + absent
+    }
+
+    /** The direction a column opens in on its first click: the interesting end first. */
+    fun opensDescending(by: Sort): Boolean = by != Sort.TIME
 
     /** One stretch in one room, in route order, with the corridor time that led to it. */
     class Stop(

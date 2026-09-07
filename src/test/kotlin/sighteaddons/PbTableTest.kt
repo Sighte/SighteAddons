@@ -122,6 +122,25 @@ class PbTableTest {
         assertEquals("348.0", lines.first().time)
     }
 
+    /** The chips: a heading whose rows the chip took away goes with them, so no floor stands over nothing. */
+    @Test
+    fun `narrowing drops a heading left without rows`() {
+        val lines = PbTable.runs(
+            listOf(
+                RunPbs.Record("M7", 5, RunPbs.Clock.HYPIXEL, 351f),
+                RunPbs.Record("M7", 1, RunPbs.Clock.HYPIXEL, 392f),
+                RunPbs.Record("F7", 4, RunPbs.Clock.HYPIXEL, 400f),
+            ),
+            plain,
+        )
+        val solo = PbTable.narrow(lines, keepFloor = { true }, keepRow = { PbTable.PartyFilter.SOLO.matches(it.label) })
+        assertEquals(listOf("M7" to null, "M7" to "solo"), solo.map { it.floor to it.label }, "F7 had no solo row, so no F7 heading")
+        val normal = PbTable.narrow(lines, keepFloor = { PbTable.FloorFilter.NORMAL.matches(it) })
+        assertEquals(listOf("F7" to null, "F7" to "4 players"), normal.map { it.floor to it.label })
+        assertEquals(lines.size, PbTable.narrow(lines, keepFloor = { true }).size, "the all chip changes nothing")
+        assertTrue(PbTable.FloorFilter.NORMAL.matches("E"), "the entrance is not master")
+    }
+
     /**
      * A floor with nothing rankable on it keeps its rows and loses only its heading time.
      *

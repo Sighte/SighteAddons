@@ -50,7 +50,7 @@ internal object PbTable {
     private const val TOTAL = DungeonSplits.TOTAL
 
     /** A party of one, spelled the way a player says it rather than as `1 players`. */
-    private const val SOLO = "solo"
+    internal const val SOLO = "solo"
 
     /**
      * What an own-clock run says about itself, inside the row's own label.
@@ -170,4 +170,63 @@ internal object PbTable {
 
     /** How many records [lines] holds, which is not how many lines it holds. For the header count. */
     fun count(lines: List<Line>): Int = lines.count { !it.heading }
+
+    /**
+     * The chips over the split table. Master and normal, not fifteen floors: the table is grouped by
+     * floor already and the headings do that job; what a reader wants to drop is the half of the game
+     * they are not playing tonight. The entrance counts as normal, since it is not master.
+     */
+    enum class FloorFilter(val label: String) {
+        ALL("all"),
+        MASTER("master"),
+        NORMAL("normal"),
+        ;
+
+        fun matches(tag: String): Boolean = when (this) {
+            ALL -> true
+            MASTER -> tag.startsWith("M")
+            NORMAL -> !tag.startsWith("M")
+        }
+    }
+
+    /**
+     * The chips over the run table, on the axis that table is keyed by: a run alone is not a run with
+     * four people, and [RunPbs] says so by keeping them as separate records.
+     */
+    enum class PartyFilter(val label: String) {
+        ALL("all"),
+        SOLO("solo"),
+        PARTY("party"),
+        ;
+
+        /** Over a row's label — [SOLO] is the word the label starts with, own clock or not. */
+        fun matches(label: String?): Boolean = when (this) {
+            ALL -> true
+            SOLO -> label?.startsWith(PbTable.SOLO) == true
+            PARTY -> label != null && !label.startsWith(PbTable.SOLO)
+        }
+    }
+
+    /**
+     * [lines] with only the floors [keepFloor] accepts and only the rows [keepRow] accepts — and no
+     * heading left standing over nothing, which would read as a floor whose records failed to load.
+     */
+    fun narrow(lines: List<Line>, keepFloor: (String) -> Boolean, keepRow: (Line) -> Boolean = { true }): List<Line> {
+        val out = ArrayList<Line>()
+        var heading: Line? = null
+        for (line in lines) {
+            if (!keepFloor(line.floor)) continue
+            if (line.heading) {
+                heading = line
+                continue
+            }
+            if (!keepRow(line)) continue
+            heading?.let {
+                out.add(it)
+                heading = null
+            }
+            out.add(line)
+        }
+        return out
+    }
 }

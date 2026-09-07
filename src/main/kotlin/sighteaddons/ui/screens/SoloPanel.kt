@@ -16,6 +16,8 @@ import sighteaddons.ui.components.EmptyState
 import sighteaddons.ui.components.Popover
 import sighteaddons.ui.components.Table
 import sighteaddons.ui.components.TextField
+import sighteaddons.ui.motion.Easing
+import sighteaddons.ui.motion.Motion
 import sighteaddons.ui.sk.Chrome
 import sighteaddons.ui.sk.Sk
 import sighteaddons.ui.sk.Type
@@ -41,6 +43,20 @@ internal class SoloPanel {
     private var rowsKey = -1
     private var rowsDay = 0L
     private var cachedRows: List<SoloRundown.ListRow> = emptyList()
+
+    // --- The list's chips and sort, screen state like the records page's ---------------------------
+
+    private var filter = SoloRundown.Filter.ALL
+    private var sortBy = SoloRundown.Sort.DATE
+    private var sortDesc = true
+
+    /** Chip press zones from the last frame: filter, x0, x1. */
+    private val chipHits = ArrayList<Triple<SoloRundown.Filter, Int, Int>>()
+
+    /** Header press zones from the last frame: sort, x0, x1. */
+    private val headerHits = ArrayList<Triple<SoloRundown.Sort, Int, Int>>()
+    private var chipsY = 0
+    private var columnsY = 0
 
     private var stopsFor: SoloRuns.Record? = null
     private var cachedStops: List<SoloRundown.Stop> = emptyList()
@@ -132,7 +148,10 @@ internal class SoloPanel {
         return cachedRows
     }
 
-    private class Columns(val timeX: Int, val scoreX: Int, val metaX: Int, val wide: Boolean, val labelWidth: Int)
+    private class Columns(
+        val timeX: Int, val timeW: Int, val scoreX: Int, val scoreW: Int, val ptsX: Int, val ptsW: Int,
+        val metaX: Int, val metaW: Int, val wide: Boolean, val labelWidth: Int,
+    )
 
     /** Right to left, measured off what is drawn — [sighteaddons.SettingsScreen]'s `pbLayout` argument. */
     private fun columns(): Columns {
@@ -140,33 +159,93 @@ internal class SoloPanel {
         val timeW = maxOf(w(TIME_HEADER, LABEL, Type.MEDIUM), w(SAMPLE_TIME, ROW_TEXT, Type.MEDIUM)).toInt()
         val wide = width >= WIDE
         val metaX = lastX
-        val metaW = if (wide) w(SAMPLE_META, ROW_TEXT).toInt() else 0
-        val scoreX = if (wide) metaX - metaW - GAP else lastX
+        val metaW = if (wide) maxOf(w(META_HEADER, LABEL, Type.MEDIUM), w(SAMPLE_META, ROW_TEXT)).toInt() else 0
+        val ptsX = if (wide) metaX - metaW - GAP else lastX
+        val ptsW = if (wide) maxOf(w(PTS_HEADER, LABEL, Type.MEDIUM), w("99.99", ROW_TEXT, Type.MEDIUM)).toInt() else 0
+        val scoreX = if (wide) ptsX - ptsW - GAP else lastX
         val scoreW = if (wide) maxOf(w(SCORE_HEADER, LABEL, Type.MEDIUM), w("307", ROW_TEXT, Type.MEDIUM)).toInt() else 0
         val timeX = if (wide) scoreX - scoreW - GAP else lastX
-        return Columns(timeX, scoreX, metaX, wide, (timeX - timeW - GAP - left).coerceAtLeast(0))
+        return Columns(
+            timeX, timeW, scoreX, scoreW, ptsX, ptsW, metaX, metaW, wide,
+            (timeX - timeW - GAP - left).coerceAtLeast(0),
+        )
     }
 
-    private fun drawList(pointerX: Int, pointerY: Int, anim: Anim) {
-        val rows = rows()
-        val cols = columns()
-        Sk.text(RUN_HEADER, left.toFloat(), top.toFloat(), LABEL, Tokens.textTertiary)
-        Sk.textRight(TIME_HEADER, cols.timeX.toFloat(), top.toFloat(), LABEL, Tokens.textTertiary)
-        if (cols.wide) {
-            Sk.textRight(SCORE_HEADER, cols.scoreX.toFloat(), top.toFloat(), LABEL, Tokens.textTertiary)
-            Sk.textRight(META_HEADER, cols.metaX.toFloat(), top.toFloat(), LABEL, Tokens.textTertiary)
-        }
-        Table.divider(left.toFloat(), (top + Tokens.SPACE_12).toFloat(), width.toFloat())
+    /** The rows the chip lets through, in the clicked order. */
+    private fun shown(): List<SoloRundown.ListRow> =
+        SoloRundown.sort(rows().filter(filter::matches), sortBy, sortDesc)
 
-        firstRow = top + Tokens.SPACE_16
+    private fun drawList(pointerX: Int, pointerY: Int, anim: Anim) {
+        val all = rows()
+        val cols = columns()
+
+        // The chips, counted, clipped to the column like the records page's row.
+        chipsY = top
+        val counts = SoloRundown.counts(all)
+        val chipMeasure: (String) -> Float = { w(it, Tokens.TEXT_11.toFloat()) }
+        val withCounts = SoloRundown.Filter.entries.sumOf {
+            Math.ceil(Controls.chipWidth(it.label, counts[it] ?: 0, chipMeasure).toDouble()).toInt()
+        } + (SoloRundown.Filter.entries.size - 1) * Tokens.SPACE_6
+        val showCounts = withCounts <= width
+        chipHits.clear()
+        var chipX = left
+        Sk.clip(left.toFloat(), chipsY.toFloat(), width.toFloat(), CHIP_H.toFloat())
+        for (chip in SoloRundown.Filter.entries) {
+            val count = if (showCounts) counts[chip] ?: 0 else -1
+            val chipWidth = Math.ceil(Controls.chipWidth(chip.label, count, chipMeasure).toDouble()).toInt()
+            val on = chip == filter
+            val active = anim.of("solo.chip.${chip.name}", if (on) 1f else 0f)
+            active.animateTo(if (on) 1f else 0f, Motion.FAST, Easing.STANDARD, Motion.Kind.OPACITY)
+            val hovered = pointerX in chipX until minOf(chipX + chipWidth, left + width) &&
+                pointerY in chipsY until (chipsY + CHIP_H)
+            Controls.chip(
+                chipX.toFloat(), chipsY.toFloat(), CHIP_H.toFloat(), chip.label, count, active.value,
+                Controls.hover(anim.of("solo.chiphover.${chip.name}"), hovered),
+            )
+            if (chipX < left + width) chipHits.add(Triple(chip, chipX, minOf(chipX + chipWidth, left + width)))
+            chipX += chipWidth + Tokens.SPACE_6
+        }
+        Sk.unclip()
+
+        // The headers: every one a sort, with the caret on the one in charge.
+        columnsY = chipsY + CHIP_H + Tokens.SPACE_6
+        val flip = anim.of("solo.sortdir", if (sortDesc) 1f else 0f)
+        flip.animateTo(if (sortDesc) 1f else 0f, Motion.FAST, Easing.STANDARD, Motion.Kind.OPACITY)
+        headerHits.clear()
+        fun header(label: String, sort: SoloRundown.Sort, x0: Int, x1: Int, rightAligned: Boolean) {
+            val over = pointerY in columnsY until (columnsY + Tokens.SPACE_12) && pointerX in x0 until x1
+            Table.headerCell(
+                label, x0.toFloat(), x1.toFloat(), columnsY.toFloat(), rightAligned,
+                sorted = sort == sortBy, flip = flip.value,
+                hover = Controls.hover(anim.of("solo.col.${sort.name}"), over && sort != sortBy),
+            )
+            headerHits.add(Triple(sort, x0, x1))
+        }
+        header(RUN_HEADER, SoloRundown.Sort.DATE, left, left + cols.labelWidth, rightAligned = false)
+        header(TIME_HEADER, SoloRundown.Sort.TIME, cols.timeX - cols.timeW, cols.timeX, rightAligned = true)
+        if (cols.wide) {
+            header(SCORE_HEADER, SoloRundown.Sort.SCORE, cols.scoreX - cols.scoreW, cols.scoreX, rightAligned = true)
+            header(PTS_HEADER, SoloRundown.Sort.POINTS, cols.ptsX - cols.ptsW, cols.ptsX, rightAligned = true)
+            header(META_HEADER, SoloRundown.Sort.SECRETS, cols.metaX - cols.metaW, cols.metaX, rightAligned = true)
+        }
+        Table.divider(left.toFloat(), (columnsY + Tokens.SPACE_12).toFloat(), width.toFloat())
+
+        firstRow = columnsY + Tokens.SPACE_16
         visibleRows = ((bottom - firstRow) / Table.ROW).coerceAtLeast(1)
-        if (rows.isEmpty()) {
+        if (all.isEmpty()) {
             val block = EmptyState.height(Sk.lineHeight(EmptyState.BODY_SIZE), SoloRuns.PATH)
             val y = firstRow + ((bottom - firstRow - block) / 2f).coerceAtLeast(0f)
             EmptyState.draw(
                 left.toFloat(), y, width.toFloat(),
                 "no solo runs yet", "enter f7 or m7 alone · the run is filed when you leave", SoloRuns.PATH,
             )
+            return
+        }
+        val rows = shown()
+        if (rows.isEmpty()) {
+            val block = EmptyState.height(Sk.lineHeight(EmptyState.BODY_SIZE))
+            val y = firstRow + ((bottom - firstRow - block) / 2f).coerceAtLeast(0f)
+            EmptyState.draw(left.toFloat(), y, width.toFloat(), "nothing on this chip", "esc shows every run")
             return
         }
         scroll = Scroll.clamp(scroll, rows.size, visibleRows)
@@ -201,6 +280,7 @@ internal class SoloPanel {
             right(row.time, cols.timeX, y, present = row.reached == 300)
             if (cols.wide) {
                 right(row.score, cols.scoreX, y, present = true)
+                right(row.pts, cols.ptsX, y, present = row.ptsValue != null)
                 Sk.textRight(row.meta, cols.metaX.toFloat(), textY, ROW_TEXT, Tokens.textTertiary)
             }
         }
@@ -645,8 +725,26 @@ internal class SoloPanel {
             }
             return false
         }
-        val rows = rows()
         if (mouseX !in (left - Tokens.SPACE_8)..(left + width)) return false
+        if (mouseY in chipsY until (chipsY + CHIP_H)) {
+            chipHits.firstOrNull { mouseX in it.second..it.third }?.let {
+                filter = it.first
+                scroll = 0
+                return true
+            }
+            return false
+        }
+        if (mouseY in columnsY until (columnsY + Tokens.SPACE_12)) {
+            headerHits.firstOrNull { mouseX in it.second until it.third }?.let {
+                // A second click on the same column reverses it; a new column opens at its interesting end.
+                sortDesc = if (it.first == sortBy) !sortDesc else SoloRundown.opensDescending(it.first)
+                sortBy = it.first
+                scroll = 0
+                return true
+            }
+            return false
+        }
+        val rows = shown()
         if (mouseY !in firstRow until (firstRow + visibleRows * Table.ROW)) return false
         val index = scroll + (mouseY - firstRow) / Table.ROW
         if (index !in rows.indices) return false
@@ -659,7 +757,7 @@ internal class SoloPanel {
         scroll = if (previewing || selected != null) {
             Scroll.wheel(scroll, scrollY, SettingsPage.ROW, detailTotal, bottom - top)
         } else {
-            Scroll.wheel(scroll, scrollY, 1, rows().size, visibleRows)
+            Scroll.wheel(scroll, scrollY, 1, shown().size, visibleRows)
         }
     }
 
@@ -671,7 +769,16 @@ internal class SoloPanel {
      * that nobody types.
      */
     fun key(event: KeyEvent): Boolean {
-        val record = selected ?: return false
+        val record = selected
+        if (record == null) {
+            // On the list, a chip is the one state to leave before escape is vanilla's and closes the screen.
+            if (event.key() == GLFW.GLFW_KEY_ESCAPE && filter != SoloRundown.Filter.ALL) {
+                filter = SoloRundown.Filter.ALL
+                scroll = 0
+                return true
+            }
+            return false
+        }
         if (popupOpen) {
             linkHint = null
             when (event.key()) {
@@ -714,7 +821,8 @@ internal class SoloPanel {
     fun footer(): String = when {
         popupOpen -> "enter posts · esc cancels · ctrl+v pastes the link"
         selected != null -> "esc back to the list · hover a room for its times"
-        else -> "solo f7 and m7 runs · click one for its map"
+        filter != SoloRundown.Filter.ALL -> "esc shows every run · click a header to sort"
+        else -> "click a run for its map · a chip to filter · a header to sort"
     }
 
     /** What the header states: how many runs, and the fastest 300 among them. */
@@ -768,10 +876,14 @@ internal class SoloPanel {
         const val RUN_HEADER = "RUN"
         const val TIME_HEADER = "TO 300"
         const val SCORE_HEADER = "SCORE"
+        const val PTS_HEADER = "PTS"
         const val META_HEADER = "SECRETS · DEATHS"
         const val ROUTE_LABEL = "ROUTE"
         const val SAMPLE_TIME = "10:23.4"
         const val SAMPLE_STAY = "0:41.2"
-        const val SAMPLE_META = "99.99 pts · 99 secrets · 9 deaths"
+        const val SAMPLE_META = "99 secrets · 9 deaths"
+
+        /** The chip row's height, the records page's. */
+        const val CHIP_H = 18
     }
 }

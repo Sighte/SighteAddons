@@ -91,8 +91,30 @@ class SoloRunsTest {
         assertTrue(body["pb"].asBoolean)
         // The clear score, as a component: the receiver prints every key in there as its own field.
         assertEquals("14.32", body["score_components"].asJsonObject["clear score"].asString)
-        assertTrue(SoloRundown.listRows(listOf(sample), now = sample.ts).single().meta.startsWith("14.32 pts · "))
+        assertEquals("14.32", SoloRundown.listRows(listOf(sample), now = sample.ts).single().pts)
         assertEquals("14.32", SoloRundown.summary(sample).first { it.first == "clear score" }.second)
+    }
+
+    /** The list's chips and sorts: the dashes never lead, and time puts the runs that got there first. */
+    @Test
+    fun `the list filters by chip and sorts with the absent ones last`() {
+        val base = SoloRuns.sample()
+        val m7 = base                                                            // 300 at 4620, 14.32 pts
+        val f7 = base.copy(ts = base.ts + 1, floor = "F7", clearScore = 20.0,
+            score = base.score.copy(marks = base.score.marks.filter { it.threshold == 270 }))  // only 270
+        val none = base.copy(ts = base.ts + 2, clearScore = null, score = base.score.copy(marks = emptyList(), projectedHigh = 250))
+        val rows = SoloRundown.listRows(listOf(none, f7, m7), now = base.ts)
+
+        assertEquals(mapOf(SoloRundown.Filter.ALL to 3, SoloRundown.Filter.F7 to 1, SoloRundown.Filter.M7 to 2, SoloRundown.Filter.REACHED to 1), SoloRundown.counts(rows))
+        assertEquals(listOf(f7.ts), rows.filter(SoloRundown.Filter.F7::matches).map { it.ts })
+
+        fun order(by: SoloRundown.Sort, desc: Boolean) = SoloRundown.sort(rows, by, desc).map { it.ts }
+        assertEquals(listOf(none.ts, f7.ts, m7.ts), order(SoloRundown.Sort.DATE, desc = true), "newest first")
+        assertEquals(listOf(m7.ts, f7.ts, none.ts), order(SoloRundown.Sort.TIME, desc = false), "300 before 270 before nothing")
+        assertEquals(listOf(f7.ts, m7.ts, none.ts), order(SoloRundown.Sort.TIME, desc = true), "reversed, the dash still last")
+        assertEquals(listOf(f7.ts, m7.ts, none.ts), order(SoloRundown.Sort.POINTS, desc = true))
+        assertEquals(listOf(m7.ts, f7.ts, none.ts), order(SoloRundown.Sort.POINTS, desc = false), "a missing number sorts last both ways")
+        assertEquals(listOf(m7.ts, f7.ts, none.ts), order(SoloRundown.Sort.SCORE, desc = true))
     }
 
     /** The picture that goes to Discord: a real PNG of the floor's size, with the names wrapped into their cells. */

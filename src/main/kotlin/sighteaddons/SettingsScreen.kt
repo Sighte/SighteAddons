@@ -274,6 +274,16 @@ internal class SettingsScreen(
     private var cachedRunLines: List<PbTable.Line> = emptyList()
 
     /**
+     * The chips over the two personal-best tables, one filter per table because they filter on
+     * different axes: the splits by half of the game, the runs by party. Screen state like [filter].
+     */
+    private var splitsFilter = PbTable.FloorFilter.ALL
+    private var runsFilter = PbTable.PartyFilter.ALL
+
+    /** The personal-best chips' press zones from the last frame: index, x0, x1. */
+    private val pbChipHits = ArrayList<Triple<Int, Int, Int>>()
+
+    /**
      * The tooltip owed to this frame, if any: a row's explanation, or a name a column had to cut off.
      *
      * Deferred rather than drawn where it is discovered, because the row that discovers it is inside the
@@ -326,8 +336,11 @@ internal class SettingsScreen(
      */
     private val segmentsY get() = Frame.chooserTop
     private val chipsY get() = Frame.chipsTop
-    private val columnsY get() = Frame.columnsTop(view == View.ROOMS)
-    private val firstRow get() = Frame.rowsTop(view == View.ROOMS)
+    // Every view has a chip row now — the two personal-best tables gained theirs on 07.09.2026 — so
+    // the bands are the same on all three and the argument above about the views paying nothing no
+    // longer applies to them.
+    private val columnsY get() = Frame.columnsTop(true)
+    private val firstRow get() = Frame.rowsTop(true)
     private val listBottom get() = Frame.listBottom(height)
 
     /** How much vertical room a scrolling page has. The one number [Scroll] measures against. */
@@ -379,7 +392,7 @@ internal class SettingsScreen(
     )
 
     /** How many table rows fit, which is also how far a press on the list may land. */
-    private val tableRows get() = Frame.rows(height, view == View.ROOMS, Table.ROW)
+    private val tableRows get() = Frame.rows(height, true, Table.ROW)
 
     private val narrowing get() = RecordTable.narrowing(query, filter)
 
@@ -1115,14 +1128,22 @@ internal class SettingsScreen(
      * already documents — this is its "neither" state, permanently.
      */
     private fun renderPbs() {
+        renderPbChips()
         val layout = pbLayout()
         Sk.text(layout.header, contentLeft.toFloat(), columnsY.toFloat(), labelText, Tokens.textTertiary)
         Sk.textRight(BEST_HEADER, layout.timeX.toFloat(), columnsY.toFloat(), labelText, Tokens.textTertiary)
         Table.divider(contentLeft.toFloat(), (columnsY + Tokens.SPACE_12).toFloat(), content.toFloat())
 
-        val lines = pbLines()
-        if (lines.isEmpty()) {
+        val all = pbLines()
+        if (all.isEmpty()) {
             renderPbEmpty()
+            return
+        }
+        val lines = pbShown()
+        if (lines.isEmpty()) {
+            val block = EmptyState.height(Sk.lineHeight(EmptyState.BODY_SIZE))
+            val y = firstRow + ((listBottom - firstRow - block) / 2f).coerceAtLeast(0f)
+            EmptyState.draw(contentLeft.toFloat(), y, content.toFloat(), "nothing on this chip", "esc shows every record")
             return
         }
 
@@ -1140,6 +1161,66 @@ internal class SettingsScreen(
             (lastX + Tokens.SPACE_6).toFloat(), firstRow.toFloat(), listBottom.toFloat(),
             lines.size, visible, scroll,
         )
+    }
+
+    /** The personal-best lines the current chip lets through. Cheap enough per frame: at most 150 lines. */
+    private fun pbShown(): List<PbTable.Line> = when (view) {
+        View.SPLITS -> PbTable.narrow(pbLines(), keepFloor = { splitsFilter.matches(it) })
+        View.RUNS -> PbTable.narrow(pbLines(), keepFloor = { true }, keepRow = { runsFilter.matches(it.label) })
+        View.ROOMS -> emptyList()
+    }
+
+    /** The chip labels for the current personal-best view, with how many records each would show. */
+    private fun pbChips(): List<Pair<String, Int>> {
+        val lines = pbLines()
+        return when (view) {
+            View.SPLITS -> PbTable.FloorFilter.entries.map { f ->
+                f.label to PbTable.count(PbTable.narrow(lines, keepFloor = { f.matches(it) }))
+            }
+            View.RUNS -> PbTable.PartyFilter.entries.map { f ->
+                f.label to PbTable.count(PbTable.narrow(lines, keepFloor = { true }, keepRow = { f.matches(it.label) }))
+            }
+            View.ROOMS -> emptyList()
+        }
+    }
+
+    private val pbActiveChip: Int
+        get() = if (view == View.SPLITS) splitsFilter.ordinal else runsFilter.ordinal
+
+    private fun selectPbChip(index: Int) {
+        when (view) {
+            View.SPLITS -> PbTable.FloorFilter.entries.getOrNull(index)?.let { splitsFilter = it }
+            View.RUNS -> PbTable.PartyFilter.entries.getOrNull(index)?.let { runsFilter = it }
+            View.ROOMS -> {}
+        }
+        scroll = 0
+    }
+
+    /** The chip row over a personal-best table — the rooms view's row, for a filter with three answers. */
+    private fun renderPbChips() {
+        val chips = pbChips()
+        val chipMeasure: (String) -> Float = { w(it, Tokens.TEXT_11.toFloat()) }
+        val withCounts = chips.sumOf {
+            Math.ceil(Controls.chipWidth(it.first, it.second, chipMeasure).toDouble()).toInt()
+        } + (chips.size - 1) * Tokens.SPACE_6
+        val showCounts = withCounts <= content
+        pbChipHits.clear()
+        var chipX = contentLeft
+        Sk.clip(contentLeft.toFloat(), chipsY.toFloat(), content.toFloat(), CHIP_H.toFloat())
+        for ((index, chip) in chips.withIndex()) {
+            val count = if (showCounts) chip.second else -1
+            val chipWidth = Math.ceil(Controls.chipWidth(chip.first, count, chipMeasure).toDouble()).toInt()
+            val on = index == pbActiveChip
+            val active = anim.of("pbchip.${view.name}.$index", if (on) 1f else 0f)
+            active.animateTo(if (on) 1f else 0f, Motion.FAST, Easing.STANDARD, Motion.Kind.OPACITY)
+            val hovered = pointerX in chipX until minOf(chipX + chipWidth, lastX) &&
+                pointerY in chipsY until (chipsY + CHIP_H)
+            val hover = Controls.hover(anim.of("pbchiphover.${view.name}.$index"), hovered)
+            Controls.chip(chipX.toFloat(), chipsY.toFloat(), CHIP_H.toFloat(), chip.first, count, active.value, hover)
+            if (chipX < lastX) pbChipHits.add(Triple(index, chipX, minOf(chipX + chipWidth, lastX)))
+            chipX += chipWidth + Tokens.SPACE_6
+        }
+        Sk.unclip()
     }
 
     /**
@@ -2035,9 +2116,17 @@ internal class SettingsScreen(
                     return true
                 }
             }
-            // Everything below belongs to the rooms table and to nothing else: the two personal-best
-            // views have no filter to chip, no column to sort by, and nothing behind a row to open.
-            if (view != View.ROOMS) return super.mouseClicked(event, doubleClick)
+            // The two personal-best views have a chip row and nothing else to press: no column to sort
+            // by, nothing behind a row to open.
+            if (view != View.ROOMS) {
+                if (mouseY in chipsY until (chipsY + CHIP_H)) {
+                    pbChipHits.firstOrNull { mouseX in it.second..it.third }?.let {
+                        selectPbChip(it.first)
+                        return true
+                    }
+                }
+                return super.mouseClicked(event, doubleClick)
+            }
             if (mouseY in chipsY until (chipsY + CHIP_H)) {
                 chipHits.firstOrNull { mouseX in it.second..it.third }?.let {
                     filter = it.first
@@ -2212,7 +2301,7 @@ internal class SettingsScreen(
             // Rows, not pixels: every table on this page holds a whole number of fixed-height rows, and
             // the history table has counted in them since it had a scrollbar at all.
             if (view != View.ROOMS) {
-                scroll = Scroll.wheel(scroll, scrollY, 1, pbLines().size, tableRows)
+                scroll = Scroll.wheel(scroll, scrollY, 1, pbShown().size, tableRows)
                 return true
             }
             build()
@@ -2260,6 +2349,19 @@ internal class SettingsScreen(
         // Escape out of a run's detail is back to the list, the same one-step-at-a-time rule the search
         // follows below; on the list the panel declines and vanilla closes the screen.
         if (tab == Tab.SOLO && solo.key(event)) return true
+        // A chip on a personal-best view is a state to leave first, the same one-step rule as below.
+        if (tab == Tab.RECORDS && view != View.ROOMS && event.key() == GLFW.GLFW_KEY_ESCAPE) {
+            if (view == View.SPLITS && splitsFilter != PbTable.FloorFilter.ALL) {
+                splitsFilter = PbTable.FloorFilter.ALL
+                scroll = 0
+                return true
+            }
+            if (view == View.RUNS && runsFilter != PbTable.PartyFilter.ALL) {
+                runsFilter = PbTable.PartyFilter.ALL
+                scroll = 0
+                return true
+            }
+        }
         // The search and both narrowings are the rooms table's. On the other two views escape is
         // vanilla's again, which is what closes the screen — there is no state on them to leave first.
         if (tab == Tab.RECORDS && view == View.ROOMS) {
@@ -2475,6 +2577,8 @@ internal class SettingsScreen(
         tab != Tab.RECORDS -> "click to change · hover for the detail"
         // The two personal-best views come before the two narrowings, because they have neither: a
         // footer promising that escape clears a search would be promising it on a view with no search.
+        view == View.SPLITS && splitsFilter != PbTable.FloorFilter.ALL -> "esc shows every floor"
+        view == View.RUNS && runsFilter != PbTable.PartyFilter.ALL -> "esc shows every party"
         view == View.SPLITS -> "the best of every split, in the run's order"
         view == View.RUNS -> "hypixel's clock, and ours where there was none"
         query.isNotEmpty() -> "esc clears the search"
