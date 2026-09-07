@@ -155,16 +155,40 @@ class RoomHistoryTest {
 
     /**
      * The happy path, and the one thing this change must not cost: a room you were in from the
-     * start and did more of than anybody still writes its line.
+     * start and did alone still writes its line.
+     *
+     * The mate here is a walk-through, one tick under the floor. Until 2026-09-07 they stayed a full
+     * second and the record was still yours; now a second is company and refuses it (next test), so
+     * this fixture also holds the edge the company line is drawn at: under the floor is not company.
      */
     @Test
-    fun `a room you were in from the start and did the most of is yours`() {
+    fun `a room you were in from the start and did alone is yours`() {
+        val room = room()
+        room.stay("Me", from = 1000, count = min * 4)
+        room.stay("Mate", from = 1000 + min, count = min - 1)
+        room.clearedAtTick = 1000 + min * 4
+
+        assertTrue(RoomHistory.ownClear(room, self = "Me", topPlayer = "Me"))
+    }
+
+    /**
+     * The user's decision of 2026-09-07: a clear is only a personal best if you were alone in the
+     * room. Top by time and there from the first tick — both older halves say yes — and a teammate
+     * who stood in the room for a second makes it the team's clear rather than yours.
+     *
+     * The fixture is built so that only the company line can refuse it, which is what makes it a
+     * test of that line and not of the gate as a whole.
+     */
+    @Test
+    fun `a teammate who worked the room beside you makes it the team's clear`() {
         val room = room()
         room.stay("Me", from = 1000, count = min * 4)
         room.stay("Mate", from = 1000 + min, count = min)
         room.clearedAtTick = 1000 + min * 4
 
-        assertTrue(RoomHistory.ownClear(room, self = "Me", topPlayer = "Me"))
+        assertTrue(room.presentFromStart("Me", room.clearedAtTick!!), "from the start")
+        assertTrue((room.ticks["Me"] ?: 0) > (room.ticks["Mate"] ?: 0), "and top by time")
+        assertFalse(RoomHistory.ownClear(room, self = "Me", topPlayer = "Me"))
     }
 
     /**
@@ -199,6 +223,13 @@ class RoomHistoryTest {
      *
      * A fixture where the local player had also left would pass this test with the top-player check
      * deleted, which is exactly what the first version of it did — measured, not feared. See probe H.
+     *
+     * **Since 2026-09-07 the company line refuses this shape as well**, for both members: each was in
+     * the room a second or more while the other worked it. Through the only caller the top-player
+     * line is now implied by the company line — whoever is not top has somebody above the floor
+     * beside them — and it stays anyway, because `ownClear` is `internal` and directly callable and
+     * the six lines are meant to be individually readable. What this test still holds is the
+     * refusal; what it can no longer isolate is which line delivered it.
      */
     @Test
     fun `being there from the start is not enough if somebody else did the room`() {
@@ -216,7 +247,9 @@ class RoomHistoryTest {
         assertTrue((room.ticks["Me"] ?: 0) < (room.ticks["Mate"] ?: 0), "and this is the only difference")
 
         assertFalse(RoomHistory.ownClear(room, self = "Me", topPlayer = "Mate"))
-        assertTrue(RoomHistory.ownClear(room, self = "Mate", topPlayer = "Mate"))
+        // Until 2026-09-07 this was the mate's record. It is nobody's now: the local player was in the
+        // room beside them for three of the four seconds.
+        assertFalse(RoomHistory.ownClear(room, self = "Mate", topPlayer = "Mate"))
     }
 
     /**

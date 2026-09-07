@@ -217,7 +217,7 @@ object RoomHistory {
      *
      * ### Why there is no reason field
      *
-     * The obvious shape for this is an enum naming which of [ownClear]'s five conditions refused, and
+     * The obvious shape for this is an enum naming which of [ownClear]'s six conditions refused, and
      * it is the wrong one twice over. It would be a **second copy of the predicate** — and `CLAUDE.md`
      * names that function as one of the things not to touch, because the five lines are individually
      * probeable and `build/recordprobe.py` deletes them one at a time by their literal text. A verdict
@@ -229,6 +229,8 @@ object RoomHistory {
      *  - `self` null — the local player was not resolvable
      *  - `self != top` — a teammate did the room, which is the ordinary case in a party
      *  - `ownTicks` under [ContributionTracker.MIN_TICKS] — walked through rather than worked
+     *  - `others` above zero — somebody else was in the room long enough to have worked on it, which
+     *    since 2026-09-07 is the ordinary refusal in a party that clears together
      *  - `clearTick` null — the room arrived here without a stamp, which should not happen
      *  - `enterTick` null, or `stayStart` null, or `stayStart` after `enterTick`, or
      *    `sinceSeen - 1` over [ContributionTracker.MIN_TICKS] — the four halves of
@@ -269,6 +271,9 @@ object RoomHistory {
             "top" to topPlayer?.let(Pseudonym::of),
             "ownTicks" to (self?.let { room.ticks[it] } ?: 0),
             "topTicks" to (topPlayer?.let { room.ticks[it] } ?: 0),
+            // Other members at or above the floor: the input of the sixth condition, and the same
+            // count the run report ships as `playersInRoom` minus one.
+            "others" to room.ticks.count { (member, ticks) -> member != self && ticks >= ContributionTracker.MIN_TICKS },
             "clearTick" to at,
             "enterTick" to room.enteredAtTick,
             "stayStart" to seen?.start,
@@ -395,8 +400,9 @@ object RoomHistory {
         .apply { pb?.let { append(it) } }
 
     /**
-     * Whether the clear of [room] is the local player's to record. Both halves are required, which
-     * is the user's decision of 2026-08-15 taken at its strict end rather than either half alone.
+     * Whether the clear of [room] is the local player's to record. All three parts are required: the
+     * first two are the user's decision of 2026-08-15 taken at its strict end rather than either half
+     * alone, the third is their decision of 2026-09-07.
      *
      * 1. **You were the member with the most ticks in the room** — the same [topPlayer] the
      *    announcement already credits. Being present is not the same as having done the room, and
@@ -409,8 +415,22 @@ object RoomHistory {
      *    the user, 2026-08-15: *"wenn ich 'verspätet' in einen Raum komme der bereits von jemand
      *    anderem gecleart wird"*.
      *
-     * Neither implies the other. You can be top of a room you walked into late — everyone else left
-     * before you arrived — and you can be there from the first tick and be third by time.
+     * 3. **Nobody else was in the room long enough to have worked on it** — no other member at or
+     *    above [ContributionTracker.MIN_TICKS], the same floor `playersInRoom` in the run report is
+     *    counted with, so the report and the record agree on what "alone" means. A clear time is
+     *    only comparable with another clear time when the same number of hands were on the room, and
+     *    a personal best is a comparison; a record set with a teammate killing half the mobs is a
+     *    record for the team. The user, 2026-09-07: *"als PB sollen sie nur gespeichert werden wenn
+     *    man alleine im raum war."* A member who passes through under the floor is not company, for
+     *    the reason the floor exists at all: under a second in a room is a walk, not work.
+     *
+     *    **Only the clear gets this; the secret run does not.** [ownSecretRun] can prove whose
+     *    secrets they were, one by one, so company in the room takes nothing from it — the user's
+     *    reading of the same day, and the reason the two gates now differ in shape.
+     *
+     * None of the three implies another. You can be top of a room you walked into late — everyone
+     * else left before you arrived — you can be there from the first tick and be third by time, and
+     * you can be top and from the start with a teammate beside you the whole way.
      *
      * **The [ContributionTracker.MIN_TICKS] floor is unreachable through the only caller there is,
      * and it stays, and the reason is precise rather than "totality" in the abstract.**
@@ -432,8 +452,9 @@ object RoomHistory {
      * it has just been stamped, so a null means the room did not arrive here the way it is supposed
      * to, and guessing is the one thing an append-only file cannot afford.
      *
-     * Each condition is on its own line on purpose: the sweep in `build/recordprobe.py` deletes them
-     * one at a time, and a compound condition is a condition that cannot be probed alone.
+     * Each condition is on its own line on purpose: the sweep in `build/recordprobe.py` deleted them
+     * one at a time, and a compound condition is a condition that cannot be probed alone. The company
+     * line is the sixth and is a single expression for the same reason.
      *
      * **A tie is unchanged and still arbitrary.** [topPlayer] is `maxByOrNull` over a `HashMap`, so
      * two members on exactly the same tick count resolve in hash order. That is pre-existing
@@ -444,6 +465,7 @@ object RoomHistory {
         if (self == null) return false
         if (self != topPlayer) return false
         if ((room.ticks[self] ?: 0) < ContributionTracker.MIN_TICKS) return false
+        if (room.ticks.any { (member, ticks) -> member != self && ticks >= ContributionTracker.MIN_TICKS }) return false
         val at = room.clearedAtTick ?: return false
         return room.presentFromStart(self, at)
     }
