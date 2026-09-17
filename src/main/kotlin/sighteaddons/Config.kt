@@ -278,7 +278,13 @@ object Config {
     var uploadNoticeShown = false
 
     /**
-     * Whether a solo clear is announced in Discord — [SoloClear].
+     * Whether a solo clear is announced in Discord automatically — [SoloClear.tryAnnounce].
+     *
+     * **Retired on 2026-09-17 and always off in the game.** The toggle left the debug page and the value
+     * is no longer read from the file; a solo run reaches Discord from the solo tab, by hand, through
+     * [SoloPost] — the same route and the same payload, with the run already filed. The field stays so
+     * the announcement path and its tests keep compiling, and because the reasoning below is still
+     * why the manual post is a separate step and not a side effect of [upload].
      *
      * **Off unless the player switches it on, and a separate decision from [upload].** A run report is
      * about its own uploader, anonymous by default and read by nobody but the analysis agent; this
@@ -476,7 +482,9 @@ object Config {
             upload = obj.bool("upload", upload)
             uploadName = obj.bool("uploadName", uploadName)
             uploadNoticeShown = obj.bool("uploadNoticeShown", uploadNoticeShown)
-            soloClears = obj.bool("soloClears", soloClears)
+            // `soloClears` is deliberately not read back: the automatic announcement has no switch on the
+            // settings screen any more, and a `true` left in the file by an older version must not keep
+            // posting with nothing to turn it off. The way to Discord is the solo tab, by hand — SoloPost.
             runPbs = obj.bool("runPbs", runPbs)
             soloClearMinScore = obj.int("soloClearMinScore", soloClearMinScore)
         } catch (e: Exception) {

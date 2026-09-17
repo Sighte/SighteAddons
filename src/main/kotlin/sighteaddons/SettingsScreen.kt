@@ -1815,25 +1815,6 @@ internal class SettingsScreen(
         info("your upload id", Config.installId)
         note("all the server knows about you hangs off this")
 
-        section("solo clears", if (Config.soloClears) "announced" else "off")
-        // A separate consent from the two above, not a sub-setting of them: this one puts a name and a
-        // time in a chat channel other people read, which is not what a run report does.
-        toggle("announce in discord", Config.soloClears) { Config.soloClears = !Config.soloClears }
-        // Moved up onto the switch it is about. It used to be the last line of the section, which is
-        // where a line can sit and a tooltip cannot: nobody hovers the score row to find out where a
-        // solo clear is written down.
-        note("kept in soloclears.jsonl, scored by this mod's own reckoning")
-        // Three stops rather than a free number: S+ and S are the two thresholds anybody means, and 0
-        // is "announce everything". A stepper over 0..300 would offer 298 as if it meant something.
-        action("minimum score", scoreGate()) {
-            Config.soloClearMinScore = when (Config.soloClearMinScore) {
-                0 -> 270
-                270 -> 300
-                else -> 0
-            }
-        }
-        state(soloClears())
-
         section("run records", if (Config.runPbs) "on the leaderboard" else "kept here only")
         // A third consent and not a sub-setting of the two above: this one is a standing public row
         // with a name on it, where a report is anonymous and an announcement is one line in a channel.
@@ -2584,40 +2565,6 @@ internal class SettingsScreen(
         query.isNotEmpty() -> "esc clears the search"
         filter != RecordTable.Filter.ALL -> "esc shows every room"
         else -> "type to search · click a room for its detail"
-    }
-
-    /** The switch says what would leave the machine, so it is legible before the click. */
-    /**
-     * The gate as a label, with the grade it corresponds to — the number alone does not say why 300.
-     *
-     * **[DungeonScore]'s reckoning, not the number on the sidebar.** Hypixel's live score is the score
-     * earned so far and cannot reach 300 before the boss dies, so a gate on it never fires solo; the
-     * projection is what crosses a threshold while the run is on, and Hypixel's own `Team Score:` may
-     * raise it at the end. See [SoloClear.gateScore], and [LiveScore] for the measurement.
-     *
-     * Above 0 a score that cannot be worked out at all fails the gate, so this row also says what a run
-     * costs when the rows never parse: nothing is announced. See [SoloClear.passes].
-     */
-    private fun scoreGate(): String = when (val gate = Config.soloClearMinScore) {
-        0 -> "any solo clear"
-        270 -> "270 · S"
-        300 -> "300 · S+"
-        else -> gate.toString()
-    }
-
-    /**
-     * What the switch above actually does, spelled out before the click rather than after it — the same
-     * correction [uploadName] is here for. The name is not optional on this route: the receiver refuses
-     * a clear without one, because a personal best nobody can be told apart from another is not an
-     * announcement.
-     */
-    private fun soloClears(): String = when {
-        !Config.soloClears -> "off: nothing is sent and nothing is recorded"
-        Config.soloClearMinScore <= 0 -> "${minecraft.user.name} and your clear time, every solo floor"
-        // The gated case is a different measurement, not a filtered one: the time at which the run
-        // reached the score, on the two floors where that is a result. Saying "from 300 up" would read
-        // as the same message with a threshold on it.
-        else -> "${minecraft.user.name}, F7 and M7, the moment the run reaches ${Config.soloClearMinScore}"
     }
 
     private fun uploadName(): String = when {
