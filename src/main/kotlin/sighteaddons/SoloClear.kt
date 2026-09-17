@@ -352,7 +352,8 @@ object SoloClear {
         deaths: Int,
         score: Int?,
         prince: Boolean,
-        pb: Boolean,
+        /** The record claim. Null leaves the key out: a filing makes no claim, the receiver decides. */
+        pb: Boolean?,
         /** The mimic, only when its death was seen — `false` would claim it survived. See [LiveScore.onMimicDead]. */
         mimic: Boolean = false,
         /** The crypts that counted, when a breakdown exists to back them out of. */
@@ -383,7 +384,7 @@ object SoloClear {
         if (prince) addProperty("prince", true)
         if (mimic) addProperty("mimic", true)
         video?.let { addProperty("video", it) }
-        addProperty("pb", pb)
+        pb?.let { addProperty("pb", it) }
     }
 
     /**
@@ -638,7 +639,8 @@ object SoloClear {
     }
 
     /**
-     * Sends one announcement, off the client thread and exactly once.
+     * Sends one request to [route], off the client thread and exactly once. The announcement's own route
+     * by default; [SoloFile] and [SoloPost] name theirs.
      *
      * Everything the request needs is already a string by the time the thread starts, so nothing in
      * here touches game state — the run-end tick goes on without waiting for a network round trip, and
@@ -647,7 +649,7 @@ object SoloClear {
      * A daemon thread, so quitting the game does not wait for it. Losing the announcement to a quit
      * costs the message and not the record: the line is in the file before this is called.
      */
-    internal fun post(body: String, onDone: ((ok: Boolean, reason: String) -> Unit)? = null) {
+    internal fun post(body: String, route: String = ROUTE, onDone: ((ok: Boolean, reason: String) -> Unit)? = null) {
         val endpoint = TelemetryUpload.endpoint()
         if (endpoint == null) {
             // Only reachable with a half-filled `upload.properties`, which is a typo the author has to
@@ -662,28 +664,47 @@ object SoloClear {
         Thread({
             try {
                 val client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()
-                val request = HttpRequest.newBuilder(URI.create(base + ROUTE))
+                val request = HttpRequest.newBuilder(URI.create(base + route))
                     .timeout(Duration.ofSeconds(20))
                     .header("Authorization", "Bearer $token")
                     .header("Content-Type", "application/json")
                     .header("X-Mod-Version", TelemetryUpload.modVersion())
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build()
-                val code = client.send(request, HttpResponse.BodyHandlers.discarding()).statusCode()
+                val response = client.send(request, HttpResponse.BodyHandlers.ofString())
+                val code = response.statusCode()
                 if (code in 200..299) {
-                    SighteAddons.LOGGER.info("Solo clear announced")
+                    SighteAddons.LOGGER.info("{} accepted", route)
                     onDone?.invoke(true, "")
                 } else {
                     // 502 is the receiver saying Discord refused it or that no webhook is configured; it
                     // deliberately does not say which, because the reason would quote the webhook URL.
-                    SighteAddons.LOGGER.warn("Solo clear was not announced: HTTP {}", code)
-                    report("HTTP $code")
+                    // The other refusals name themselves — `stale`, `not filed`, `already posted` — and
+                    // that word is what the tab or the chat line shows.
+                    val why = reason(code, response.body())
+                    SighteAddons.LOGGER.warn("{} refused: {}", route, why)
+                    report(why)
                 }
             } catch (e: Exception) {
                 SighteAddons.LOGGER.warn("Solo clear was not announced", e)
                 report("no answer")
             }
         }, "sighteaddons-soloclear").apply { isDaemon = true }.start()
+    }
+
+    /**
+     * `HTTP 404 · not filed` — the code, and the receiver's own word for it when the body carries one.
+     * Pure, so the shapes the box answers with can be read here without a socket.
+     */
+    internal fun reason(code: Int, body: String?): String {
+        val error = try {
+            body?.takeIf { it.isNotBlank() }?.let { JsonParser.parseString(it) }
+                ?.takeIf { it.isJsonObject }?.asJsonObject?.get("error")
+                ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
+        } catch (e: Exception) {
+            null
+        }
+        return if (error.isNullOrBlank()) "HTTP $code" else "HTTP $code · $error"
     }
 
     /**

@@ -128,6 +128,12 @@ object SoloRuns {
         val postedTs: Long? = null,
         val video: String? = null,
         /**
+         * When the receiver took its copy of this run — [SoloFile]. Null for a run that never reached 300,
+         * for one the box refused or never answered, and for every run played before filing existed.
+         * **A run without this cannot be posted**: the post names the filed copy, and there is none.
+         */
+        val filedTs: Long? = null,
+        /**
          * The clear score: the clear half of the standings for the local player — every cleared room's
          * weight ([sighteaddons.ContributionTracker.weightOf]), split by time spent, summed. On a solo run
          * that is the whole floor, so it reads as the dungeon's difficulty — the user's own definition
@@ -169,6 +175,7 @@ object SoloRuns {
         obj.addProperty("clock", r.clock)
         obj.addProperty("postedTs", r.postedTs)
         obj.addProperty("video", r.video)
+        obj.addProperty("filedTs", r.filedTs)
         obj.addProperty("clearScore", r.clearScore)
         obj.addProperty("standing", r.standing)
 
@@ -285,6 +292,7 @@ object SoloRuns {
             clock = obj.optString("clock"),
             postedTs = obj.optLong("postedTs"),
             video = obj.optString("video"),
+            filedTs = obj.optLong("filedTs"),
             clearScore = obj.opt("clearScore")?.asDouble,
             standing = obj.opt("standing")?.asDouble,
             score = Score(
@@ -465,6 +473,21 @@ object SoloRuns {
         revision++
         RunReport.publish(DIR, posted.fileName, encode(posted).toString())
         return posted
+    }
+
+    /**
+     * The receiver took its copy: remembered in the list and in the file, the same way [markPosted] does.
+     * Client thread. The record on disk is the tab's own history and stays complete either way; this is
+     * the one bit that says the box holds the same run.
+     */
+    fun markFiled(record: Record, ts: Long): Record {
+        ensureLoaded()
+        val index = list.indexOfFirst { it.ts == record.ts }
+        val filed = (if (index >= 0) list[index] else record).copy(filedTs = ts)
+        if (index >= 0) list[index] = filed else list.add(0, filed)
+        revision++
+        RunReport.publish(DIR, filed.fileName, encode(filed).toString())
+        return filed
     }
 
     fun bestTo300(floor: String): Int? = bestTo300(records(), floor)

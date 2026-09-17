@@ -218,6 +218,9 @@ object SoloRecorder {
         val name = "solo-$ts.json"
         if (!RunReport.publish(dir, name, SoloRuns.encode(record).toString())) return
         SoloRuns.add(record)
+        // Now, and not later: the receiver takes a 300 run only within minutes of its `ts`, which is the
+        // whole reason a post from the tab can be believed. See SoloFile.
+        SoloFile.file(record)
         DebugLog.event(
             "solo_run",
             "file" to name, "rooms" to rooms.size, "doors" to lay.doors.size, "visits" to route.size,

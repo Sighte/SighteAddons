@@ -463,7 +463,7 @@ internal class SoloPanel {
         }
         val state = SoloPost.state
         val posting = state is SoloPost.State.Posting && state.ts == record.ts
-        val enabled = !previewing && record.headline != null && state !is SoloPost.State.Posting
+        val enabled = !previewing && record.filedTs != null && state !is SoloPost.State.Posting
         val label = if (posting) POSTING_LABEL else POST_LABEL
         val bw = Button.width(label) { w(it, Button.SIZE, Button.family(Button.Variant.PRIMARY)) }
         val over = enabled && pointerY in top until bottom &&
@@ -475,7 +475,10 @@ internal class SoloPanel {
         postBtn = intArrayOf(left, y, bw, Button.HEIGHT)
         val note = when {
             state is SoloPost.State.Failed && state.ts == record.ts -> "not delivered · ${state.reason}"
-            record.headline == null -> "reaches a channel from 270 on"
+            // Only the 300s are filed with the receiver, and only a filed run can be posted: the box
+            // builds the message from its own copy, so a run it never took has nothing to post from.
+            record.to300 == null -> "reaches a channel from 300 on"
+            record.filedTs == null -> "not filed on the server · cannot be posted"
             previewing -> "a scripted run stays here"
             else -> null
         }
@@ -718,7 +721,7 @@ internal class SoloPanel {
             }
             val button = postBtn
             if (button != null && button.hit(mouseX, mouseY) && mouseY in top until bottom &&
-                !previewing && record.headline != null && SoloPost.state !is SoloPost.State.Posting
+                !previewing && record.filedTs != null && SoloPost.state !is SoloPost.State.Posting
             ) {
                 openPopup(record)
                 return true

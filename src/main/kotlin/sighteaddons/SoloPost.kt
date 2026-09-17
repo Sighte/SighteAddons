@@ -5,22 +5,29 @@ import net.minecraft.client.Minecraft
 import sighteaddons.ui.Format
 
 /**
- * Posting a filed solo run to Discord from the `/sa` solo tab, by hand and with an optional YouTube link.
+ * Posting a solo run to Discord from the `/sa` solo tab, by hand and with an optional YouTube link.
  *
- * The automatic announcement in [SoloClear] fires once, at the crossing, or not at all. This is the
- * second way in: the same `/v1/solo_clear` route, the same [SoloClear.payload], built from the record
- * instead of from the live run — so a run that was filed but never announced (gate off, receiver down,
- * played before the switch was on) can still be posted, and a video of it attached once it is uploaded.
+ * **The body names the run and carries the link, and that is all it carries.** Until 2026-09-17 this
+ * sent the numbers — time, secrets, score, the record claim — and the receiver relayed them, so editing
+ * the local `solo-<ts>.json` before pressing the button put any time in the channel (the user tried it).
+ * Now the receiver posts from the copy it took at the run's end ([SoloFile], `POST /v1/solo_run`), and
+ * this route, `POST /v1/solo_post`, only says which filed run and which video. Whatever the local file
+ * says by then changes the tab and nothing else; `pb` is the box's own comparison.
  *
- * **The receiver keeps nothing and this side remembers the post.** [SoloRuns.markPosted] writes the
- * time and the link into the run's own file, which is what stops the tab from offering the same post
- * twice and what puts the link on the run's page afterwards.
+ * Two things follow, and the tab says both before the click: a run without a 300 mark was never filed
+ * (only the 300s go to the box), and a run without [SoloRuns.Record.filedTs] — refused, unanswered, or
+ * played before filing existed — cannot be posted at all.
+ *
+ * **This side still remembers the post.** [SoloRuns.markPosted] writes the time and the link into the
+ * run's own file, which is what stops the tab from offering the same post twice and what puts the link
+ * on the run's page afterwards; the receiver refuses a second post of the same run on its side too.
  *
  * One post at a time, process-wide: the state below is what the tab draws, and two in flight would
  * have one status line for two answers. The HTTP happens on [SoloClear.post]'s daemon thread; the
  * answer hops back to the client thread before it touches the list.
  */
 object SoloPost {
+    internal const val ROUTE = "/v1/solo_post"
 
     sealed class State {
         object Idle : State()
@@ -36,28 +43,20 @@ object SoloPost {
     fun send(record: SoloRuns.Record, video: String?) {
         if (state is State.Posting) return
         val player = record.player ?: Minecraft.getInstance().player?.name?.string
-        val mark = record.headline
-        if (player == null || mark == null) {
-            state = State.Failed(record.ts, if (mark == null) "no 270 reached" else "no player name")
+        val refusal = when {
+            record.to300 == null -> "no 300 reached"
+            record.filedTs == null -> "not filed on the server"
+            player == null -> "no player name"
+            else -> null
+        }
+        if (refusal != null || player == null) {
+            state = State.Failed(record.ts, refusal ?: "no player name")
             return
         }
         state = State.Posting(record.ts)
-        val pb = mark.threshold == 300 && SoloRuns.bestTo300(record.floor) == mark.tick
-        val body = payload(record, player, mark, pb, video)
-        // The floor as a picture, base64 in the body. A drawing that fails is a post without one.
-        val png = try {
-            SoloMapImage.render(record)
-        } catch (e: Exception) {
-            SighteAddons.LOGGER.warn("Could not draw the map for the post", e)
-            null
-        }
-        png?.let { body.addProperty("map_png", java.util.Base64.getEncoder().encodeToString(it)) }
-        DebugLog.event(
-            "solo_post",
-            "ts" to record.ts, "floor" to record.floor, "video" to (video != null), "pb" to pb,
-            "mapBytes" to (png?.size ?: 0),
-        )
-        SoloClear.post(body.toString()) { ok, reason ->
+        val body = payload(record, player, video)
+        DebugLog.event("solo_post", "ts" to record.ts, "floor" to record.floor, "video" to (video != null))
+        SoloClear.post(body.toString(), ROUTE) { ok, reason ->
             Minecraft.getInstance().execute {
                 if (ok) {
                     SoloRuns.markPosted(record, video, System.currentTimeMillis())
@@ -75,27 +74,15 @@ object SoloPost {
     }
 
     /**
-     * The body for one filed run. Pure over the record, like [SoloClear.payload] is over the run.
-     *
-     * The time is Hypixel's clock at the crossing when it was read, our ticks otherwise — the same
-     * preference the automatic path announces by. The score is the projection's final breakdown, which is
-     * what crossed the line; Hypixel's `Team Score:` only exists for a run that did the boss.
+     * The body for one post: which run, and the link. **Three keys, and the receiver reads no other** —
+     * a `time` or a `secrets` added here would be ignored on the box, which is the property the whole
+     * change is for. Pure over the record.
      */
-    internal fun payload(record: SoloRuns.Record, player: String, mark: SoloRuns.Mark, pb: Boolean, video: String?): JsonObject =
-        SoloClear.payload(
-            player = player,
-            floor = record.floor,
-            time = mark.clock ?: DungeonGrid.formatTicks(mark.tick),
-            secrets = record.secrets,
-            deaths = record.deaths,
-            score = record.score.final?.total ?: record.score.projectedHigh.takeIf { it > 0 },
-            prince = record.score.prince,
-            pb = pb,
-            mimic = record.score.mimic,
-            crypts = record.score.crypts,
-            video = video,
-            clearScore = record.clearScore?.let { Format.points(Format.hundredths(it)) },
-        )
+    internal fun payload(record: SoloRuns.Record, player: String, video: String?): JsonObject = JsonObject().apply {
+        addProperty("player", player)
+        addProperty("ts", record.ts)
+        video?.let { addProperty("video", it) }
+    }
 
     /**
      * A typed link as the one that is sent, or null when it is not a YouTube link.

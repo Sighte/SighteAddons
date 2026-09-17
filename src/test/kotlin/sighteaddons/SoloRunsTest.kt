@@ -1,6 +1,7 @@
 package sighteaddons
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -64,15 +65,17 @@ class SoloRunsTest {
     }
 
     /**
-     * The manual post: what the record says about itself once posted, and what leaves the machine. The
-     * link is the one field a player types, so what is accepted is stated rather than left to a regex.
+     * The manual post: what the record says about itself once filed and posted, and what leaves the
+     * machine on each of the two routes. The link is the one field a player types, so what is accepted is
+     * stated rather than left to a regex.
      */
     @Test
     fun `a posted run keeps its link, and only a youtube link is a link`() {
         val sample = SoloRuns.sample()
-        val posted = sample.copy(postedTs = 5L, video = "https://youtu.be/abc")
+        val posted = sample.copy(postedTs = 5L, video = "https://youtu.be/abc", filedTs = 4L)
         assertEquals(posted, SoloRuns.decode(SoloRuns.encode(posted)))
         assertNull(SoloRuns.decode(SoloRuns.encode(sample))!!.postedTs)
+        assertNull(SoloRuns.decode(SoloRuns.encode(sample))!!.filedTs, "a run from before filing existed stays unfiled")
         assertEquals(5, sample.score.crypts, "bonus 7 with a mimic is five crypts")
 
         assertEquals("https://youtu.be/abc", SoloPost.videoLink(" youtu.be/abc "))
@@ -81,16 +84,30 @@ class SoloRunsTest {
         assertNull(SoloPost.videoLink("https://example.com/x"))
         assertNull(SoloPost.videoLink("https://youtu.be/a b"))
 
-        val body = SoloPost.payload(sample, "Sighte", sample.to300!!, pb = true, video = "https://youtu.be/abc")
+        // The filing: the numbers, at the run's end, and no claim about them.
+        val body = SoloFile.payload(sample, "Sighte", sample.to300!!)
         assertEquals("03m 51s", body["time"].asString, "Hypixel's clock at the crossing, as the announcement says it")
         assertEquals(307, body["score_components"].asJsonObject["score"].asInt)
         assertTrue(body["mimic"].asBoolean)
         assertNull(body["prince"], "not seen, so not claimed")
         assertEquals(5, body["crypts"].asInt)
-        assertEquals("https://youtu.be/abc", body["video"].asString)
-        assertTrue(body["pb"].asBoolean)
+        assertEquals(sample.ts, body["ts"].asLong)
+        assertEquals(sample.to300!!.tick, body["to300"].asJsonObject["tick"].asInt)
+        assertEquals("03m 51s", body["to300"].asJsonObject["clock"].asString)
+        for (key in listOf("pb", "video")) {
+            assertFalse(body.has(key), "$key is the receiver's call or the post's, never the filing's — the box refuses it")
+        }
         // The clear score, as a component: the receiver prints every key in there as its own field.
         assertEquals("14.32", body["score_components"].asJsonObject["clear score"].asString)
+        // The post: which run, and the link. Nothing the box would read as a number.
+        val post = SoloPost.payload(sample, "Sighte", "https://youtu.be/abc")
+        assertEquals(setOf("player", "ts", "video"), post.keySet())
+        assertEquals(sample.ts, post["ts"].asLong)
+        assertEquals(setOf("player", "ts"), SoloPost.payload(sample, "Sighte", null).keySet())
+        // What the tab shows when the box refused: its word, after the code.
+        assertEquals("HTTP 404 · not filed", SoloClear.reason(404, """{"ok": false, "error": "not filed"}"""))
+        assertEquals("HTTP 502", SoloClear.reason(502, "not json"))
+        assertEquals("HTTP 400", SoloClear.reason(400, null))
         assertEquals("14.32", SoloRundown.listRows(listOf(sample), now = sample.ts).single().pts)
         assertEquals("14.32", SoloRundown.summary(sample).first { it.first == "clear score" }.second)
     }
