@@ -181,6 +181,14 @@ class TrackedRoom(val type: RoomType, val mapSegments: Set<Pos>, val cells: Set<
     /** Of those, the ones that coincided with the local player's own interaction. */
     var ownSecrets = 0
 
+    /**
+     * Of the run's first five crypts, the share placed in this room — see [ContributionTracker.onCrypts].
+     * A `Double` because a crypt the tab counted while two crypt-bearing rooms were occupied is split
+     * between them rather than handed to one of them on a guess. Party-wide like [secretsFound]: it says
+     * nothing about who broke it, [ClearScore.cryptPoints] spreads it over the occupants by time.
+     */
+    var crypts = 0.0
+
     /** Run tick the room's first secret was taken at, once one has been. */
     var secretRunStart: Int? = null
         private set
@@ -525,6 +533,13 @@ object ContributionTracker {
     internal const val SECRET_POINTS = 0.25
 
     /**
+     * How many crypts **of the run** pay [SECRET_POINTS] each — Hypixel's own bonus cap, one number for
+     * the whole party. The sixth crypt is worth nothing to the score and nothing here, whoever broke it
+     * and however few the breaker had broken before. See [onCrypts].
+     */
+    internal const val CRYPT_CAP = 5
+
+    /**
      * The dungeon grid sits at fixed world coordinates, so the chunks holding the sample columns
      * are always the even chunks in this range — six per axis, one per room column.
      */
@@ -565,6 +580,9 @@ object ContributionTracker {
     /** Where each member was last seen, so a death in the tab list can be charged to a room. */
     private val lastCell = HashMap<String, Pos>()
 
+    /** The tab list's run-wide `Crypts:` count as of the last reading. See [onCrypts]. */
+    private var cryptsSeen = 0
+
     /**
      * Run tick each member's current death was charged at, so the two sources cannot both charge it.
      * Cleared for one player by [onRevive] and for everybody by [reset].
@@ -594,6 +612,7 @@ object ContributionTracker {
         // Cleared on server transfer, so chunks buffered for the previous world are never hashed.
         pendingChunks.clear()
         lastCell.clear()
+        cryptsSeen = 0
         deathAt.clear()
         roomsCleared = 0
         deaths = 0
@@ -689,6 +708,69 @@ object ContributionTracker {
      * documented weakness.
      */
     internal fun lastRoomOf(player: String): TrackedRoom? = lastCell[player]?.let { rooms[it] }
+
+    /**
+     * The tab list's `Crypts: N` — the **run's** count, one number for the whole party, read every tick.
+     *
+     * Hypixel pays one bonus point for each of the first five, and the standings pay the quarter a
+     * secret is worth for exactly those five and nothing beyond (user, 2026-09-17: *the first five crypts
+     * of the run, not of the individual player, each worth one secret in clear points*). The cap is
+     * therefore on the run's count and never on anybody's tally: a party where one player broke six
+     * and another one has five paid crypts, and the sixth of the first player and the first of the
+     * second are the same kind of nothing.
+     *
+     * The tab never says who broke a crypt or where, so the placement is an inference, made in
+     * [placeCrypts]: a crypt that just got counted was broken in a room somebody is standing in that
+     * the database says still has crypts to break. From there [ClearScore.cryptPoints] spreads a room's
+     * crypts over its occupants by tick share, the way it spreads the room's secrets — so two clients
+     * that saw the same rooms compute the same standings and the local player is not singled out.
+     *
+     * A count *below* the last one is a new run's tab replacing a stale one and only resets the
+     * baseline; nothing is credited for it. Null is a tab without the row, which is not a zero.
+     */
+    fun onCrypts(count: Int?) {
+        if (count == null) return
+        val counted = newlyCounted(count)
+        if (counted <= 0) return
+        val occupied = lastCell.values
+            .mapNotNull { cell -> rooms[cell]?.let { it to (it.info ?: identified[cell]) } }
+            .distinctBy { it.first }
+        placeCrypts(counted, occupied)
+    }
+
+    /**
+     * How many of the crypts [count] reports are newly inside the run's first [CRYPT_CAP], against the
+     * last reading, and moves that reading. Pure arithmetic over two numbers, split out so the cap can
+     * be pinned without a map: `2, 4, 7` credits `2, 2, 1`, and `9` after that credits nothing.
+     */
+    internal fun newlyCounted(count: Int): Int {
+        val counted = (count.coerceAtMost(CRYPT_CAP) - cryptsSeen.coerceAtMost(CRYPT_CAP)).coerceAtLeast(0)
+        cryptsSeen = count
+        return counted
+    }
+
+    /**
+     * [onCrypts]' placement rule, over what it needs and nothing else: the occupied rooms and what the
+     * database knows about each. One room with crypts left to break takes the whole count; several
+     * share it evenly; none at all — a room the database has no crypts for, or the count arriving
+     * before anybody was placed in a room with them — falls back to every occupied room, so the party
+     * total stays right the way [ClearScore.secretPoints] keeps it right. With no occupied room the
+     * crypt is logged and dropped: there is nobody to hand it to.
+     */
+    internal fun placeCrypts(counted: Int, occupied: List<Pair<TrackedRoom, RoomInfo?>>) {
+        val open = occupied.filter { (room, info) -> (info?.crypts ?: 0) > room.crypts }.map { it.first }
+        val targets = open.ifEmpty { occupied.map { it.first } }
+        if (targets.isEmpty()) {
+            DebugLog.event("crypt_unplaced", "counted" to counted)
+            return
+        }
+        val share = counted.toDouble() / targets.size
+        for (room in targets) room.crypts += share
+        DebugLog.event(
+            "crypt",
+            "counted" to counted, "rooms" to targets.map { it.label() }.toString(), "guessed" to open.isEmpty(),
+        )
+    }
 
     /**
      * Queues a loaded chunk for room identification. Called for every chunk, including before we

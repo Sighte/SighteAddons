@@ -148,5 +148,28 @@ class ClearScoreTest {
         assertFalse(rows.row("Cal").estimated, "nothing estimated about a zero")
     }
 
+    /**
+     * A crypt is worth a secret and is spread like one — and it survives settling, which is the reason
+     * it is its own map. Folded into the secret estimate, Hypixel's real secret count would have
+     * replaced it for every answered player and the run's five crypts would vanish from the table at
+     * the exact moment it is printed.
+     */
+    @Test
+    fun `a placed crypt pays a quarter, split by time, and settling does not take it back`() {
+        val room = ClearScore.Room(mapOf("Me" to 3 * min, "A" to min), secretsFound = 0, crypts = 2.0)
+        val crypts = ClearScore.cryptPoints(listOf(room), min)
+        assertEquals(2 * quarter, crypts.values.sum(), 1e-9, "two crypts, two quarters, all handed out")
+        assertEquals(0.375, crypts["Me"]!!, 1e-9)
+        assertEquals(0.125, crypts["A"]!!, 1e-9)
+        assertTrue(ClearScore.secretPoints(listOf(room), min).isEmpty(), "crypts are not secrets")
+
+        val roster = listOf("Me", "A")
+        val clear = mapOf("Me" to 1.0, "A" to 1.0)
+        val settled = ClearScore.settled(roster, clear, emptyMap(), mapOf("Me" to 4, "A" to 0), crypts)
+        assertEquals(1.0 + 4 * quarter + 0.375, settled.row("Me").points, 1e-9, "real secrets plus the crypt share")
+        assertEquals(1.0 + 0.125, settled.row("A").points, 1e-9)
+        assertFalse(settled.row("Me").estimated, "the mark is about the secret half, and that half is settled")
+    }
+
     private fun List<ClearScore.Row>.row(name: String): ClearScore.Row = first { it.name == name }
 }

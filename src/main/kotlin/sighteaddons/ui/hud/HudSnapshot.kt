@@ -272,14 +272,12 @@ internal class HudSnapshot(
          * already builds every string this card draws.
          */
         private fun standingsOf(visited: List<TrackedRoom>): Array<HudSnapshot.Standing> {
-            val secrets = ClearScore.secretPoints(
-                visited.map { ClearScore.Room(it.ticks, it.secretsFound) },
-                ContributionTracker.MIN_TICKS,
-            )
+            val rooms = visited.map { ClearScore.Room(it.ticks, it.secretsFound, it.crypts) }
             val rows = ClearScore.live(
                 PartyTracker.roster().map { it.name },
                 ContributionTracker.clearPointsByPlayer(),
-                secrets,
+                ClearScore.secretPoints(rooms, ContributionTracker.MIN_TICKS),
+                ClearScore.cryptPoints(rooms, ContributionTracker.MIN_TICKS),
             )
             return Array(rows.size) { HudSnapshot.Standing(rows[it].name, rows[it].points, Format.NONE, rows[it].estimated) }
         }

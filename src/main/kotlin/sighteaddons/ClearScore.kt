@@ -73,7 +73,7 @@ object ClearScore {
      * [TrackedRoom] rather than the room itself, so this file cannot reach for anything else on it and
      * cannot be pulled into the tracking layer's lifecycle.
      */
-    class Room(val ticks: Map<String, Int>, val secretsFound: Int)
+    class Room(val ticks: Map<String, Int>, val secretsFound: Int, val crypts: Double = 0.0)
 
     /** One row of the standings: what it says, and whether any of it is a guess. */
     class Row(val name: String, val points: Double, val estimated: Boolean)
@@ -95,11 +95,26 @@ object ClearScore {
      * A room this client never saw anybody in pays nobody, and there is no third step that could fix
      * that: the room's secrets were found by someone this client cannot name.
      */
-    fun secretPoints(rooms: List<Room>, minTicks: Int): Map<String, Double> {
+    fun secretPoints(rooms: List<Room>, minTicks: Int): Map<String, Double> =
+        spread(rooms, minTicks) { it.secretsFound * ContributionTracker.SECRET_POINTS }
+
+    /**
+     * The run's first five crypts, a quarter each like a secret, spread the same way — over everybody
+     * who was in the room the crypt was placed in, by time. Which room that is, and why only five,
+     * is [ContributionTracker.onCrypts]; this side only spends what was placed.
+     *
+     * Kept apart from [secretPoints] rather than folded into it because [settled] replaces the secret
+     * half with Hypixel's real count, and a crypt share folded into the estimate would be thrown away
+     * with it. There is no source that ever settles crypts, so they stay this estimate in both passes.
+     */
+    fun cryptPoints(rooms: List<Room>, minTicks: Int): Map<String, Double> =
+        spread(rooms, minTicks) { it.crypts * ContributionTracker.SECRET_POINTS }
+
+    private fun spread(rooms: List<Room>, minTicks: Int, worthOf: (Room) -> Double): Map<String, Double> {
         val out = HashMap<String, Double>()
         for (room in rooms) {
-            if (room.secretsFound <= 0) continue
-            val worth = room.secretsFound * ContributionTracker.SECRET_POINTS
+            val worth = worthOf(room)
+            if (worth <= 0.0) continue
             val split = DungeonGrid.splitPoints(room.ticks, worth, minTicks)
                 .ifEmpty { DungeonGrid.splitPoints(room.ticks, worth, minTicks = 1) }
             for ((name, points) in split) out.merge(name, points, Double::plus)
@@ -119,10 +134,12 @@ object ClearScore {
         roster: List<String>,
         clear: Map<String, Double>,
         secrets: Map<String, Double>,
+        /** [cryptPoints]. Not part of the mark: the mark says whether the *secret* half is a guess. */
+        crypts: Map<String, Double> = emptyMap(),
     ): List<Row> = roster.map { name ->
         Row(
             name,
-            (clear[name] ?: 0.0) + (secrets[name] ?: 0.0),
+            (clear[name] ?: 0.0) + (secrets[name] ?: 0.0) + (crypts[name] ?: 0.0),
             estimated = (secrets[name] ?: 0.0) > 0.0,
         )
     }.ordered()
@@ -145,6 +162,8 @@ object ClearScore {
         clear: Map<String, Double>,
         secrets: Map<String, Double>,
         counts: Map<String, Int>,
+        /** [cryptPoints], kept whole: Hypixel's count settles secrets and says nothing about crypts. */
+        crypts: Map<String, Double> = emptyMap(),
     ): List<Row> = roster.map { name ->
         val actual = counts[name]
         val secretHalf = if (actual != null) {
@@ -154,7 +173,7 @@ object ClearScore {
         }
         Row(
             name,
-            (clear[name] ?: 0.0) + secretHalf,
+            (clear[name] ?: 0.0) + secretHalf + (crypts[name] ?: 0.0),
             estimated = actual == null && (secrets[name] ?: 0.0) > 0.0,
         )
     }.ordered()

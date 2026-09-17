@@ -74,6 +74,17 @@ object DungeonStats {
         return stats.copy(puzzlesSolved = solved)
     }
 
+    /**
+     * The `Crypts:` row alone, for the one reader that wants it every tick rather than every ten
+     * ([ContributionTracker.onCrypts] — the placement depends on where people are standing *now*).
+     * One pattern over the rows instead of [read]'s seven; null when the tab has no such row.
+     */
+    fun crypts(rows: List<String?>): Int? = rows.firstNotNullOfOrNull { raw ->
+        val row = raw?.trim() ?: return@firstNotNullOfOrNull null
+        if (!row.startsWith("Crypts", ignoreCase = true)) return@firstNotNullOfOrNull null
+        CRYPTS.matchEntire(row)?.groupValues?.get(1)?.toIntOrNull()
+    }
+
     /** The published score out of the footer, or null when the footer does not carry one. */
     fun footerScore(footer: String?): Int? = footer?.lines()?.firstNotNullOfOrNull { line ->
         FOOTER_SCORE.matchEntire(line.trim())?.groupValues?.get(1)?.toIntOrNull()

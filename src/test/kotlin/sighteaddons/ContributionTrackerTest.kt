@@ -1211,4 +1211,34 @@ class ContributionTrackerTest {
         room.stay("Fighter", from = 1000, count = min * 2)
         assertFalse(room.presentFromStart("Ghost", at = 1000 + min * 2))
     }
+
+    /**
+     * The crypt cap is the **run's** first five, read off the tab's one party-wide number — never a
+     * per-player tally (user, 2026-09-17). So the count going `2, 4, 7, 9` pays `2, 2, 1, 0`, a stale
+     * count from the previous run dropping back to `0` pays nothing and only resets the baseline, and
+     * a placed crypt lands in the occupied room that still has crypts to break — with every occupied
+     * room sharing it when the database names none.
+     */
+    @Test
+    fun `the first five crypts of the run pay, wherever they were broken`() {
+        assertEquals(2, ContributionTracker.newlyCounted(2))
+        assertEquals(2, ContributionTracker.newlyCounted(4))
+        assertEquals(1, ContributionTracker.newlyCounted(7), "only the fifth of the three is inside the cap")
+        assertEquals(0, ContributionTracker.newlyCounted(9))
+        assertEquals(0, ContributionTracker.newlyCounted(0), "a new run's tab: baseline moves, nothing paid")
+        assertEquals(3, ContributionTracker.newlyCounted(3))
+
+        val tomb = roomOf(info = RoomInfo("Crypt Room", "NORMAL", "1x1", secrets = 2, crypts = 2))
+        val plain = plain()
+        ContributionTracker.placeCrypts(1, listOf(tomb to tomb.info, plain to plain.info))
+        assertEquals(1.0, tomb.crypts, 1e-9, "the one room with crypts left takes it")
+        assertEquals(0.0, plain.crypts, 1e-9)
+
+        ContributionTracker.placeCrypts(2, listOf(tomb to tomb.info, plain to plain.info))
+        assertEquals(3.0, tomb.crypts, 1e-9, "it had two, the count says three: the database is a floor, not a wall")
+
+        // Nobody stands in a room the database gives crypts: every occupied room shares the crypt.
+        ContributionTracker.placeCrypts(1, listOf(plain to plain.info, room() to null))
+        assertEquals(0.5, plain.crypts, 1e-9)
+    }
 }

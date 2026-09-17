@@ -173,10 +173,10 @@ object SoloRecorder {
         val visited = ContributionTracker.visitedRooms()
         val clearScore = self?.let { ContributionTracker.clearPointsByPlayer()[it] }
         val standing = self?.let { name ->
-            val secrets = ClearScore.secretPoints(
-                visited.map { ClearScore.Room(it.ticks, it.secretsFound) }, ContributionTracker.MIN_TICKS,
-            )
-            (clearScore ?: 0.0) + (secrets[name] ?: 0.0)
+            val rooms = visited.map { ClearScore.Room(it.ticks, it.secretsFound, it.crypts) }
+            val secrets = ClearScore.secretPoints(rooms, ContributionTracker.MIN_TICKS)
+            val crypts = ClearScore.cryptPoints(rooms, ContributionTracker.MIN_TICKS)
+            (clearScore ?: 0.0) + (secrets[name] ?: 0.0) + (crypts[name] ?: 0.0)
         }
 
         val ts = System.currentTimeMillis()

@@ -253,6 +253,10 @@ class SighteAddons : ClientModInitializer {
             nowMs = System.currentTimeMillis(),
             runTicks = DungeonSession.runTicks,
         )
+        // The run's crypt count, every tick: a rise is placed in the room somebody is standing in right
+        // now, so it cannot ride LiveScore's ten-tick sample. Above the boss return like the rest; in
+        // the boss the count no longer moves and the call costs one `startsWith` per row.
+        ContributionTracker.onCrypts(DungeonStats.crypts(PartyTracker.lastRows))
         SoloClear.tryAnnounce()
         // Same instant as the gate reads it, and above the boss return for the same reason: the
         // projection is what crosses 300, and it keeps moving until the map is gone.

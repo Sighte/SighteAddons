@@ -615,10 +615,11 @@ object RoomHistory {
         // audit, both of which are still about attribution and stay that way.
         val rosterNames = PartyTracker.roster().map { it.name }
         val clear = HashMap(ContributionTracker.clearPointsByPlayer())
-        val secrets = ClearScore.secretPoints(
-            rooms.map { ClearScore.Room(it.ticks, it.secretsFound) },
-            ContributionTracker.MIN_TICKS,
-        )
+        val scored = rooms.map { ClearScore.Room(it.ticks, it.secretsFound, it.crypts) }
+        val secrets = ClearScore.secretPoints(scored, ContributionTracker.MIN_TICKS)
+        // The run's first five crypts, a quarter each; an estimate in both passes, because nothing
+        // ever settles it — see [ClearScore.cryptPoints].
+        val crypts = ClearScore.cryptPoints(scored, ContributionTracker.MIN_TICKS)
         val contributed = rosterNames.associateWith { name ->
             rooms.count { (it.ticks[name] ?: 0) >= ContributionTracker.MIN_TICKS }
         }
@@ -637,7 +638,7 @@ object RoomHistory {
             // including the local player, whose attributed count is a floor rather than a total (see
             // SecretAudit). The order is recomputed with them: a correction that reorders the rows and
             // prints them in the old order would be a table that disagrees with its own numbers.
-            val rows = ClearScore.settled(rosterNames, clear, secrets, counts)
+            val rows = ClearScore.settled(rosterNames, clear, secrets, counts, crypts)
             body(rows, contributed, counts, self, estimated, floorTracked, unattributed, records)
             if (counts.isNotEmpty()) {
                 announce(secretLine(counts))
